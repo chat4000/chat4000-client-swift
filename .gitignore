@@ -1,0 +1,40 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+
+# Swift Package Manager
+.build/
+Packages/
+
+# CocoaPods
+Pods/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Dev credentials (never commit)
+dev-config.json
+
+# Vendor (cloned reference repos)
+vendor/
+
+# Rust
+relay/target/
+
+# Figma screens (web prototype, not part of iOS build)
+figma-screens/node_modules/
+figma-screens/dist/
+
+# Claude Code session state
+.claude/
