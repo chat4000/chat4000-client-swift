@@ -664,10 +664,37 @@ Responses:
   "version": 1,
   "type": "hello_ok",
   "payload": {
-    "current_terms_version": 200
+    "current_terms_version": 200,
+    "version_policy": {
+      "min_version": "1.0.0",
+      "recommended_version": "1.2.0",
+      "latest_version": "1.3.0"
+    }
   }
 }
 ```
+
+`version_policy` is purely informational. The relay does not disconnect, does not enforce, and does not include `upgrade_required` / `upgrade_recommended` booleans. All upgrade-prompt logic lives in the client.
+
+Resolution rules on the relay:
+
+- the relay looks up `hello.app_id` in a flat config map
+- if the entry exists, it echoes the three string fields
+- if `app_id` is missing or has no entry, `version_policy` is omitted entirely
+- all three inner fields are individually optional (any can be `null` or absent)
+
+Client behavior (informational; required for any client that ships a UI):
+
+- parse `payload.version_policy` after `hello_ok`; treat the object and each of `min_version` / `recommended_version` / `latest_version` as independently optional
+- compare locally with semver
+  - if `min_version` is set and `app_version < min_version` → hard block (non-dismissible "update required" UI; do not allow further chat)
+  - else if `recommended_version` is set and `app_version < recommended_version` → soft nag (dismissible "update available" banner)
+  - else → no UI
+  - `latest_version` is informational only
+- if `app_version` is missing or unparseable → behave as if `recommended_version` was crossed (soft nag), never hard-block
+- re-evaluate on every reconnect; do not cache as authoritative across launches
+
+If the policy is omitted entirely, behavior is unchanged (legacy clients keep working).
 
 ```json
 {
@@ -802,7 +829,8 @@ Streaming inner message types:
   "t": "text_end",
   "id": "stream-uuid",
   "body": {
-    "text": "Hello world"
+    "text": "Hello world",
+    "reset": false
   },
   "ts": 1710000000000
 }
@@ -815,6 +843,13 @@ Rules:
 - receivers must concatenate deltas in arrival order for that `stream_id`
 - `text_end` finalizes that same `stream_id`
 - senders must not use later `text_delta` frames in the same `stream_id` to rewrite or replace earlier text
+
+`reset` is an optional boolean on `text_end`:
+
+- `reset == true` → receiver should delete the bubble for that `stream_id` (the stream is being abandoned, not finalized). Animate the removal however the UI prefers.
+- `reset == false` or absent → normal end-of-stream; finalize as the authoritative text.
+
+Backwards compat: clients that ignore `reset` show the abandoned content as a normal final message — not broken, just not deleted.
 
 If a sender rewrites, clears, or restarts the partial text instead of appending:
 

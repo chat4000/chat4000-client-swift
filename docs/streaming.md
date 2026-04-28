@@ -43,7 +43,7 @@ Four types carry reply data. All arrive inside encrypted `msg` envelopes and are
 |---|---|---|
 | `text` | `{ text: string }` | Complete, non-streamed reply. Used when the agent returns a full reply in one shot (no streaming). |
 | `text_delta` | `{ delta: string }` | A **cumulative** snapshot of the streamed text so far. See §4 — this is the single biggest gotcha. |
-| `text_end` | `{ text: string }` | Streaming complete. `text` contains the **full final text**, authoritative. |
+| `text_end` | `{ text: string, reset?: boolean }` | Streaming complete. `text` contains the **full final text**, authoritative. If `reset == true`, the stream is being **abandoned** — see §4a. |
 | `status` | `{ status: "thinking" \| "typing" \| "idle" }` | Agent-side state signal. See §3. |
 
 Every inner message also carries `id` (stream id for `text_delta` / `text_end`, or message id for `text`) and `ts`.
@@ -155,6 +155,22 @@ The Swift reference client uses Option B. See `chat94/Sources/Views/ChatView.swi
 ### `text_end` is authoritative
 
 `text_end.body.text` contains the full, final message. Always overwrite your displayed text with it when `text_end` arrives — never trust your accumulated deltas to be bit-for-bit correct. Redeliveries, packet loss, or future protocol tweaks can all cause your buffer to diverge; `text_end` corrects.
+
+---
+
+## 4a. `reset: true` on `text_end` — abandon, don't finalize
+
+When `text_end.body.reset == true`, the stream is being **abandoned** — the plugin decided the in-progress reply should not appear in the chat at all. The receiver should:
+
+1. Delete the bubble for that `stream_id`. Animate however the UI prefers (fade, collapse, slide).
+2. Drop any accumulated buffer for that `stream_id`.
+3. **Not** insert `text_end.body.text` as a finalized message.
+
+If `reset` is missing or `false`, behavior is unchanged from §4 — finalize the stream with the authoritative text.
+
+Backwards compat: clients that ignore `reset` will show the abandoned content as a normal final message. Not broken, just not deleted.
+
+The Swift reference client tracks the streaming bubble's `UUID` against the current `stream_id` (`currentStreamMessageId` ↔ `currentStreamId`). On `reset: true`, it removes the message inside `withAnimation(.easeOut(duration: 0.2))`, deletes from SwiftData, clears stream tracking, and re-scrolls. See `cancelCurrentStreamingMessage(streamId:)` in `chat94/Sources/Views/ChatView.swift`.
 
 ---
 

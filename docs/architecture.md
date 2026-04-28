@@ -25,21 +25,32 @@ chat94/
 │   ├── Services/
 │   │   ├── AppAttestService.swift   ← AppAttestManager: key generation + attestation against relay challenge
 │   │   ├── AnalyticsEvent.swift     ← Explicit analytics event names + shared bucket helpers
+│   │   ├── AppEnvironment.swift     ← Build-config snapshot (relay URL, storage namespace, kind)
 │   │   ├── Crypto.swift             ← RelayCrypto: SHA-256 group ID, pairing URI helpers, XChaCha20-Poly1305 via swift-sodium
+│   │   ├── DevLog.swift             ← Bundle-id-gated logger (NSLog + ~/Library/Caches/chat94-dev.log)
 │   │   ├── Haptics.swift            ← UIKit haptic feedback (iOS only, no-op on macOS)
 │   │   ├── KeychainService.swift    ← File-based GroupConfig persistence (Application Support)
+│   │   ├── LaunchActionStore.swift  ← Pending launch-action persistence (e.g. chat94://record deep link)
+│   │   ├── LegalConsent.swift       ← Terms acceptance state + reconsent modal
+│   │   ├── PairingService.swift     ← PairingCoordinator: pair_open/data/complete state machine
+│   │   ├── RelaySessionDelegate.swift ← URLSession delegate (TLS trust handling for dev relays)
 │   │   ├── TelemetryManager.swift   ← Sentry/PostHog setup, privacy toggle, analytics capture routing
 │   │   ├── TelemetryPreferences.swift ← Local persisted on/off switch for diagnostics + analytics
-│   │   └── PushNotificationService.swift ← APNs token storage, silent push handling, local notification wake path
+│   │   ├── VersionPolicy.swift      ← VersionPolicyManager + semver compare; gates upgrade UI from hello_ok.version_policy
+│   │   ├── VoiceNotes.swift         ← Voice recorder + playback controller, waveform downsampling
+│   │   └── PushNotificationService.swift ← APNs token storage, silent push handling, badge clearing, local notification wake path
 │   └── Views/
-│       ├── ChatView.swift           ← Chat UI + ChatViewModel (@Observable)
+│       ├── ChatView.swift           ← Chat UI + ChatViewModel (@Observable), upgrade nag banner
 │       ├── ConnectingView.swift     ← Current single-state relay connection UI
 │       ├── QRScannerView.swift      ← Shared QR scanner view
-│       ├── SetupView.swift          ← Welcome and onboarding views
-│       ├── SettingsSheet.swift      ← Settings actions, disconnect, clear history
+│       ├── SetupView.swift          ← Welcome, pairing-code entry, help screens
+│       ├── SettingsSheet.swift      ← Settings actions, disconnect, clear history, plugin version, talk-to-team
 │       ├── Theme.swift              ← Colors, fonts, spacing, radii (design tokens)
 │       └── Components/
-│           └── MessageBubble.swift  ← User/agent bubble with asymmetric rounded corners
+│           ├── CameraCaptureView.swift  ← UIImagePickerController wrapper (iOS only)
+│           ├── MessageBubble.swift      ← User/agent bubble with asymmetric rounded corners
+│           ├── TalkToTeamButton.swift   ← Shared "Chat with the team" button + caption callout, opens Telegram
+│           └── VoiceMessageViews.swift  ← Voice waveform + playback strip
 ├── Resources/
 │   ├── Assets.xcassets              ← App icon, colors
 │   ├── chat94.entitlements     ← iOS APNs + App Attest entitlements
@@ -285,10 +296,12 @@ Relay sends APNs silent push
 
 Current unit-test coverage lives in `chat94/Tests/`:
 
-- `CryptoTests.swift` — roundtrip, empty payload, max-size payload, wrong-key failure, corrupted-ciphertext failure, pair-ID vector
-- `ProtocolTests.swift` — outgoing `hello`/`challenge`/`register` JSON validation, incoming relay message parsing, malformed/unknown message rejection
-- `PairConfigTests.swift` — base64url/base64/URI parsing and pair-ID validation
-- `InnerMessageTests.swift` — encode/decode roundtrip for all inner message kinds and `InnerMessage.text()` factory validation
+- `CryptoTests.swift` — roundtrip, empty payload, max-size payload, wrong-key failure, corrupted-ciphertext failure, group-ID vector
+- `ProtocolTests.swift` — outgoing `hello`/`challenge`/`register`/`pair_*` JSON validation (including `device_id` defaulting from `DeviceIdentity.currentDeviceId`), incoming message parsing, legacy `typing` frame ignore, malformed-JSON rejection
+- `PairConfigTests.swift` — base64url/base64/URI parsing and group-ID validation
+- `PairingCryptoTests.swift` — pairing code normalization, room ID derivation, X25519 wrap/unwrap roundtrip, proof encoding
+- `InnerMessageTests.swift` — encode/decode roundtrip for all inner kinds, `text_end.reset` decoding, `TextBody` reset-omission in encoding, factory validation
+- `VersionPolicyTests.swift` — resolver decision tree (no policy, all-null, hard-block, soft-nag, unparseable app version), semver compare, `hello_ok` parsing with and without `version_policy`
 
 No UI tests are configured.
 
@@ -314,3 +327,30 @@ Residual warnings:
 2. **Background wake persistence is minimal** — Silent-push wake currently drains queued messages and posts local notifications, but does not write them into SwiftData when the UI is not active.
 3. **Silent-push UX is intentionally sparse** — There is no special UI for "you missed N messages"; drained queue items are treated as normal messages once the foreground client reconnects.
 4. **Signed macOS entitlement flow depends on provisioning** — APNs/App Attest entitlements are present, but real signed macOS runs need a valid team profile in Xcode.
+
+---
+
+## Distribution
+
+### Mac DMG
+
+`chat94/scripts/build-dmg.sh` packages the macOS `chat94mac` Release build into a signed, notarized DMG suitable for distribution outside the Mac App Store. The pipeline:
+
+1. `xcodebuild archive` (Release config, hardened runtime enabled via `ENABLE_HARDENED_RUNTIME: YES` in `project.yml`)
+2. `xcodebuild -exportArchive` with `method: developer-id` and `-allowProvisioningUpdates`
+3. `create-dmg` with Applications drag-link and window layout
+4. `xcrun notarytool submit --wait` (uses keychain profile `chat94-notary`)
+5. `xcrun stapler staple`
+
+Pre-flight checks tell the user exactly what's missing if the script can't run: `create-dmg` not installed, no `Developer ID Application` cert for team `H45JD827CU`, or missing notary keychain profile.
+
+One-time prerequisites:
+
+- `brew install create-dmg`
+- Generate a `Developer ID Application` cert for team `H45JD827CU` and import to login keychain
+- Generate a Developer ID provisioning profile for `com.neonnode.chat94app` (with Push + App Attest capabilities) and double-click to install
+- `xcrun notarytool store-credentials chat94-notary --apple-id … --team-id H45JD827CU --password <app-specific-password>`
+
+### iOS
+
+Distributed via the App Store (`chat94iphoneappstore` target, `app_store` distribution channel for production builds, `appstore` release channel value sent to the relay). TestFlight uses the same `appstore` channel value but is detected via `appStoreReceiptURL` checking for `sandboxReceipt`. Dev builds use the `chat94iphonedev` target with `.dev` bundle suffix and `dev` release channel.
