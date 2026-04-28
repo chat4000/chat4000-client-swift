@@ -19,12 +19,15 @@ Beautiful. End-to-end encrypted. Zero-knowledge relay. No middleman reads a thin
 
 <div align="center">
 
-<table>
-<tr>
-<td align="center" width="50%"><img src="docs/images/iphone.png" alt="chat94 on iPhone" width="320" /><br/><sub><b>iPhone</b></sub></td>
-<td align="center" width="50%"><img src="docs/images/mac.png" alt="chat94 on Mac" width="480" /><br/><sub><b>Mac</b></sub></td>
-</tr>
-</table>
+<img src="docs/images/iphone.png" alt="chat94 on iPhone" width="280" />
+
+<sub><b>iPhone</b></sub>
+
+<br/><br/>
+
+<img src="docs/images/mac.png" alt="chat94 on Mac" width="820" />
+
+<sub><b>Mac</b></sub>
 
 </div>
 
@@ -165,10 +168,8 @@ Copyright © 2026 NeonNode Limited. All rights reserved.
 
 **Commercial licensing:** Want to use chat94 in a way GPL-3.0 doesn't allow (e.g. proprietary/closed-source use)? Reach out at contact@chat94.com.
 
----
-
 <div align="center">
 
-Made with ☕ by [NeonNode](https://chat94.com)
+Built by [NeonNode](https://chat94.com)
 
 </div>
