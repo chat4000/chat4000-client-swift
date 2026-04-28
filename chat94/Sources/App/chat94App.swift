@@ -52,6 +52,7 @@ struct chat94App: App {
         PushNotificationManager.shared.backgroundWakeHandler = {
             await BackgroundRelayWakeService.shared.handleSilentPush()
         }
+        PushNotificationManager.shared.clearBadge()
 
         TelemetryManager.shared.configure(from: Self.loadDevConfig())
         Haptics.prime()
@@ -108,6 +109,7 @@ struct chat94App: App {
                     Haptics.prime()
                     activeSessionStartedAt = .now
                     chatViewModel.refreshMessages()
+                    PushNotificationManager.shared.clearBadge()
                     TelemetryManager.shared.track(.appOpened)
                 case .background:
                     finishActiveSessionIfNeeded()

@@ -594,6 +594,28 @@ enum InnerBody: Codable {
 
     struct TextBody: Codable {
         let text: String
+        let reset: Bool?
+
+        init(text: String, reset: Bool? = nil) {
+            self.text = text
+            self.reset = reset
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            text = try container.decode(String.self, forKey: .text)
+            reset = try container.decodeIfPresent(Bool.self, forKey: .reset)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(text, forKey: .text)
+            try container.encodeIfPresent(reset, forKey: .reset)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case text, reset
+        }
     }
 
     struct TextDeltaBody: Codable {

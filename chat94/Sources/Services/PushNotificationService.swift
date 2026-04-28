@@ -36,7 +36,7 @@ final class PushNotificationManager: NSObject {
             "🔔 [push] starting APNS registration (existing_token=%@)",
             deviceToken == nil ? "false" : "true"
         )
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
                 DevLog.log("⚠️ [push] notification authorization failed: \(error.localizedDescription)")
             } else {
@@ -58,6 +58,16 @@ final class PushNotificationManager: NSObject {
                 #elseif os(macOS)
                 NSApplication.shared.registerForRemoteNotifications()
                 #endif
+            }
+        }
+        #endif
+    }
+
+    func clearBadge() {
+        #if os(iOS)
+        UNUserNotificationCenter.current().setBadgeCount(0) { error in
+            if let error {
+                DevLog.log("🔔 [push] clearBadge failed: \(error.localizedDescription)")
             }
         }
         #endif

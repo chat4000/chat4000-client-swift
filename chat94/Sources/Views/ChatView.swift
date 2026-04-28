@@ -1053,7 +1053,9 @@ final class ChatViewModel {
             if sender == .agent { markBusy(phase: "Typing") }
 
         case .textEnd(let b):
-            if currentStreamId == inner.id {
+            if b.reset == true {
+                cancelCurrentStreamingMessage(streamId: inner.id)
+            } else if currentStreamId == inner.id {
                 finalizeCurrentStreamingMessage(text: b.text, sender: sender)
             } else if currentStreamId == nil {
                 receiveText(b.text, id: inner.id, sender: sender)
@@ -1197,6 +1199,28 @@ final class ChatViewModel {
         currentStreamText = ""
         currentStreamMessageId = nil
         try? modelContext?.save()
+        requestScrollToBottom()
+    }
+
+    private func cancelCurrentStreamingMessage(streamId: String) {
+        DevLog.log("🧵 cancelStreamingMessage stream_id=%@ current=%@", streamId, currentStreamId ?? "nil")
+
+        if currentStreamId == streamId, let existing = currentStreamingMessage() {
+            withAnimation(.easeOut(duration: 0.2)) {
+                if let index = messages.firstIndex(where: { $0.id == existing.id }) {
+                    messages.remove(at: index)
+                }
+            }
+            modelContext?.delete(existing)
+            try? modelContext?.save()
+        }
+
+        if currentStreamId == streamId {
+            currentStreamId = nil
+            currentStreamText = ""
+            currentStreamMessageId = nil
+        }
+
         requestScrollToBottom()
     }
 

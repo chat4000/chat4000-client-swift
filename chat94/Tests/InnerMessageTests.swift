@@ -74,6 +74,46 @@ struct InnerMessageTests {
     }
 
     @Test
+    func textEndDecodesResetTrue() throws {
+        let json = #"{"t":"text_end","id":"stream-1","ts":1,"body":{"text":"hi","reset":true}}"#
+        let data = try #require(json.data(using: .utf8))
+        let inner = try JSONDecoder().decode(InnerMessage.self, from: data)
+        guard case .textEnd(let body) = inner.body else {
+            Issue.record("Expected .textEnd body")
+            return
+        }
+        #expect(body.text == "hi")
+        #expect(body.reset == true)
+    }
+
+    @Test
+    func textEndDecodesResetFalseAndAbsent() throws {
+        let absentJSON = #"{"t":"text_end","id":"stream-2","ts":2,"body":{"text":"hi"}}"#
+        let absent = try JSONDecoder().decode(InnerMessage.self, from: try #require(absentJSON.data(using: .utf8)))
+        guard case .textEnd(let absentBody) = absent.body else {
+            Issue.record("Expected .textEnd body")
+            return
+        }
+        #expect(absentBody.reset == nil)
+
+        let falseJSON = #"{"t":"text_end","id":"stream-3","ts":3,"body":{"text":"hi","reset":false}}"#
+        let falseInner = try JSONDecoder().decode(InnerMessage.self, from: try #require(falseJSON.data(using: .utf8)))
+        guard case .textEnd(let falseBody) = falseInner.body else {
+            Issue.record("Expected .textEnd body")
+            return
+        }
+        #expect(falseBody.reset == false)
+    }
+
+    @Test
+    func textBodyEncodingOmitsResetWhenNil() throws {
+        let body = InnerBody.TextBody(text: "hi")
+        let data = try JSONEncoder().encode(body)
+        let str = try #require(String(data: data, encoding: .utf8))
+        #expect(!str.contains("reset"))
+    }
+
+    @Test
     func statusFactoryProducesExpectedStructure() {
         let message = InnerMessage.status("typing")
 
