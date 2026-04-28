@@ -5,7 +5,11 @@ import Testing
 struct ProtocolTests {
     @Test
     func helloBuilderProducesExpectedFields() throws {
-        let json = try #require(RelayOutgoing.hello(groupId: "abc123", deviceToken: "token-1"))
+        let json = try #require(RelayOutgoing.hello(
+            groupId: "abc123",
+            deviceToken: "token-1",
+            deviceId: "device-uuid-1"
+        ))
         let data = try #require(json.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let payload = try #require(object["payload"] as? [String: Any])
@@ -14,7 +18,19 @@ struct ProtocolTests {
         #expect(object["type"] as? String == "hello")
         #expect(payload["role"] as? String == "app")
         #expect(payload["group_id"] as? String == "abc123")
+        #expect(payload["device_id"] as? String == "device-uuid-1")
         #expect(payload["device_token"] as? String == "token-1")
+    }
+
+    @Test
+    func helloBuilderDefaultsDeviceIdFromIdentity() throws {
+        let json = try #require(RelayOutgoing.hello(groupId: "abc123"))
+        let data = try #require(json.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let payload = try #require(object["payload"] as? [String: Any])
+        let deviceId = try #require(payload["device_id"] as? String)
+        #expect(!deviceId.isEmpty)
+        #expect(deviceId == DeviceIdentity.currentDeviceId)
     }
 
     @Test

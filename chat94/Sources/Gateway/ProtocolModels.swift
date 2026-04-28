@@ -52,6 +52,7 @@ enum RelayMessageType: String, Codable {
 struct HelloPayload: Encodable {
     let role: String
     let groupId: String
+    let deviceId: String?
     let deviceToken: String?
     let appId: String?
     let appVersion: String
@@ -60,6 +61,7 @@ struct HelloPayload: Encodable {
     enum CodingKeys: String, CodingKey {
         case role
         case groupId = "group_id"
+        case deviceId = "device_id"
         case deviceToken = "device_token"
         case appId = "app_id"
         case appVersion = "app_version"
@@ -338,13 +340,15 @@ enum RelayOutgoing {
     static func hello(
         groupId: String,
         deviceToken: String? = nil,
-        appId: String? = AppRegistrationIdentity.currentAppId
+        appId: String? = AppRegistrationIdentity.currentAppId,
+        deviceId: String = DeviceIdentity.currentDeviceId
     ) -> String? {
         encode(
             type: .hello,
             payload: HelloPayload(
                 role: "app",
                 groupId: groupId,
+                deviceId: deviceId,
                 deviceToken: deviceToken,
                 appId: appId,
                 appVersion: AppRegistrationIdentity.currentAppVersion,
