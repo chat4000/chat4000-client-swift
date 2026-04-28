@@ -32,6 +32,7 @@
 		1DB051BD205F2D757AA2781C /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06EB3DD5E80A6C3E974C83C /* MessageBubble.swift */; };
 		1E3E7432E40456D021232EE1 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577ADEA7063CF3E5A806AD2A /* ChatView.swift */; };
 		1F3D3BF8D7480092FEEF8C6E /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C29A3E4F96C993008633E2C /* QRScannerView.swift */; };
+		2081FC8256856732F1D5FCA9 /* PendingIncomingMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F87B107C233FF77336205C /* PendingIncomingMessageStore.swift */; };
 		217FECFEF6A65FAD04DED6AF /* PairingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36607BC902C46F1100644A18 /* PairingService.swift */; };
 		22234145F089C19F05A4D63F /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF8088CD1D168B0EA00A1F4 /* SettingsSheet.swift */; };
 		2233932E5D184BA99A654EDE /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 9973024F260BC48D06066F7C /* PostHog */; };
@@ -41,6 +42,7 @@
 		27756E4EEE3F55E73BEF14F4 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B885C5A33631D162453D0E24 /* AppEnvironment.swift */; };
 		27A4841CCA57EB0A5228FE6A /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A0B3E196D639638FD365D6F /* VoiceMessageViews.swift */; };
 		298310456AA512CF0C602D5C /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 4DEAC32190AE74BE2C8A2892 /* PostHog */; };
+		29F0C5BD2DF0AFF7B3AA4BE8 /* PendingIncomingMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F87B107C233FF77336205C /* PendingIncomingMessageStore.swift */; };
 		2A96B1CF15B17725ED82587B /* Sodium in Frameworks */ = {isa = PBXBuildFile; productRef = 4D4074E31998C3C714B6CE45 /* Sodium */; };
 		2AAE6D27B7BC418D82992A7E /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B751766A9DE994E94506BDFC /* SetupView.swift */; };
 		2B92027D05FA2686A5A0F4F4 /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A0B3E196D639638FD365D6F /* VoiceMessageViews.swift */; };
@@ -123,6 +125,7 @@
 		AFAD0F1322F418C804773BF8 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C561CFCFED153F1ECD7132 /* LegalConsent.swift */; };
 		B094A17CC47296D3243B2A9B /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 9C75A915106C614F5BB49E98 /* Sentry */; };
 		B0DFBE4ECF5FECFB951DA32C /* PairingCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68FD305E2BB3CA6E819CE4A /* PairingCryptoTests.swift */; };
+		B101461B0934B27BBE68BF94 /* PendingIncomingMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F87B107C233FF77336205C /* PendingIncomingMessageStore.swift */; };
 		B1EC112E6C8228B99A68EB1B /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0C7365F1294F01464654AC /* KeychainService.swift */; };
 		B27715B30961B631CDAEC007 /* ProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002ACA9EEFC7A1A9DFB7FBCB /* ProtocolTests.swift */; };
 		B283160AFFB3A17A6749806E /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0C7365F1294F01464654AC /* KeychainService.swift */; };
@@ -141,6 +144,7 @@
 		C38E8CBD70BE7EDF0DE41E27 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9003BFA399EAB8F56EDD2549 /* ConnectingView.swift */; };
 		C5DD26EF14E6A733DB21CC96 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06EB3DD5E80A6C3E974C83C /* MessageBubble.swift */; };
 		C668E30A5D3FB2B2C6A5F6B5 /* RelaySessionDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A11BA96C078171C15765D1 /* RelaySessionDelegate.swift */; };
+		C744E78C20428565A0EFA720 /* PendingIncomingMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F87B107C233FF77336205C /* PendingIncomingMessageStore.swift */; };
 		CE1005E54D3825FE63305EC0 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0C7365F1294F01464654AC /* KeychainService.swift */; };
 		D45A3C2FB94FAE2B6AE2A681 /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 764C99CB293E4B1DCDC56A1D /* PlatformAppDelegate.swift */; };
 		D6C5B9CC2C35CEE54376A31F /* InnerMessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B9AA1D442C250AB906A5D17 /* InnerMessageTests.swift */; };
@@ -186,6 +190,7 @@
 		1AE3038A79D4C5B029B911F2 /* VersionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionPolicy.swift; sourceTree = "<group>"; };
 		1B0C7365F1294F01464654AC /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		1E300ADB2E61972580FDF412 /* VoiceNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNotes.swift; sourceTree = "<group>"; };
+		32F87B107C233FF77336205C /* PendingIncomingMessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingIncomingMessageStore.swift; sourceTree = "<group>"; };
 		36607BC902C46F1100644A18 /* PairingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingService.swift; sourceTree = "<group>"; };
 		37F7B7351A3AB59ABE4BF876 /* ProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModels.swift; sourceTree = "<group>"; };
 		38EB16E8C689CE6F80777653 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -310,6 +315,7 @@
 				C9E1EC1EDB009D5F77DE02C3 /* LaunchActionStore.swift */,
 				D5C561CFCFED153F1ECD7132 /* LegalConsent.swift */,
 				36607BC902C46F1100644A18 /* PairingService.swift */,
+				32F87B107C233FF77336205C /* PendingIncomingMessageStore.swift */,
 				C9D8E1D01228AE4C0BC46C07 /* PushNotificationService.swift */,
 				C5A11BA96C078171C15765D1 /* RelaySessionDelegate.swift */,
 				CC4F713441477AEF744FEF36 /* TelemetryManager.swift */,
@@ -699,6 +705,7 @@
 				9733E980507A693FA2AA6435 /* LegalConsent.swift in Sources */,
 				C5DD26EF14E6A733DB21CC96 /* MessageBubble.swift in Sources */,
 				E044F07BE6630BE11B74879F /* PairingService.swift in Sources */,
+				B101461B0934B27BBE68BF94 /* PendingIncomingMessageStore.swift in Sources */,
 				AF723590A6D1F9C258EA6658 /* PlatformAppDelegate.swift in Sources */,
 				679293EF7C710CB1B328C3EF /* ProtocolModels.swift in Sources */,
 				9DDB5CE0E20844A77192065B /* PushNotificationService.swift in Sources */,
@@ -740,6 +747,7 @@
 				AFAD0F1322F418C804773BF8 /* LegalConsent.swift in Sources */,
 				2635964C07FDAD25B4314633 /* MessageBubble.swift in Sources */,
 				C333A7ABD5F23080E715EC01 /* PairingService.swift in Sources */,
+				29F0C5BD2DF0AFF7B3AA4BE8 /* PendingIncomingMessageStore.swift in Sources */,
 				57AC8870EC6632FBE41BB83B /* PlatformAppDelegate.swift in Sources */,
 				9AC4C411DA7F049C15A014DF /* ProtocolModels.swift in Sources */,
 				A53FD36AD86DDE90529D6338 /* PushNotificationService.swift in Sources */,
@@ -781,6 +789,7 @@
 				866786A91D1253B73CE5F03D /* LegalConsent.swift in Sources */,
 				61B7DE4B0562549A1C8832E9 /* MessageBubble.swift in Sources */,
 				217FECFEF6A65FAD04DED6AF /* PairingService.swift in Sources */,
+				C744E78C20428565A0EFA720 /* PendingIncomingMessageStore.swift in Sources */,
 				344A05E136F415C5102725DD /* PlatformAppDelegate.swift in Sources */,
 				62AB1AA76064FD0B898C2368 /* ProtocolModels.swift in Sources */,
 				1D26C8DDE23B6093512180AD /* PushNotificationService.swift in Sources */,
@@ -835,6 +844,7 @@
 				02C09233DA489D02A5C286FC /* LegalConsent.swift in Sources */,
 				1DB051BD205F2D757AA2781C /* MessageBubble.swift in Sources */,
 				E7BA1ACC01B438B43E719CDC /* PairingService.swift in Sources */,
+				2081FC8256856732F1D5FCA9 /* PendingIncomingMessageStore.swift in Sources */,
 				D45A3C2FB94FAE2B6AE2A681 /* PlatformAppDelegate.swift in Sources */,
 				A2D65A0B4CB206AB0C550892 /* ProtocolModels.swift in Sources */,
 				4D0693F0D4BB9F40CFDEE64F /* PushNotificationService.swift in Sources */,
@@ -1009,6 +1019,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/chat94Mac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = "Resources/Info-macOS.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1029,6 +1040,7 @@
 				CODE_SIGN_ENTITLEMENTS = Resources/chat94Mac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = "Resources/Info-macOS.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

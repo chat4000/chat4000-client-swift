@@ -109,9 +109,16 @@ struct chat94App: App {
                     Haptics.prime()
                     activeSessionStartedAt = .now
                     chatViewModel.refreshMessages()
+                    if currentScreen == .chat, let groupConfig {
+                        chatViewModel.startConnection(config: groupConfig)
+                    }
                     PushNotificationManager.shared.clearBadge()
                     TelemetryManager.shared.track(.appOpened)
                 case .background:
+                    if groupConfig != nil {
+                        DevLog.log("🔌 App entering background, disconnecting relay socket")
+                        chatViewModel.disconnectRelayForBackground()
+                    }
                     finishActiveSessionIfNeeded()
                 default:
                     break

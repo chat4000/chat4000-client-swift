@@ -868,6 +868,10 @@ final class ChatViewModel {
         if isFirstAttachment || !messages.isEmpty {
             loadMessagesMergingTransientState()
         }
+
+        Task { @MainActor in
+            importPendingIncomingMessagesIfNeeded()
+        }
     }
 
     func setup(modelContext: ModelContext, config: GroupConfig) {
@@ -883,6 +887,9 @@ final class ChatViewModel {
     func refreshMessages() {
         guard modelContext != nil else { return }
         loadMessagesMergingTransientState()
+        Task { @MainActor in
+            importPendingIncomingMessagesIfNeeded()
+        }
     }
 
     func startConnection(config: GroupConfig) {
@@ -924,6 +931,12 @@ final class ChatViewModel {
         connectionState = .disconnected
         KeychainService.delete()
         config = nil
+    }
+
+    func disconnectRelayForBackground() {
+        DevLog.log("🔌 Background disconnect: closing relay only")
+        relay.disconnect()
+        connectionState = .disconnected
     }
 
     func send(text: String) {
@@ -1330,6 +1343,83 @@ final class ChatViewModel {
         try? modelContext?.save()
         messages = mergedMessages
         requestScrollToBottom()
+    }
+
+    private func importPendingIncomingMessagesIfNeeded() {
+        guard modelContext != nil else { return }
+
+        Task { @MainActor in
+            let pending = await PendingIncomingMessageStore.shared.drain()
+            guard !pending.isEmpty else { return }
+
+            DevLog.log("📬 importing pending incoming messages count=%ld", pending.count)
+
+            for pendingMessage in pending {
+                switch pendingMessage.payload {
+                case .text(let text):
+                    let message = ChatMessage(
+                        text: text,
+                        sender: .agent,
+                        timestamp: pendingMessage.receivedAt,
+                        status: .sent
+                    )
+                    messages.append(message)
+                    modelContext?.insert(message)
+                    DevLog.log(
+                        "📬 imported pending text id=%@ chars=%ld",
+                        pendingMessage.messageId,
+                        text.count
+                    )
+
+                case .image(let dataBase64):
+                    guard let imageData = Data(base64Encoded: dataBase64) else {
+                        DevLog.log("ERROR: Failed to decode pending image id=%@", pendingMessage.messageId)
+                        continue
+                    }
+                    let message = ChatMessage(
+                        imageData: imageData,
+                        sender: .agent,
+                        timestamp: pendingMessage.receivedAt,
+                        status: .sent
+                    )
+                    messages.append(message)
+                    modelContext?.insert(message)
+                    DevLog.log(
+                        "📬 imported pending image id=%@ bytes=%ld",
+                        pendingMessage.messageId,
+                        imageData.count
+                    )
+
+                case .audio(let dataBase64, let mimeType, let durationMs, let waveform):
+                    guard let audioData = Data(base64Encoded: dataBase64) else {
+                        DevLog.log("ERROR: Failed to decode pending audio id=%@", pendingMessage.messageId)
+                        continue
+                    }
+                    let message = ChatMessage(
+                        audioData: audioData,
+                        audioMimeType: mimeType,
+                        audioDuration: Double(durationMs) / 1000,
+                        audioWaveform: waveform,
+                        sender: .agent,
+                        timestamp: pendingMessage.receivedAt,
+                        status: .sent
+                    )
+                    messages.append(message)
+                    modelContext?.insert(message)
+                    DevLog.log(
+                        "📬 imported pending audio id=%@ bytes=%ld duration_ms=%ld",
+                        pendingMessage.messageId,
+                        audioData.count,
+                        durationMs
+                    )
+                }
+            }
+
+            messages.sort { $0.timestamp < $1.timestamp }
+            try? modelContext?.save()
+            clearBusy()
+            requestScrollToBottom()
+        }
     }
 }
 
