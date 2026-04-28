@@ -55,8 +55,10 @@ final class RelayClient {
         DevLog.log("🔌 Connecting to relay: \(config.relayURL.absoluteString)")
 
         let sessionConfig = URLSessionConfiguration.default
+        // WebSocket sessions are intentionally long-lived. A short resource
+        // timeout causes idle sockets to be torn down every minute on macOS,
+        // which creates reconnect gaps where messages can be missed.
         sessionConfig.timeoutIntervalForRequest = 15
-        sessionConfig.timeoutIntervalForResource = 60
         session = URLSession(
             configuration: sessionConfig,
             delegate: RelaySessionDelegate.shared,
@@ -86,6 +88,17 @@ final class RelayClient {
     /// Encrypt and send a text message to the plugin.
     func send(text: String) {
         sendInner(InnerMessage.text(text))
+    }
+
+    func canSendImagePayload(jpegData: Data, mimeType: String = "image/jpeg") -> Bool {
+        let inner = InnerMessage.image(
+            dataBase64: jpegData.base64EncodedString(),
+            mimeType: mimeType
+        )
+        guard let envelope = encodedEnvelope(for: inner, notifyIfOffline: true) else {
+            return false
+        }
+        return envelope.lengthOfBytes(using: .utf8) <= RelayProtocol.maxMessageSize
     }
 
     func sendImage(jpegData: Data, mimeType: String = "image/jpeg") {
@@ -343,19 +356,39 @@ final class RelayClient {
     }
 
     private func sendInner(_ inner: InnerMessage, notifyIfOffline: Bool = true) {
+        guard let envelope = encodedEnvelope(for: inner, notifyIfOffline: notifyIfOffline) else {
+            return
+        }
+
+        let frameBytes = envelope.lengthOfBytes(using: .utf8)
+        guard frameBytes <= RelayProtocol.maxMessageSize else {
+            DevLog.log(
+                "ERROR: Outgoing inner type=%@ exceeds relay max frame size bytes=%ld max=%ld",
+                inner.t.rawValue,
+                frameBytes,
+                RelayProtocol.maxMessageSize
+            )
+            return
+        }
+
+        let task = webSocketTask
+        Task { try? await task?.send(.string(envelope)) }
+    }
+
+    private func encodedEnvelope(for inner: InnerMessage, notifyIfOffline: Bool) -> String? {
         guard let key = config?.groupKey else {
             DevLog.log("ERROR: No group key for inner send type=%@", inner.t.rawValue)
-            return
+            return nil
         }
 
         guard let jsonData = try? JSONEncoder().encode(inner) else {
             DevLog.log("ERROR: Failed to encode inner message type=%@", inner.t.rawValue)
-            return
+            return nil
         }
 
         guard let (nonce, ciphertext) = RelayCrypto.encrypt(plaintext: jsonData, key: key) else {
             DevLog.log("ERROR: Encryption failed for inner type=%@", inner.t.rawValue)
-            return
+            return nil
         }
 
         guard let envelope = RelayOutgoing.msg(
@@ -365,11 +398,9 @@ final class RelayClient {
             notifyIfOffline: notifyIfOffline
         ) else {
             DevLog.log("ERROR: Failed to build msg envelope for inner type=%@", inner.t.rawValue)
-            return
+            return nil
         }
-
-        let task = webSocketTask
-        Task { try? await task?.send(.string(envelope)) }
+        return envelope
     }
 
     // MARK: - Heartbeat (ping/pong)
