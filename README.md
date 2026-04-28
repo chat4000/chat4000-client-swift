@@ -9,17 +9,11 @@ Beautiful. End-to-end encrypted. Zero-knowledge relay. No middleman reads a thin
 
 [chat94.com](https://chat94.com) · [@chat94official](https://t.me/chat94official) · contact@chat94.com
 
-[![Swift](https://img.shields.io/badge/Swift-6.0-orange?logo=swift&logoColor=white&style=flat-square)](https://swift.org)
-[![iOS 17+](https://img.shields.io/badge/iOS-17.0+-007AFF?logo=apple&logoColor=white&style=flat-square)](https://www.apple.com/ios)
-[![macOS 14+](https://img.shields.io/badge/macOS-14.0+-111111?logo=apple&logoColor=white&style=flat-square)](https://www.apple.com/macos)
-[![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-A42E2B?style=flat-square)](./LICENSE)
-[![Telegram](https://img.shields.io/badge/Telegram-@chat94official-26A5E4?logo=telegram&logoColor=white&style=flat-square)](https://t.me/chat94official)
-
 </div>
 
 <div align="center">
 
-<img src="docs/images/iphone.png" alt="chat94 on iPhone" width="280" />
+<img src="docs/images/iphone-bezel.png" alt="chat94 on iPhone" width="280" />
 
 <sub><b>iPhone</b></sub>
 
