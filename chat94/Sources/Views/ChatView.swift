@@ -311,7 +311,12 @@ struct ChatView: View {
     #if os(iOS)
     private let accessoryButtonSize: CGFloat = 42
     private let accessoryButtonGap: CGFloat = 12
-    private var accessoryAreaWidth: CGFloat { (accessoryButtonSize * 2) + accessoryButtonGap }
+    private var accessoryAreaWidth: CGFloat {
+        if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (accessoryButtonSize * 2) + accessoryButtonGap
+        }
+        return accessoryButtonSize
+    }
     #else
     private let accessoryButtonSize: CGFloat = ChatView.defaultMacComposerHeight
     #endif
