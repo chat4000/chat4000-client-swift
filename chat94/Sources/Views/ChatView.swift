@@ -327,7 +327,7 @@ struct ChatView: View {
 
             trailingAccessoryArea
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, AppSpacing.messageRowInset)
         .padding(.vertical, AppSpacing.inputBarBottomInset)
         .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
     }
@@ -520,8 +520,8 @@ struct ChatView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, AppSpacing.inputBarBottomInset)
+        .padding(.horizontal, AppSpacing.messageRowInset)
+        .padding(.vertical, AppSpacing.inputBarBottomInset)
     }
 
     private func sendMessage() {
