@@ -92,6 +92,10 @@ struct SettingsSheet: View {
                     .foregroundStyle(AppColors.textTimestamp)
                     .padding(.top, 24)
                     .padding(.bottom, 24)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        handleAddAnotherDeviceGesture()
+                    }
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }

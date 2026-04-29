@@ -839,6 +839,7 @@ final class ChatViewModel {
     private let relay = RelayClient()
     private var modelContext: ModelContext?
     private let minimumPluginVersion = "0.1.0"
+    private var statePollingTask: Task<Void, Never>?
 
     // Tracks current streaming message being assembled
     private var currentStreamId: String?
@@ -898,10 +899,15 @@ final class ChatViewModel {
         loadStoredPluginMetadata(for: config)
         relay.connect(config: config)
 
-        // Sync connection state from relay
-        Task { @MainActor in
-            while true {
-                connectionState = relay.state
+        // Sync connection state from relay. Cancel any prior poller before
+        // spawning a new one — backgrounding sets state to .disconnected, so
+        // foregrounding always re-enters this function and would otherwise
+        // stack a fresh infinite Task each cycle.
+        statePollingTask?.cancel()
+        statePollingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.connectionState = self.relay.state
                 try? await Task.sleep(for: .milliseconds(200))
             }
         }
@@ -927,6 +933,8 @@ final class ChatViewModel {
     }
 
     func disconnect() {
+        statePollingTask?.cancel()
+        statePollingTask = nil
         relay.disconnect()
         connectionState = .disconnected
         KeychainService.delete()
@@ -935,6 +943,8 @@ final class ChatViewModel {
 
     func disconnectRelayForBackground() {
         DevLog.log("🔌 Background disconnect: closing relay only")
+        statePollingTask?.cancel()
+        statePollingTask = nil
         relay.disconnect()
         connectionState = .disconnected
     }

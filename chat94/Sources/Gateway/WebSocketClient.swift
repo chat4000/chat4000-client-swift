@@ -42,6 +42,28 @@ final class RelayClient {
     }
 
     func connect(config: GroupConfig) {
+        if webSocketTask != nil {
+            switch state {
+            case .connecting, .connected:
+                DevLog.log("🔌 connect() ignored — already \(String(describing: state))")
+                self.config = config
+                shouldReconnect = true
+                return
+            default:
+                // .failed / .disconnected with a stale task: tear it down
+                // before we overwrite the properties, otherwise the URLSession
+                // strong reference cycle leaks the old socket + delegate.
+                connectionTask?.cancel()
+                connectionTask = nil
+                heartbeatTask?.cancel()
+                heartbeatTask = nil
+                webSocketTask?.cancel(with: .goingAway, reason: nil)
+                webSocketTask = nil
+                session?.invalidateAndCancel()
+                session = nil
+            }
+        }
+
         self.config = config
         shouldReconnect = true
         retryDelay = 2
@@ -89,17 +111,6 @@ final class RelayClient {
     /// Encrypt and send a text message to the plugin.
     func send(text: String) {
         sendInner(InnerMessage.text(text))
-    }
-
-    func canSendImagePayload(jpegData: Data, mimeType: String = "image/jpeg") -> Bool {
-        let inner = InnerMessage.image(
-            dataBase64: jpegData.base64EncodedString(),
-            mimeType: mimeType
-        )
-        guard let envelope = encodedEnvelope(for: inner, notifyIfOffline: true) else {
-            return false
-        }
-        return envelope.lengthOfBytes(using: .utf8) <= RelayProtocol.maxMessageSize
     }
 
     func sendImage(jpegData: Data, mimeType: String = "image/jpeg") {
@@ -176,6 +187,14 @@ final class RelayClient {
                     } else {
                         state = .failed("Group key not registered and App Attest is unavailable on this device.")
                     }
+                } else if code == "DEVICE_ALREADY_CONNECTED" {
+                    // The relay still has our previous socket's entry in its
+                    // dedup map — typically because the prior close hasn't
+                    // propagated yet (TCP handoff, force-quit, rapid bg→fg).
+                    // Tear down and let exponential backoff retry; the slot
+                    // frees within seconds once the relay observes the close.
+                    DevLog.log("⏳ device slot still held; retrying with backoff")
+                    handleConnectionLoss()
                 } else {
                     state = .failed("\(code): \(msg)")
                 }

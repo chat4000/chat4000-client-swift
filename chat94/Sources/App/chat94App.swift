@@ -448,7 +448,7 @@ struct UpgradeRequiredView: View {
     }
 
     private var message: String {
-        "This version of chat94 is no longer supported. Please update from the App Store to continue using chat."
+        "This version of chat94 is no longer supported. Please update from the App Store to continue using chat94."
     }
 
     private var versionLine: String {
