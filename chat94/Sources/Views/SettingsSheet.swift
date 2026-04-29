@@ -87,7 +87,7 @@ struct SettingsSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
 
-                Text("chat94 v1.0.0")
+                Text(versionFooter)
                     .font(AppFonts.caption)
                     .foregroundStyle(AppColors.textTimestamp)
                     .padding(.top, 24)
@@ -154,30 +154,6 @@ struct SettingsSheet: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 8) {
-                    Text("App")
-                        .font(AppFonts.label)
-                        .foregroundStyle(AppColors.textSecondary)
-
-                    Text("v\(AppRegistrationIdentity.currentAppVersion)")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(AppColors.textPrimary)
-                        .textSelection(.enabled)
-
-                    if let pluginVersion, !pluginVersion.isEmpty {
-                        Text("·")
-                            .font(AppFonts.label)
-                            .foregroundStyle(AppColors.textSecondary)
-
-                        Text("plugin v\(pluginVersion)")
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundStyle(AppColors.textPrimary)
-                            .textSelection(.enabled)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-
                 Button {
                     dismiss()
                     onAddDevice()
@@ -230,6 +206,14 @@ struct SettingsSheet: View {
                     .stroke(AppColors.inputBorder, lineWidth: 1)
             )
         }
+    }
+
+    private var versionFooter: String {
+        let appPart = "chat94 v\(AppRegistrationIdentity.currentAppVersion)"
+        if let pluginVersion, !pluginVersion.isEmpty {
+            return "\(appPart) · plugin v\(pluginVersion)"
+        }
+        return appPart
     }
 
     private func sendHandledSentryException() {
