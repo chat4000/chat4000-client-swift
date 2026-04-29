@@ -10,7 +10,7 @@ import AppKit
 
 enum RelayProtocol {
     static let version = 1
-    static let maxMessageSize = 65_536
+    static let maxMessageSize = 4 * 1024 * 1024
     static let heartbeatIntervalSecs: TimeInterval = 30
     static let defaultRelayURL = "wss://relay.chat94.com/ws"
 }

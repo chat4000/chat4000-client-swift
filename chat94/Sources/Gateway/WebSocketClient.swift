@@ -65,6 +65,7 @@ final class RelayClient {
             delegateQueue: nil
         )
         webSocketTask = session?.webSocketTask(with: config.relayURL)
+        webSocketTask?.maximumMessageSize = 4 * 1024 * 1024
         webSocketTask?.resume()
 
         connectionTask?.cancel()

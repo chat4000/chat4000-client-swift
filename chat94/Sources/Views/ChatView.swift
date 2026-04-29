@@ -1442,8 +1442,32 @@ typealias PlatformImage = NSImage
 
 private extension PlatformImage {
     var clawConnectJPEGData: Data? {
+        // Cap the produced JPEG so the resulting WebSocket frame
+        // (≈ 1.78× after base64 + encrypt + base64) stays comfortably
+        // under URLSessionWebSocketTask's maximumMessageSize.
+        let maxBytes = 2 * 1024 * 1024
+        let candidates: [(CGFloat, CGFloat)] = [
+            (1600, 0.82),
+            (1400, 0.78),
+            (1200, 0.74),
+            (1024, 0.70),
+            (896, 0.66),
+            (768, 0.62),
+            (640, 0.58),
+            (512, 0.54),
+        ]
+
+        for (maxDimension, quality) in candidates {
+            if let data = encodedJPEGData(maxDimension: maxDimension, compressionQuality: quality),
+               data.count <= maxBytes {
+                return data
+            }
+        }
+        return encodedJPEGData(maxDimension: 384, compressionQuality: 0.5)
+    }
+
+    func encodedJPEGData(maxDimension: CGFloat, compressionQuality: CGFloat) -> Data? {
         #if os(iOS)
-        let maxDimension: CGFloat = 1600
         let size = self.size
         let scale = min(1, maxDimension / max(size.width, size.height))
 
@@ -1452,15 +1476,34 @@ private extension PlatformImage {
             let resized = renderer.image { _ in
                 self.draw(in: CGRect(origin: .zero, size: CGSize(width: size.width * scale, height: size.height * scale)))
             }
-            return resized.jpegData(compressionQuality: 0.82)
+            return resized.jpegData(compressionQuality: compressionQuality)
         }
 
-        return self.jpegData(compressionQuality: 0.82)
+        return self.jpegData(compressionQuality: compressionQuality)
         #elseif os(macOS)
-        guard let tiffData = tiffRepresentation,
+        let size = self.size
+        let scale = min(1, maxDimension / max(size.width, size.height))
+
+        let sourceImage: NSImage
+        if scale < 1 {
+            let resized = NSImage(size: CGSize(width: size.width * scale, height: size.height * scale))
+            resized.lockFocus()
+            self.draw(
+                in: NSRect(origin: .zero, size: resized.size),
+                from: NSRect(origin: .zero, size: size),
+                operation: .copy,
+                fraction: 1
+            )
+            resized.unlockFocus()
+            sourceImage = resized
+        } else {
+            sourceImage = self
+        }
+
+        guard let tiffData = sourceImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData)
         else { return nil }
-        return bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.82])
+        return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality])
         #endif
     }
 }
