@@ -1,11 +1,11 @@
 # Agent Streaming Protocol — Implementation Guide for Clients
 
-**Audience:** anyone implementing the *app* side of chat94 — receiving and rendering streamed replies from an OpenClaw agent through the relay. This is the contract, the timeline, the gotchas, and a reference implementation.
+**Audience:** anyone implementing the *app* side of chat4000 — receiving and rendering streamed replies from an OpenClaw agent through the relay. This is the contract, the timeline, the gotchas, and a reference implementation.
 
 **Status:** current as of 2026-04-18, based on verified reads of:
-- Plugin: `chat94-plugin/src/channel.ts`, `src/send.ts`, `src/types.ts`
+- Plugin: `chat4000-plugin/src/channel.ts`, `src/send.ts`, `src/types.ts`
 - OpenClaw: `vendor/openclaw/src/auto-reply/reply/agent-runner-execution.ts`, `src/agents/pi-embedded-subscribe.*.ts`
-- Swift reference client: `chat94/Sources/Gateway/WebSocketClient.swift`, `chat94/Sources/Views/ChatView.swift`
+- Swift reference client: `chat4000/Sources/Gateway/WebSocketClient.swift`, `chat4000/Sources/Views/ChatView.swift`
 
 ---
 
@@ -20,7 +20,7 @@ OpenClaw agent runner                 (vendor/openclaw)
       |  onReasoningStream, onReasoningEnd, onPartialReply,
       |  onToolStart, onCompactionStart/End
       v
-chat94 plugin  (src/channel.ts)
+chat4000 plugin  (src/channel.ts)
       |  translates callbacks into relay inner messages:
       |  status, text_delta, text_end, text
       v
@@ -59,7 +59,7 @@ Three values, three meanings, and one shared source of confusion:
 ### `"thinking"`
 
 - **Meaning:** the model is in a reasoning phase. No visible text is being produced yet.
-- **Emitted by plugin** (`chat94-plugin/src/channel.ts`):
+- **Emitted by plugin** (`chat4000-plugin/src/channel.ts`):
   - `:466` on `onReasoningStream` — **once per thinking chunk**, so many times per reasoning phase
   - `:486` on `onToolStart` — once per tool invocation
   - `:489` on `onCompactionStart` — once per compaction event
@@ -68,7 +68,7 @@ Three values, three meanings, and one shared source of confusion:
 ### `"typing"` — **NOT "stop thinking"**
 
 - **Meaning:** the model is **actively streaming text tokens**. More `text_delta` messages are coming.
-- **Emitted by plugin** (`chat94-plugin/src/channel.ts`):
+- **Emitted by plugin** (`chat4000-plugin/src/channel.ts`):
   - `:379` at reply-pipeline start
   - `:419` **with every single `text_delta`** during streaming
   - `:469` after `onReasoningEnd`
@@ -114,11 +114,11 @@ Naively doing `buffer += delta` (which is what "delta" usually implies in stream
 "AA hardA hard oneA hard one is..."
 ```
 
-— a progressively degrading concatenation mess. This is what chat94's Swift client initially shipped and the visual bug was obvious.
+— a progressively degrading concatenation mess. This is what chat4000's Swift client initially shipped and the visual bug was obvious.
 
 ### Where this comes from in the plugin
 
-`chat94-plugin/src/channel.ts:417-419`:
+`chat4000-plugin/src/channel.ts:417-419`:
 
 ```typescript
 lastText += text;                                      // plugin's own accumulator
@@ -150,7 +150,7 @@ if (inner is text_delta):
         stream_buffer[inner.id] = existing + inner.body.delta   # incremental fallback
 ```
 
-The Swift reference client uses Option B. See `chat94/Sources/Views/ChatView.swift` in the `case .textDelta` branch.
+The Swift reference client uses Option B. See `chat4000/Sources/Views/ChatView.swift` in the `case .textDelta` branch.
 
 ### `text_end` is authoritative
 
@@ -170,7 +170,7 @@ If `reset` is missing or `false`, behavior is unchanged from §4 — finalize th
 
 Backwards compat: clients that ignore `reset` will show the abandoned content as a normal final message. Not broken, just not deleted.
 
-The Swift reference client tracks the streaming bubble's `UUID` against the current `stream_id` (`currentStreamMessageId` ↔ `currentStreamId`). On `reset: true`, it removes the message inside `withAnimation(.easeOut(duration: 0.2))`, deletes from SwiftData, clears stream tracking, and re-scrolls. See `cancelCurrentStreamingMessage(streamId:)` in `chat94/Sources/Views/ChatView.swift`.
+The Swift reference client tracks the streaming bubble's `UUID` against the current `stream_id` (`currentStreamMessageId` ↔ `currentStreamId`). On `reset: true`, it removes the message inside `withAnimation(.easeOut(duration: 0.2))`, deletes from SwiftData, clears stream tracking, and re-scrolls. See `cancelCurrentStreamingMessage(streamId:)` in `chat4000/Sources/Views/ChatView.swift`.
 
 ---
 
@@ -241,7 +241,7 @@ Instead of separate `isThinking` and `isTyping` flags (which flicker as statuses
 - `busyPhase: String` — cosmetic label ("Thinking" vs "Typing") that can change freely.
 - Clear busy **only** on `status:idle`, `text_end`, or a complete non-streamed `text` from the agent.
 
-File: `chat94/Sources/Views/ChatView.swift`, in `ChatViewModel`.
+File: `chat4000/Sources/Views/ChatView.swift`, in `ChatViewModel`.
 
 ### 6.2 Status handling
 
@@ -269,7 +269,7 @@ In the Swift client this is currently done by convention (`messages.last` + `sta
 
 The busy / remote-typing indicators should live **inside** the scroll view as flowing content, not as siblings that conditionally appear below it. If they're siblings, their appearance/disappearance resizes the scroll view and the content snaps visibly. Inside the scroll view, they flow with messages and the bottom stays the bottom.
 
-File: `chat94/Sources/Views/ChatView.swift`, inside the `ScrollView { LazyVStack { ... } }`.
+File: `chat4000/Sources/Views/ChatView.swift`, inside the `ScrollView { LazyVStack { ... } }`.
 
 ### 6.6 Scroll-to-bottom on new content
 
@@ -298,7 +298,7 @@ Concrete mistakes to avoid:
 
 ## 8. Minimum conformance requirements
 
-A client that claims to support chat94 streaming must:
+A client that claims to support chat4000 streaming must:
 
 - Decode all four inner types (`text`, `text_delta`, `text_end`, `status`) without error.
 - Tolerate unknown inner types and unknown `status` values.
@@ -318,7 +318,7 @@ A client that claims good UX should additionally:
 
 ## 9. File references
 
-**Plugin (TypeScript, `chat94-plugin/`):**
+**Plugin (TypeScript, `chat4000-plugin/`):**
 - `src/channel.ts:417-419` — `deliver()` stream path: `lastText += text`, `sendStreamDelta(..., text)`
 - `src/channel.ts:466-499` — all status emission sites
 - `src/send.ts:128-129` — `sendStreamEnd(groupId, streamId, fullText)`
@@ -331,7 +331,7 @@ A client that claims good UX should additionally:
 - `src/agents/pi-embedded-subscribe.ts:668` — `onReasoningStream` invocation
 - `src/agents/pi-embedded-subscribe.handlers.messages.ts:79,89,268-285` — assistant message start, reasoning end, text_delta handler
 
-**Swift reference client (`chat94/Sources/`):**
+**Swift reference client (`chat4000/Sources/`):**
 - `Gateway/WebSocketClient.swift` — `processInnerMessage` (stream buffer accumulation)
 - `Gateway/ProtocolModels.swift` — `InnerMessage` type and JSON codec
 - `Views/ChatView.swift` — `ChatViewModel` busy-state machine and `handleInnerMessage`

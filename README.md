@@ -1,25 +1,25 @@
 <div align="center">
 
-<img src="docs/images/icon.png" alt="chat94" width="120" height="120" />
+<img src="docs/images/icon.png" alt="chat4000" width="120" height="120" />
 
-# chat94
+# chat4000
 
 **Native iOS & macOS chat for your self-hosted [OpenClaw](https://github.com/openclaw/openclaw) agent.**
 Beautiful. End-to-end encrypted. Zero-knowledge relay. No middleman reads a thing.
 
-[chat94.com](https://chat94.com) · [@chat94official](https://t.me/chat94official) · contact@chat94.com
+[chat4000.com](https://chat4000.com) · [@chat4000official](https://t.me/chat4000official) · contact@chat4000.com
 
 </div>
 
 <div align="center">
 
-<img src="docs/images/iphone-bezel.png" alt="chat94 on iPhone" width="280" />
+<img src="docs/images/iphone-bezel.png" alt="chat4000 on iPhone" width="280" />
 
 <sub><b>iPhone</b></sub>
 
 <br/><br/>
 
-<img src="docs/images/mac.png" alt="chat94 on Mac" width="820" />
+<img src="docs/images/mac.png" alt="chat4000 on Mac" width="820" />
 
 <sub><b>Mac</b></sub>
 
@@ -43,43 +43,43 @@ Beautiful. End-to-end encrypted. Zero-knowledge relay. No middleman reads a thin
 
 ## 🛠 Build
 
-The project is generated from `chat94/project.yml` via [XcodeGen](https://github.com/yonaskolb/XcodeGen) — no `.xcodeproj` workspace state is committed.
+The project is generated from `chat4000/project.yml` via [XcodeGen](https://github.com/yonaskolb/XcodeGen) — no `.xcodeproj` workspace state is committed.
 
 ```bash
 brew install xcodegen
-cd chat94
+cd chat4000
 xcodegen generate
-open chat94.xcodeproj
+open chat4000.xcodeproj
 ```
 
 ### 🎯 Targets
 
 | Scheme | Bundle ID | Notes |
 |---|---|---|
-| `chat94iphonedev` | `com.neonnode.chat94app.dev` | 🧪 Dev iPhone — verbose logging, dev APNs/App Attest |
-| `chat94iphoneprod` | `com.neonnode.chat94app` | Internal release |
-| `chat94iphoneappstore` | `com.neonnode.chat94app` | 🏪 App Store distribution |
-| `chat94mac` | `com.neonnode.chat94app` | 🖥️ macOS app |
-| `chat94Tests` | — | ✅ Unit tests (Swift Testing) |
+| `chat4000iphonedev` | `com.neonnode.chat4000app.dev` | 🧪 Dev iPhone — verbose logging, dev APNs/App Attest |
+| `chat4000iphoneprod` | `com.neonnode.chat4000app` | Internal release |
+| `chat4000iphoneappstore` | `com.neonnode.chat4000app` | 🏪 App Store distribution |
+| `chat4000mac` | `com.neonnode.chat4000app` | 🖥️ macOS app |
+| `chat4000Tests` | — | ✅ Unit tests (Swift Testing) |
 
 ### 🔧 Command-line builds
 
 ```bash
 # iOS simulator
-xcodebuild -project chat94/chat94.xcodeproj \
-  -scheme chat94iphoneprod \
+xcodebuild -project chat4000/chat4000.xcodeproj \
+  -scheme chat4000iphoneprod \
   -sdk iphonesimulator \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   build
 
 # macOS (no signing — local only)
-xcodebuild -project chat94/chat94.xcodeproj \
-  -scheme chat94mac \
+xcodebuild -project chat4000/chat4000.xcodeproj \
+  -scheme chat4000mac \
   CODE_SIGNING_ALLOWED=NO build
 
 # Tests
-xcodebuild -project chat94/chat94.xcodeproj \
-  -scheme chat94Tests \
+xcodebuild -project chat4000/chat4000.xcodeproj \
+  -scheme chat4000Tests \
   -sdk iphonesimulator \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   test
@@ -90,15 +90,15 @@ xcodebuild -project chat94/chat94.xcodeproj \
 A signed, notarized macOS DMG is one command away:
 
 ```bash
-chat94/scripts/build-dmg.sh                # full pipeline (sign + notarize + staple)
-chat94/scripts/build-dmg.sh --no-notarize  # quick local DMG, skip Apple round-trip
+chat4000/scripts/build-dmg.sh                # full pipeline (sign + notarize + staple)
+chat4000/scripts/build-dmg.sh --no-notarize  # quick local DMG, skip Apple round-trip
 ```
 
-Output lands in `chat94/build/dist/chat94-<version>.dmg`. The script's pre-flight checks tell you exactly what's missing if it can't run yet (Developer ID cert, notary keychain profile, `create-dmg`).
+Output lands in `chat4000/build/dist/chat4000-<version>.dmg`. The script's pre-flight checks tell you exactly what's missing if it can't run yet (Developer ID cert, notary keychain profile, `create-dmg`).
 
 ### 🔑 Optional dev config
 
-Telemetry keys live in `chat94/Resources/dev-config.json` (gitignored). Without it, Sentry and PostHog stay quiet:
+Telemetry keys live in `chat4000/Resources/dev-config.json` (gitignored). Without it, Sentry and PostHog stay quiet:
 
 ```json
 {
@@ -114,7 +114,7 @@ Telemetry keys live in `chat94/Resources/dev-config.json` (gitignored). Without 
 ## 🗂 Project layout
 
 ```
-chat94/
+chat4000/
 ├── 📋 project.yml                 XcodeGen spec
 ├── Sources/
 │   ├── 🚀 App/                    Entry point, app delegate, intents
@@ -150,20 +150,20 @@ docs/
 
 ## 🤝 Contributing
 
-PRs welcome. You'll need to sign a CLA — see [CONTRIBUTING.md](./CONTRIBUTING.md). Reach the team on [chat94.com](https://chat94.com), email at contact@chat94.com, or Telegram at [@chat94official](https://t.me/chat94official) — we usually reply within a day.
+PRs welcome. You'll need to sign a CLA — see [CONTRIBUTING.md](./CONTRIBUTING.md). Reach the team on [chat4000.com](https://chat4000.com), email at contact@chat4000.com, or Telegram at [@chat4000official](https://t.me/chat4000official) — we usually reply within a day.
 
 ---
 
 ## 📜 License
 
-chat94 is licensed under the **GNU General Public License v3.0** (GPL-3.0). See [LICENSE](./LICENSE).
+chat4000 is licensed under the **GNU General Public License v3.0** (GPL-3.0). See [LICENSE](./LICENSE).
 
 Copyright © 2026 NeonNode Limited. All rights reserved.
 
-**Commercial licensing:** Want to use chat94 in a way GPL-3.0 doesn't allow (e.g. proprietary/closed-source use)? Reach out at contact@chat94.com.
+**Commercial licensing:** Want to use chat4000 in a way GPL-3.0 doesn't allow (e.g. proprietary/closed-source use)? Reach out at contact@chat4000.com.
 
 <div align="center">
 
-Built by [NeonNode](https://chat94.com)
+Built by [NeonNode](https://chat4000.com)
 
 </div>

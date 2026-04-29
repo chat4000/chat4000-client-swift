@@ -1,4 +1,4 @@
-# chat94 iOS/macOS Client — Implementation Status
+# chat4000 iOS/macOS Client — Implementation Status
 
 Last updated: 2026-04-28
 
@@ -10,7 +10,7 @@ Last updated: 2026-04-28
 | 1.1 | Single long-lived group key | Implemented | One 32-byte group key persists in `GroupConfig`, reused across reconnects and additional device pairings. |
 | 1.2 | Create pairing code | Implemented | `RelayCrypto.generatePairingCode()` produces an 8-char `XXXX-XXXX` string from the ambiguity-safe alphabet. |
 | 1.3 | Pairing code format | Implemented | Normalized uppercase, ambiguity-safe alphabet (`ABCDEFGHJKLMNPQRSTUVWXYZ2346789`), 8 characters. |
-| 1.4 | Join with pairing code | Implemented | `EnterPairingCodeView` accepts pairing codes and `chat94://pair?code=…` URIs (including QR scan). |
+| 1.4 | Join with pairing code | Implemented | `EnterPairingCodeView` accepts pairing codes and `chat4000://pair?code=…` URIs (including QR scan). |
 | 1.5 | QR support for clients | Implemented | `QRScannerView` (AVFoundation on iOS, Vision on macOS); pairing initiator's `PairingProgressView` displays a QR for the code. |
 | 1.6 | Temporary pairing room | Implemented | `PairingCoordinator` opens a `pair_open` room, drives `pair_data` exchange, and tears down on `pair_complete` / `pair_cancel`. |
 | 1.7 | Joiner temporary keypair | Implemented | `Curve25519.KeyAgreement.PrivateKey()` per session; never persisted. |
@@ -18,12 +18,12 @@ Last updated: 2026-04-28
 | 1.9 | Permanent key transfer | Implemented | X25519 ECDH + SHA-256 derived key + XChaCha20-Poly1305 wrap of the 32-byte group key. |
 | 1.10 | Immediate teardown on failure | Implemented | `PairingCoordinator.cancel()` sends `pair_cancel`, closes socket, returns to idle. |
 | **2. Storage** | | | |
-| 2.1 | Group config file | Implemented | `KeychainService.swift` saves `GroupConfig` to `~/Library/Application Support/chat94/<env-namespace>/group-config.json` with `.atomic` + `.completeFileProtection`. |
+| 2.1 | Group config file | Implemented | `KeychainService.swift` saves `GroupConfig` to `~/Library/Application Support/chat4000/<env-namespace>/group-config.json` with `.atomic` + `.completeFileProtection`. |
 | 2.2 | Chat message persistence | Implemented | SwiftData `ChatMessage` model with text + image + audio. Loaded on launch, inserted on send/receive, deleted on clear. |
 | 2.3 | Dev config | Implemented | `dev-config.json` bundle resource (gitignored) read at launch for Sentry/PostHog keys. |
 | 2.4 | Storage is file-based (not Keychain) | Implemented | File protection provides encryption at rest. |
 | **3. Relay Connection** | | | |
-| 3.1 | WebSocket over TLS | Implemented | `RelayClient` uses `URLSessionWebSocketTask`. Default URL: `wss://relay.chat94.com/ws`. |
+| 3.1 | WebSocket over TLS | Implemented | `RelayClient` uses `URLSessionWebSocketTask`. Default URL: `wss://relay.chat4000.com/ws`. |
 | 3.2 | Pairing room handshake | Implemented | `PairingCoordinator` handles `pair_open`, `pair_open_ok`, `pair_ready`, `pair_data`, `pair_complete`, `pair_cancel`. |
 | 3.3 | Pairing room lifecycle | Implemented | Cancellation, disconnect, and proof-mismatch all teardown the room. |
 | 3.4 | Hello handshake | Implemented | `RelayOutgoing.hello` includes `role`, `group_id`, `device_id`, `device_token` (when available), `app_id`, `app_version`, `release_channel`. |
@@ -31,7 +31,7 @@ Last updated: 2026-04-28
 | 3.6 | Auto-reconnect with backoff | Implemented | 2s → 4s → 8s → 16s → 32s → 60s max. Resets on success. |
 | 3.7 | Ping/pong heartbeat | Implemented | Sends `ping` every 30s. Reconnects if no `pong` within 60s. |
 | 3.8 | Connection state display | Implemented | State enum, nav status dot, `ConnectingView`. |
-| 3.9 | Stable per-install device_id | Implemented | `DeviceIdentity.currentDeviceId` (UUID, persisted in `UserDefaults["chat94.device-id"]`). Sent on every hello and inside encrypted `from.device_id`. |
+| 3.9 | Stable per-install device_id | Implemented | `DeviceIdentity.currentDeviceId` (UUID, persisted in `UserDefaults["chat4000.device-id"]`). Sent on every hello and inside encrypted `from.device_id`. |
 | 3.10 | Version policy | Implemented | `VersionPolicyManager` parses `hello_ok.version_policy`, hard-blocks below `min_version`, soft-nags below `recommended_version` (30-day snooze keyed on the version string). |
 | **4. Encryption** | | | |
 | 4.1 | XChaCha20-Poly1305 | Implemented | `RelayCrypto` uses `swift-sodium` / libsodium with a 24-byte nonce and appended 16-byte tag. |
@@ -67,12 +67,12 @@ Last updated: 2026-04-28
 | 7.10 | Legal consent gate | Implemented | `LegalReconsentModal` blocks the app when `current_terms_version` exceeds the stored accepted version. |
 | **8. Platform** | | | |
 | 8.1 | iOS 17.0+ | Implemented | iOS 17 simulator + physical iPhone 17 Pro Max verified. |
-| 8.2 | macOS 14.0+ | Implemented | `chat94mac` target builds and runs; native QR scanning via Vision; hardened runtime enabled. |
-| 8.3 | Mac DMG distribution | Implemented (signed; notarization pending) | `chat94/scripts/build-dmg.sh` produces a Developer ID-signed, create-dmg-packaged DMG and submits to Apple Notary; staple step pending verification. |
+| 8.2 | macOS 14.0+ | Implemented | `chat4000mac` target builds and runs; native QR scanning via Vision; hardened runtime enabled. |
+| 8.3 | Mac DMG distribution | Implemented (signed; notarization pending) | `chat4000/scripts/build-dmg.sh` produces a Developer ID-signed, create-dmg-packaged DMG and submits to Apple Notary; staple step pending verification. |
 | **9. Observability** | | | |
 | 9.1 | Sentry | Implemented | Routed through `TelemetryManager`. Used for crashes/errors only; respects the in-app telemetry toggle. |
 | 9.2 | PostHog | Implemented | Routed through `TelemetryManager`. Used for explicit analytics events only; crash/error autocapture is disabled. |
-| 9.3 | DevLog file | Implemented | Bundle-id-gated (`*.dev` only) plain-text log at `<app sandbox>/Library/Caches/chat94-dev.log`. Pullable via `xcrun devicectl device copy from --domain-type appDataContainer`. |
+| 9.3 | DevLog file | Implemented | Bundle-id-gated (`*.dev` only) plain-text log at `<app sandbox>/Library/Caches/chat4000-dev.log`. Pullable via `xcrun devicectl device copy from --domain-type appDataContainer`. |
 
 ## Verification Status
 

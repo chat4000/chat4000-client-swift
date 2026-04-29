@@ -54,7 +54,7 @@ export function SetupScreen({ onConnect }: SetupScreenProps) {
 
           {/* Title */}
           <div className="text-center">
-            <h1 className="text-white mb-1" style={{ fontSize: '28px', fontWeight: '700' }}>chat94</h1>
+            <h1 className="text-white mb-1" style={{ fontSize: '28px', fontWeight: '700' }}>chat4000</h1>
             <p className="text-gray-400" style={{ fontSize: '14px' }}>Connect to your AI agent</p>
           </div>
 

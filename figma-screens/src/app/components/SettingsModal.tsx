@@ -108,7 +108,7 @@ export function SettingsModal({
 
         {/* App Version */}
         <div className="pt-4 text-center" style={{ fontSize: '11px', color: '#666666', borderTop: '1px solid #1E1E1E' }}>
-          chat94 v1.0.0
+          chat4000 v1.0.0
         </div>
       </div>
 

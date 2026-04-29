@@ -1,8 +1,8 @@
-# chat94 — Product Requirements Document (V1)
+# chat4000 — Product Requirements Document (V1)
 
 ## Overview
 
-chat94 is a native iOS app (iPhone only for V1) for connecting to an [OpenClaw](https://github.com/openclaw/openclaw) server. OpenClaw is an open-source, self-hosted AI agent gateway that bridges messaging platforms (WhatsApp, Telegram, etc.) into a unified agent interface. chat94 gives you a direct, beautiful, native chat experience with your OpenClaw agent — no browser, no Telegram, no WhatsApp needed.
+chat4000 is a native iOS app (iPhone only for V1) for connecting to an [OpenClaw](https://github.com/openclaw/openclaw) server. OpenClaw is an open-source, self-hosted AI agent gateway that bridges messaging platforms (WhatsApp, Telegram, etc.) into a unified agent interface. chat4000 gives you a direct, beautiful, native chat experience with your OpenClaw agent — no browser, no Telegram, no WhatsApp needed.
 
 **Goal**: The simplest, prettiest way to talk to your OpenClaw agent from your iPhone.
 
@@ -120,7 +120,7 @@ The relay lives in this repo under `/relay-server/`.
 ### Notification behavior
 
 - **Content**: Show the actual agent message text in the notification body
-- **Title**: "chat94"
+- **Title**: "chat4000"
 - **Sound**: Default iOS notification sound
 - **Badge**: Unread message count
 
@@ -140,7 +140,7 @@ The relay lives in this repo under `/relay-server/`.
 
 - Centered card on near-black background
 - App icon (minimal claw/link symbol in accent blue #4A9EFF)
-- "chat94" title, large bold white
+- "chat4000" title, large bold white
 - Three input fields: dark (#1E1E1E) with subtle border (#2A2A2A), rounded
 - Full-width "Connect" button in accent blue
 - Error text area below button in red (#FF4A4A)
@@ -149,7 +149,7 @@ The relay lives in this repo under `/relay-server/`.
 ### Screen 2 — Chat Screen
 
 - Full-screen chat on near-black background
-- **Nav bar**: "chat94" title left, connection status dot + gear icon right
+- **Nav bar**: "chat4000" title left, connection status dot + gear icon right
 - **User messages**: Right-aligned, accent blue (#4A9EFF) bubble, white text
 - **Agent messages**: Left-aligned, dark grey (#1A1A1A) bubble, light grey text (#E0E0E0), small claw icon on first message in a group
 - Subtle grey timestamps below bubbles
@@ -190,7 +190,7 @@ The relay lives in this repo under `/relay-server/`.
 ### Project structure
 
 ```
-chat94/
+chat4000/
 ├── Sources/
 │   ├── App/              # App entry point, scene configuration
 │   ├── Models/           # Message, ServerConfig, ConnectionState
@@ -227,7 +227,7 @@ relay-server/             # Python/FastAPI push notification relay (built later)
 
 ## Distribution
 
-- **App Store name**: chat94
+- **App Store name**: chat4000
 - **Apple Developer account**: Individual ($99/year) — required for APNs + TestFlight
 - **Personal use** initially, public App Store listing later
 

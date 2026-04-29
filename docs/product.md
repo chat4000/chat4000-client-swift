@@ -1,14 +1,14 @@
-# chat94 iOS/macOS Client — Product Specification
+# chat4000 iOS/macOS Client — Product Specification
 
 ## Overview
 
-chat94 is a native iOS and macOS app for communicating with an [OpenClaw](https://github.com/openclaw/openclaw) AI agent through a zero-knowledge relay server. All messages are end-to-end encrypted with XChaCha20-Poly1305 using a shared symmetric group key. The relay never sees plaintext. Push notifications are silent wake-ups — Apple never sees message content.
+chat4000 is a native iOS and macOS app for communicating with an [OpenClaw](https://github.com/openclaw/openclaw) AI agent through a zero-knowledge relay server. All messages are end-to-end encrypted with XChaCha20-Poly1305 using a shared symmetric group key. The relay never sees plaintext. Push notifications are silent wake-ups — Apple never sees message content.
 
 **Target users**: People who self-host OpenClaw and want a native mobile/desktop chat client for their AI agent.
 
 **Platforms**: iOS 17.0+ (iPhone), macOS 14.0+ (Sonoma).
 
-**Distribution**: App Store (com.neonnode.chat94app).
+**Distribution**: App Store (com.neonnode.chat4000app).
 
 ---
 
@@ -17,7 +17,7 @@ chat94 is a native iOS and macOS app for communicating with an [OpenClaw](https:
 - **Group key**: A 32-byte (`256`-bit) cryptographically random symmetric secret. Created once for a user group and reused forever unless a future key-rotation feature is added.
 - **Group ID**: `lowercase_hex(SHA-256(group_key_bytes))` — a 64-character hex string derived from the group key. Used by the relay for routing.
 - **Pairing code**: A short, human-entered temporary code used to connect a new device.
-- **Relay server**: A central WebSocket relay at `wss://relay.chat94.com/ws`.
+- **Relay server**: A central WebSocket relay at `wss://relay.chat4000.com/ws`.
 
 ---
 
@@ -34,14 +34,14 @@ chat94 is a native iOS and macOS app for communicating with an [OpenClaw](https:
 
 ### 2. Storage & Persistence
 
-- **2.1** Group config file — stored at `~/Library/Application Support/chat94/pair-config.json`. Contains `groupKeyBase64` (standard base64 encoding of the 32-byte key). Older configs may still contain `relayURLOverride`, but runtime always uses the fixed relay domain. Written with `Data.WritingOptions` `.atomic` and `.completeFileProtection`.
+- **2.1** Group config file — stored at `~/Library/Application Support/chat4000/pair-config.json`. Contains `groupKeyBase64` (standard base64 encoding of the 32-byte key). Older configs may still contain `relayURLOverride`, but runtime always uses the fixed relay domain. Written with `Data.WritingOptions` `.atomic` and `.completeFileProtection`.
 - **2.2** Chat message persistence — SwiftData `@Model` objects stored in the app's default SwiftData container (`ChatMessage.self`). Each message has: `id: UUID`, `text: String`, `sender: .user | .agent`, `timestamp: Date`, `status: .sending | .sent | .failed`. Loaded on app launch sorted by timestamp ascending.
 - **2.3** Dev config — optional `dev-config.json` bundle resource with keys `sentryDsn`, `posthogApiKey`, `posthogHost`, and `posthogSessionReplayEnabled`. Read-only, not user-configurable.
 - **2.4** No real Keychain usage — despite the `KeychainService` name, storage is file-based in Application Support (not the iOS Keychain). File protection provides encryption at rest.
 
 ### 3. Relay Connection
 
-- **3.1** WebSocket connection to relay over TLS (`wss://`). Uses `URLSessionWebSocketTask`. Default relay URL: `wss://relay.chat94.com/ws`.
+- **3.1** WebSocket connection to relay over TLS (`wss://`). Uses `URLSessionWebSocketTask`. Default relay URL: `wss://relay.chat4000.com/ws`.
 - **3.2** App Attest registration — the app can register an unregistered permanent group key on the relay before normal connection.
 - **3.3** Auto-reconnect with exponential backoff — on connection loss: 2s → 4s → 8s → 16s → 32s → 60s max.
 - **3.4** Ping/pong heartbeat — send `{ "version": 1, "type": "ping", "payload": null }` every 30 seconds.
@@ -136,7 +136,7 @@ Full-screen dark background with vertically centered content.
 Full-screen dark background. Three sections stacked vertically:
 
 **Nav bar** (top):
-- Left: "chat94" in nav-title font (monospaced bold 20pt iOS / 14pt macOS), white
+- Left: "chat4000" in nav-title font (monospaced bold 20pt iOS / 14pt macOS), white
 - Right: connection status dot (10×10 circle, color per §3.6) + gear icon (`gearshape` SF Symbol, 18pt, secondary color). Gear opens Settings sheet.
 - 16pt horizontal padding, 12pt vertical padding. Separated from content by a Divider.
 
@@ -180,7 +180,7 @@ Contents top to bottom:
 - **Disconnect button** — full-width, 48pt height, red (#FF4A4A) background, white text
 - **Clear Chat History button** — full-width, 48pt height, dark background with border. Opens confirmation dialog.
 - **Privacy section** — `Share diagnostics and analytics` toggle. When off, disables PostHog analytics/replay and Sentry crash/error reporting on that device.
-- **Version** — "chat94 v1.0.0", caption font, timestamp color (#666666), bottom-aligned with 24pt padding
+- **Version** — "chat4000 v1.0.0", caption font, timestamp color (#666666), bottom-aligned with 24pt padding
 
 ### 8. Platform Differences
 

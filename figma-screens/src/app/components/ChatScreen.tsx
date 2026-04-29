@@ -92,7 +92,7 @@ export function ChatScreen({ server, port, onOpenSettings }: ChatScreenProps) {
           borderBottom: '1px solid #1E1E1E'
         }}
       >
-        <h2 className="text-white">chat94</h2>
+        <h2 className="text-white">chat4000</h2>
         <div className="flex items-center gap-3">
           <div
             className="w-2.5 h-2.5 rounded-full"

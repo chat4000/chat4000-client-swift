@@ -1,4 +1,4 @@
-# chat94 Relay Protocol Specification
+# chat4000 Relay Protocol Specification
 
 Version: 1
 Status: Draft
@@ -8,7 +8,7 @@ Last updated: 2026-04-25
 
 ## 1. Overview
 
-chat94 uses a central relay server to route end-to-end encrypted messages between app clients and OpenClaw plugins. The relay is zero-knowledge for chat traffic: it never sees plaintext chat content.
+chat4000 uses a central relay server to route end-to-end encrypted messages between app clients and OpenClaw plugins. The relay is zero-knowledge for chat traffic: it never sees plaintext chat content.
 
 The pairing model in this version is:
 
@@ -29,7 +29,7 @@ The relay does not derive the group key and does not decide who should own it. I
 ## 2. Transport
 
 - **Protocol**: WebSocket (RFC 6455) over TLS
-- **URL**: `wss://relay.chat94.com/ws`
+- **URL**: `wss://relay.chat4000.com/ws`
 - **Default port**: 443
 - **Frame type**: JSON text frames
 - **Encoding**: UTF-8
@@ -222,7 +222,7 @@ After pairing, app clients register to the relay with `hello`.
     "group_id": "<group_id>",
     "device_id": "<stable_app_device_id>",
     "device_token": "<apns_device_token>",
-    "app_id": "com.neonnode.chat94app.dev",
+    "app_id": "com.neonnode.chat4000app.dev",
     "app_version": "1.2.3",
     "release_channel": "appstore"
   }
@@ -485,7 +485,7 @@ Wrapped key construction:
 - derive a 32-byte wrapping key from the shared secret with:
 
 ```text
-wrap_key = SHA-256(shared_secret || "chat94-pair-wrap-v1")
+wrap_key = SHA-256(shared_secret || "chat4000-pair-wrap-v1")
 ```
 
 - generate a random 24-byte nonce
@@ -626,7 +626,7 @@ The normal relay session uses:
     "group_id": "64-char-lowercase-hex",
     "device_id": "stable-app-device-id",
     "device_token": "optional-apns-token",
-    "app_id": "com.neonnode.chat94app.dev",
+    "app_id": "com.neonnode.chat4000app.dev",
     "app_version": "1.2.3",
     "release_channel": "appstore"
   }
@@ -774,7 +774,7 @@ The plaintext JSON carried inside a `msg` frame may include sender metadata:
     "device_id": "stable-device-id",
     "device_name": "User's iPhone",
     "app_version": "1.0.0",
-    "bundle_id": "com.neonnode.chat94app"
+    "bundle_id": "com.neonnode.chat4000app"
   },
   "body": {
     "text": "hello"

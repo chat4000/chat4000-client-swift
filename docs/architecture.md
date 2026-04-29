@@ -1,4 +1,4 @@
-# chat94 iOS/macOS Client — Architecture
+# chat4000 iOS/macOS Client — Architecture
 
 ## Current State
 
@@ -9,11 +9,11 @@ The app is implemented around a shared group key stored in local config, relay-b
 ## Project Structure
 
 ```
-chat94/
+chat4000/
 ├── project.yml                      ← XcodeGen spec (not Package.swift)
 ├── Sources/
 │   ├── App/
-│   │   ├── chat94App.swift     ← @main entry, screen routing, telemetry bootstrap, push wake wiring
+│   │   ├── chat4000App.swift     ← @main entry, screen routing, telemetry bootstrap, push wake wiring
 │   │   └── PlatformAppDelegate.swift← iOS/macOS app delegate bridge for APNs registration + silent push callbacks
 │   ├── Gateway/
 │   │   ├── ProtocolModels.swift     ← Relay envelope types, inner message types, builders
@@ -27,10 +27,10 @@ chat94/
 │   │   ├── AnalyticsEvent.swift     ← Explicit analytics event names + shared bucket helpers
 │   │   ├── AppEnvironment.swift     ← Build-config snapshot (relay URL, storage namespace, kind)
 │   │   ├── Crypto.swift             ← RelayCrypto: SHA-256 group ID, pairing URI helpers, XChaCha20-Poly1305 via swift-sodium
-│   │   ├── DevLog.swift             ← Bundle-id-gated logger (NSLog + ~/Library/Caches/chat94-dev.log)
+│   │   ├── DevLog.swift             ← Bundle-id-gated logger (NSLog + ~/Library/Caches/chat4000-dev.log)
 │   │   ├── Haptics.swift            ← UIKit haptic feedback (iOS only, no-op on macOS)
 │   │   ├── KeychainService.swift    ← File-based GroupConfig persistence (Application Support)
-│   │   ├── LaunchActionStore.swift  ← Pending launch-action persistence (e.g. chat94://record deep link)
+│   │   ├── LaunchActionStore.swift  ← Pending launch-action persistence (e.g. chat4000://record deep link)
 │   │   ├── LegalConsent.swift       ← Terms acceptance state + reconsent modal
 │   │   ├── PairingService.swift     ← PairingCoordinator: pair_open/data/complete state machine
 │   │   ├── RelaySessionDelegate.swift ← URLSession delegate (TLS trust handling for dev relays)
@@ -53,8 +53,8 @@ chat94/
 │           └── VoiceMessageViews.swift  ← Voice waveform + playback strip
 ├── Resources/
 │   ├── Assets.xcassets              ← App icon, colors
-│   ├── chat94.entitlements     ← iOS APNs + App Attest entitlements
-│   ├── chat94Mac.entitlements  ← macOS APNs + App Attest entitlements
+│   ├── chat4000.entitlements     ← iOS APNs + App Attest entitlements
+│   ├── chat4000Mac.entitlements  ← macOS APNs + App Attest entitlements
 │   ├── Info.plist                   ← iOS info plist
 │   ├── Info-macOS.plist             ← macOS info plist
 │   └── dev-config.json              ← Optional telemetry config: sentryDsn, posthogApiKey, posthogHost, replay flag
@@ -75,13 +75,13 @@ docs/
 - **XcodeGen** (`project.yml`) generates the Xcode project. Not SPM-based.
 - **Swift 6.0** with strict concurrency.
 - Two targets sharing the same source:
-  - `chat94` — iOS app, iPhone only (`TARGETED_DEVICE_FAMILY: 1`)
-  - `chat94Mac` — macOS app
+  - `chat4000` — iOS app, iPhone only (`TARGETED_DEVICE_FAMILY: 1`)
+  - `chat4000Mac` — macOS app
 - **SPM Dependencies** (declared in `project.yml`):
   - `sentry-cocoa` ≥ 9.10.0 — crash reporting
   - `PostHog` ≥ 3.0.0 — product analytics
   - `swift-sodium` ≥ 0.9.1 — Swift wrapper around libsodium, used for XChaCha20-Poly1305
-- Test target configured: `chat94Tests` (iOS unit tests).
+- Test target configured: `chat4000Tests` (iOS unit tests).
 
 ---
 
@@ -89,7 +89,7 @@ docs/
 
 ### App Lifecycle
 
-1. `chat94App.init()` — initialize telemetry from `dev-config.json` through `TelemetryManager`, then wire silent-push wake handling through `PushNotificationManager`
+1. `chat4000App.init()` — initialize telemetry from `dev-config.json` through `TelemetryManager`, then wire silent-push wake handling through `PushNotificationManager`
 2. `body` builds a `WindowGroup` with a `Group` that switches on `currentScreen: AppScreen`
 3. On appear: `checkSavedConfig()` loads `GroupConfig` from `KeychainService` → if found, routes directly to `.connecting`
 4. `PlatformAppDelegate` requests remote notifications at launch and forwards APNs callbacks into the shared push service
@@ -100,7 +100,7 @@ docs/
 All UI and connection state is `@MainActor`:
 - `RelayClient` — `@MainActor @Observable`
 - `ChatViewModel` — `@MainActor @Observable`
-- `chat94App` — inherits main actor from SwiftUI `App`
+- `chat4000App` — inherits main actor from SwiftUI `App`
 
 Background work uses structured concurrency (`Task { }`, `Task.sleep`). Manual `DispatchQueue` usage remains in the QR scanner debounce/reset path, the macOS Vision frame queue, and macOS window management.
 
@@ -139,7 +139,7 @@ struct GroupConfig: Codable, Equatable {
 
 Computed properties: `groupKey: Data?`, `groupId: String?` (SHA-256 hex), `relayURL: URL`, `isValid: Bool`.
 
-Persisted as JSON at: `~/Library/Application Support/chat94/pair-config.json`
+Persisted as JSON at: `~/Library/Application Support/chat4000/pair-config.json`
 
 ### ChatMessage (file: ChatMessage.swift)
 
@@ -153,7 +153,7 @@ Persisted as JSON at: `~/Library/Application Support/chat94/pair-config.json`
 }
 ```
 
-Managed by SwiftData. Container declared in `chat94App`: `.modelContainer(for: ChatMessage.self)`. `ModelContext` injected via SwiftUI `@Environment(\.modelContext)` in `ChatViewWrapper`.
+Managed by SwiftData. Container declared in `chat4000App`: `.modelContainer(for: ChatMessage.self)`. `ModelContext` injected via SwiftUI `@Environment(\.modelContext)` in `ChatViewWrapper`.
 
 ### ConnectionState (file: ConnectionState.swift)
 
@@ -255,7 +255,7 @@ Relay sends APNs silent push
 
 | File | Responsibility |
 |------|---------------|
-| `chat94App.swift` | App entry, screen routing, telemetry bootstrap, config loading |
+| `chat4000App.swift` | App entry, screen routing, telemetry bootstrap, config loading |
 | `PlatformAppDelegate.swift` | OS app delegate bridge for APNs registration and silent push delivery |
 | `RelayClient` (WebSocketClient.swift) | WebSocket lifecycle, hello handshake, App Attest registration retry, message routing, heartbeat, reconnect |
 | `ProtocolModels.swift` | All relay wire types (envelopes, payloads), inner message types, JSON builders |
@@ -282,7 +282,7 @@ Relay sends APNs silent push
 
 | Dependency | Purpose | Version |
 |-----------|---------|---------|
-| Relay server | Message routing, offline queue, APNs push | `wss://relay.chat94.com/ws` |
+| Relay server | Message routing, offline queue, APNs push | `wss://relay.chat4000.com/ws` |
 | OpenClaw plugin | Agent-side relay connection | TypeScript, separate repo |
 | Apple APNs | Silent background push wake-up | HTTP/2 |
 | Apple App Attest | Group key registration anti-abuse | `DCAppAttestService` |
@@ -294,7 +294,7 @@ Relay sends APNs silent push
 
 ## Testing Architecture
 
-Current unit-test coverage lives in `chat94/Tests/`:
+Current unit-test coverage lives in `chat4000/Tests/`:
 
 - `CryptoTests.swift` — roundtrip, empty payload, max-size payload, wrong-key failure, corrupted-ciphertext failure, group-ID vector
 - `ProtocolTests.swift` — outgoing `hello`/`challenge`/`register`/`pair_*` JSON validation (including `device_id` defaulting from `DeviceIdentity.currentDeviceId`), incoming message parsing, legacy `typing` frame ignore, malformed-JSON rejection
@@ -310,9 +310,9 @@ No UI tests are configured.
 Verified on April 13, 2026:
 
 - `xcodegen generate`
-- `xcodebuild -scheme chat94Mac CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`
-- `xcodebuild -scheme chat94 -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build`
-- `xcodebuild -scheme chat94Tests -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' test`
+- `xcodebuild -scheme chat4000Mac CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`
+- `xcodebuild -scheme chat4000 -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build`
+- `xcodebuild -scheme chat4000Tests -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' test`
 
 Residual warnings:
 
@@ -334,12 +334,12 @@ Residual warnings:
 
 ### Mac DMG
 
-`chat94/scripts/build-dmg.sh` packages the macOS `chat94mac` Release build into a signed, notarized DMG suitable for distribution outside the Mac App Store. The pipeline:
+`chat4000/scripts/build-dmg.sh` packages the macOS `chat4000mac` Release build into a signed, notarized DMG suitable for distribution outside the Mac App Store. The pipeline:
 
 1. `xcodebuild archive` (Release config, hardened runtime enabled via `ENABLE_HARDENED_RUNTIME: YES` in `project.yml`)
 2. `xcodebuild -exportArchive` with `method: developer-id` and `-allowProvisioningUpdates`
 3. `create-dmg` with Applications drag-link and window layout
-4. `xcrun notarytool submit --wait` (uses keychain profile `chat94-notary`)
+4. `xcrun notarytool submit --wait` (uses keychain profile `chat4000-notary`)
 5. `xcrun stapler staple`
 
 Pre-flight checks tell the user exactly what's missing if the script can't run: `create-dmg` not installed, no `Developer ID Application` cert for team `H45JD827CU`, or missing notary keychain profile.
@@ -348,9 +348,9 @@ One-time prerequisites:
 
 - `brew install create-dmg`
 - Generate a `Developer ID Application` cert for team `H45JD827CU` and import to login keychain
-- Generate a Developer ID provisioning profile for `com.neonnode.chat94app` (with Push + App Attest capabilities) and double-click to install
-- `xcrun notarytool store-credentials chat94-notary --apple-id … --team-id H45JD827CU --password <app-specific-password>`
+- Generate a Developer ID provisioning profile for `com.neonnode.chat4000app` (with Push + App Attest capabilities) and double-click to install
+- `xcrun notarytool store-credentials chat4000-notary --apple-id … --team-id H45JD827CU --password <app-specific-password>`
 
 ### iOS
 
-Distributed via the App Store (`chat94iphoneappstore` target, `app_store` distribution channel for production builds, `appstore` release channel value sent to the relay). TestFlight uses the same `appstore` channel value but is detected via `appStoreReceiptURL` checking for `sandboxReceipt`. Dev builds use the `chat94iphonedev` target with `.dev` bundle suffix and `dev` release channel.
+Distributed via the App Store (`chat4000iphoneappstore` target, `app_store` distribution channel for production builds, `appstore` release channel value sent to the relay). TestFlight uses the same `appstore` channel value but is detected via `appStoreReceiptURL` checking for `sandboxReceipt`. Dev builds use the `chat4000iphonedev` target with `.dev` bundle suffix and `dev` release channel.

@@ -1,0 +1,138 @@
+name: chat4000
+options:
+  bundleIdPrefix: com.chat94
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+packages:
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa.git
+    from: "9.10.0"
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios.git
+    from: "3.0.0"
+  swift-sodium:
+    url: https://github.com/jedisct1/swift-sodium.git
+    from: "0.9.1"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: H45JD827CU
+    CODE_SIGN_STYLE: Automatic
+    APP_DISPLAY_NAME: chat4000
+    APP_DISTRIBUTION_CHANNEL: dev
+    APP_APNS_ENV: development
+    APP_APPATTEST_ENV: development
+
+targetTemplates:
+  iOSApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - "*.json"
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/dev-config.json
+        buildPhase: resources
+        optional: true
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info.plist
+        PRODUCT_MODULE_NAME: chat4000
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Resources/chat4000Debug.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Resources/chat4000.entitlements
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    dependencies:
+      - package: Sentry
+      - package: PostHog
+      - package: swift-sodium
+        product: Sodium
+    postBuildScripts:
+      - name: Upload dSYM to Sentry
+        basedOnDependencyAnalysis: false
+        script: |
+          "$SRCROOT/scripts/upload-dsym-to-sentry.sh"
+
+targets:
+  chat4000iphoneappstore:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
+        APP_DISPLAY_NAME: chat4000
+      configs:
+        Debug:
+          APP_DISTRIBUTION_CHANNEL: dev
+          APP_APNS_ENV: development
+          APP_APPATTEST_ENV: development
+        Release:
+          APP_DISTRIBUTION_CHANNEL: app_store
+          APP_APNS_ENV: production
+          APP_APPATTEST_ENV: production
+
+  chat4000iphonedev:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev
+        APP_DISPLAY_NAME: chat4000Dev
+        APP_DISTRIBUTION_CHANNEL: dev
+        APP_APNS_ENV: development
+        APP_APPATTEST_ENV: development
+
+  chat4000mac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+        excludes:
+          - "*.json"
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/dev-config.json
+        buildPhase: resources
+        optional: true
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info-macOS.plist
+        PRODUCT_MODULE_NAME: chat4000
+        PRODUCT_NAME: chat4000
+        APP_DISPLAY_NAME: chat4000
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
+        CODE_SIGN_ENTITLEMENTS: Resources/chat4000Mac.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Mac does not register for remote notifications — APNS env unused.
+        APP_APNS_ENV: ""
+      configs:
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    dependencies:
+      - package: Sentry
+      - package: PostHog
+      - package: swift-sodium
+        product: Sodium
+
+  chat4000Tests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+    dependencies:
+      - target: chat4000iphoneappstore
