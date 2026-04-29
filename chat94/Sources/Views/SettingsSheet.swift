@@ -127,14 +127,6 @@ struct SettingsSheet: View {
                 .foregroundStyle(AppColors.textSecondary)
 
             VStack(alignment: .leading, spacing: 16) {
-                Text("Add another device")
-                    .font(AppFonts.body)
-                    .foregroundStyle(AppColors.textPrimary)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        handleAddAnotherDeviceGesture()
-                    }
-
                 if let groupId = config?.groupId {
                     HStack(spacing: 8) {
                         Text("Group ID")
