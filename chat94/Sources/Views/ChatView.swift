@@ -295,7 +295,7 @@ struct ChatView: View {
     // MARK: - Input Bar
 
     private var inputBar: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
             Divider()
                 .background(AppColors.inputBorder)
 
@@ -328,7 +328,7 @@ struct ChatView: View {
             trailingAccessoryArea
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, AppSpacing.inputBarBottomInset)
+        .padding(.vertical, AppSpacing.inputBarBottomInset)
         .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
     }
 
