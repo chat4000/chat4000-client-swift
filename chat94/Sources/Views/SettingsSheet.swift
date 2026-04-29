@@ -154,19 +154,28 @@ struct SettingsSheet: View {
                     }
                 }
 
-                if let pluginVersion, !pluginVersion.isEmpty {
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("Plugin")
+                HStack(alignment: .top, spacing: 8) {
+                    Text("App")
+                        .font(AppFonts.label)
+                        .foregroundStyle(AppColors.textSecondary)
+
+                    Text("v\(AppRegistrationIdentity.currentAppVersion)")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(AppColors.textPrimary)
+                        .textSelection(.enabled)
+
+                    if let pluginVersion, !pluginVersion.isEmpty {
+                        Text("·")
                             .font(AppFonts.label)
                             .foregroundStyle(AppColors.textSecondary)
 
-                        Text("v\(pluginVersion)")
+                        Text("plugin v\(pluginVersion)")
                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundStyle(AppColors.textPrimary)
                             .textSelection(.enabled)
-
-                        Spacer(minLength: 0)
                     }
+
+                    Spacer(minLength: 0)
                 }
 
                 Button {
