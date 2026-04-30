@@ -42,7 +42,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>chat4000 uses the camera to scan pair QR codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>chat4000 uses the microphone to record voice messages.</string>
+	<string>chat4000 records voice messages so you can send audio in your encrypted chat. For example, dictating to your paired agent instead of typing.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
