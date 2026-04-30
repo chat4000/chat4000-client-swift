@@ -28,7 +28,9 @@ enum RelayCrypto {
         return Data(bytes)
     }
 
-    static let pairingCodeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ2346789")
+    // Protocol-defined ambiguity-safe alphabet (docs/protocol.md): excludes
+    // 0, 1, 5 and the visually ambiguous letters I, L, O, Q, S.
+    static let pairingCodeAlphabet = Array("ABCDEFGHJKMNPRTUVWXYZ2346789")
 
     static func generatePairingCode() -> String {
         var chars: [Character] = []

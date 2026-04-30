@@ -55,6 +55,6 @@ echo "info: uploading production Release dSYM '$DWARF_DSYM_FILE_NAME' to Sentry"
 /usr/bin/curl --fail --silent --show-error \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -F "file=@${TMP_ZIP}" \
-  "https://us.sentry.io/api/0/projects/char94/chat4000app-ios/files/dsyms/"
+  "https://us.sentry.io/api/0/projects/chat4000/chat4000app-ios/files/dsyms/"
 
 echo "info: Sentry dSYM upload finished"
