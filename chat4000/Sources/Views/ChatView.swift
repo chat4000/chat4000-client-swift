@@ -32,6 +32,7 @@ struct ChatView: View {
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
     @State private var pendingScrollTask: Task<Void, Never>?
     @State private var versionPolicy = VersionPolicyManager.shared
+    @State private var pluginVersionPolicy = PluginVersionPolicyManager.shared
     private let macComposerMaxHeight: CGFloat = 210
 
     var body: some View {
@@ -46,6 +47,17 @@ struct ChatView: View {
                    case .softNag(let recommended, _) = versionPolicy.action {
                     UpgradeRecommendedBanner(recommendedVersion: recommended) {
                         versionPolicy.dismissNag()
+                    }
+                }
+
+                // Per protocol §6.3 plugin_version_policy — soft nag for the
+                // plugin running on the user's paired computer when its
+                // observed version is below recommended_version. Hard-block
+                // case is rendered separately (it gates messaging entirely).
+                if pluginVersionPolicy.showNag,
+                   case .softNag(let recommended, _) = pluginVersionPolicy.action {
+                    PluginUpgradeRecommendedBanner(recommendedVersion: recommended) {
+                        pluginVersionPolicy.dismissNag()
                     }
                 }
 
@@ -228,7 +240,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(using proxy: ScrollViewProxy) {
-        DevLog.log(
+        AppLog.log(
             "↕️ scrollToBottom messages=%d revision=%d busy=%@ phase=%@",
             viewModel.messages.count,
             viewModel.scrollRevision,
@@ -243,10 +255,10 @@ struct ChatView: View {
             #if os(iOS)
             try? await Task.sleep(for: .milliseconds(24))
             guard !Task.isCancelled else { return }
-            DevLog.log("↕️ scrollToBottom delayed follow-up")
+            AppLog.log("↕️ scrollToBottom delayed follow-up")
             proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
             #else
-            DevLog.log("↕️ scrollToBottom async follow-up")
+            AppLog.log("↕️ scrollToBottom async follow-up")
             proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
             #endif
         }
@@ -565,7 +577,7 @@ struct ChatView: View {
 
     private func startVoiceRecordingFromLaunchAction() async {
         guard !voiceRecorder.isRecording else { return }
-        DevLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction begin")
+        AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction begin")
         activeRecordingSource = .launchAction
         messageText = ""
         dismissKeyboardIfNeeded()
@@ -573,7 +585,7 @@ struct ChatView: View {
 
         do {
             try await voiceRecorder.start()
-            DevLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction success")
+            AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction success")
             TelemetryManager.shared.track(
                 .actionButtonRecordingTriggered,
                 properties: ["entry": "foreground_continue"]
@@ -583,7 +595,7 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
-            DevLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.localizedDescription)
+            AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.localizedDescription)
             voiceErrorMessage = error.localizedDescription
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
@@ -638,12 +650,12 @@ struct ChatView: View {
 
     private func handlePendingLaunchActionIfNeeded() {
         guard !isHandlingLaunchAction else { return }
-        DevLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded check")
+        AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded check")
 
         pendingLaunchActionTask?.cancel()
         pendingLaunchActionTask = Task { @MainActor in
             for attempt in 0..<6 {
-                DevLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded attempt=%d", attempt)
+                AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded attempt=%d", attempt)
                 if let action = LaunchActionStore.consume() {
                     isHandlingLaunchAction = true
                     defer { isHandlingLaunchAction = false }
@@ -850,12 +862,15 @@ final class ChatViewModel {
 
     private func requestScrollToBottom() {
         scrollRevision &+= 1
-        DevLog.log("↕️ requestScrollToBottom revision=%d messages=%d", scrollRevision, messages.count)
+        AppLog.log("↕️ requestScrollToBottom revision=%d messages=%d", scrollRevision, messages.count)
     }
 
     init() {
-        relay.onInnerMessage = { [weak self] inner in
-            self?.handleInnerMessage(inner)
+        relay.onInnerMessage = { [weak self] inner, seq in
+            self?.handleInnerMessage(inner, seq: seq)
+        }
+        relay.onRelayRecvAck = { [weak self] msgId in
+            self?.handleRelayRecvAck(msgId: msgId)
         }
         relay.onTermsVersionUpdate = { [weak self] currentTermsVersion in
             self?.onTermsVersionUpdate?(currentTermsVersion)
@@ -942,7 +957,7 @@ final class ChatViewModel {
     }
 
     func disconnectRelayForBackground() {
-        DevLog.log("🔌 Background disconnect: closing relay only")
+        AppLog.log("🔌 Background disconnect: closing relay only")
         statePollingTask?.cancel()
         statePollingTask = nil
         relay.disconnect()
@@ -956,7 +971,12 @@ final class ChatViewModel {
         try? modelContext?.save()
         requestScrollToBottom()
 
-        relay.send(text: text)
+        // Capture the wire-level inner id and store it on the local row so
+        // we can correlate `relay_recv_ack` and inner `ack` frames back to
+        // the bubble for tick-state updates (per protocol §6.6.7).
+        let wireId = relay.send(text: text)
+        message.msgId = wireId
+        try? modelContext?.save()
         TelemetryManager.shared.track(
             .messageSentText,
             properties: [
@@ -964,7 +984,13 @@ final class ChatViewModel {
                 "length_bucket": AnalyticsBuckets.lengthBucket(for: text),
             ]
         )
-        message.status = .sent
+        // Status stays `.sending` until the relay confirms via
+        // `relay_recv_ack`. Pre-ack relays will not send that frame, so we
+        // also flip to `.sent` here as a defensive fallback so legacy users
+        // don't see a perpetual "sending" indicator.
+        if message.status == .sending {
+            message.status = .sent
+        }
     }
 
     func sendImage(_ image: PlatformImage) {
@@ -976,7 +1002,9 @@ final class ChatViewModel {
         try? modelContext?.save()
         requestScrollToBottom()
 
-        relay.sendImage(jpegData: jpegData)
+        let wireId = relay.sendImage(jpegData: jpegData)
+        message.msgId = wireId
+        try? modelContext?.save()
         TelemetryManager.shared.track(
             .messageSentImage,
             properties: [
@@ -984,7 +1012,9 @@ final class ChatViewModel {
                 "count": 1,
             ]
         )
-        message.status = .sent
+        if message.status == .sending {
+            message.status = .sent
+        }
         Haptics.impact()
     }
 
@@ -1002,12 +1032,14 @@ final class ChatViewModel {
         try? modelContext?.save()
         requestScrollToBottom()
 
-        relay.sendAudio(
+        let wireId = relay.sendAudio(
             audioData: audioData,
             mimeType: mimeType,
             durationMs: Int((duration * 1000).rounded()),
             waveform: waveform
         )
+        message.msgId = wireId
+        try? modelContext?.save()
         TelemetryManager.shared.track(
             .messageSentAudio,
             properties: [
@@ -1015,7 +1047,9 @@ final class ChatViewModel {
                 "duration_bucket": AnalyticsBuckets.durationBucket(for: duration),
             ]
         )
-        message.status = .sent
+        if message.status == .sending {
+            message.status = .sent
+        }
     }
 
     func clearHistory() {
@@ -1029,19 +1063,22 @@ final class ChatViewModel {
 
     // MARK: - Inner Message Handling
 
-    private func handleInnerMessage(_ inner: InnerMessage) {
+    private func handleInnerMessage(_ inner: InnerMessage, seq: UInt64?) {
         rememberPluginMetadata(from: inner.from)
         updatePluginVersionWarning(from: inner.from)
 
         if let from = inner.from,
            from.role == .app,
            from.deviceId == DeviceIdentity.currentDeviceId {
-            DevLog.log("📥 inner ignored self_echo type=%@ id=%@", inner.t.rawValue, inner.id)
+            AppLog.log("📥 inner ignored self_echo type=%@ id=%@", inner.t.rawValue, inner.id)
+            // Self-echo is still a delivery signal: bump the ack high-water
+            // mark so the relay can drop it from the offline queue.
+            recordPersistedSeq(seq)
             return
         }
 
         let sender = messageSender(for: inner)
-        DevLog.log(
+        AppLog.log(
             "📥 inner dispatch type=%@ sender=%@ from_role=%@ status=%@ stream_id=%@",
             inner.t.rawValue,
             sender.rawValue,
@@ -1056,7 +1093,7 @@ final class ChatViewModel {
             if sender == .agent { clearBusy() }
 
         case .image(let b):
-            receiveImage(dataBase64: b.dataBase64, sender: sender)
+            receiveImage(dataBase64: b.dataBase64, id: inner.id, sender: sender)
             if sender == .agent { clearBusy() }
 
         case .audio(let b):
@@ -1065,6 +1102,7 @@ final class ChatViewModel {
                 mimeType: b.mimeType,
                 durationMs: b.durationMs,
                 waveform: b.waveform,
+                id: inner.id,
                 sender: sender
             )
             if sender == .agent { clearBusy() }
@@ -1102,47 +1140,125 @@ final class ChatViewModel {
             default:
                 break
             }
+
+        case .ack(let a):
+            // Per §6.6.7 v1 rule: only **plugin** acks drive the "delivered"
+            // tick. App-sourced acks (other devices in a multi-app group) are
+            // ignored for rendering. A future protocol revision may add
+            // app-to-app delivery indicators.
+            if let from = inner.from, from.role == .plugin {
+                handleInnerAck(refs: a.refs)
+            }
         }
+
+        // After dispatch + persist, advance the relay-ack high-water mark so
+        // the relay can drop this seq from the offline queue.
+        recordPersistedSeq(seq)
+    }
+
+    /// Per protocol §6.6.3: record a delivered seq for both durable
+    /// persistence (so the next hello replays correctly) and live debounced
+    /// `recv_ack` emission (so the relay can evict the queue immediately).
+    private func recordPersistedSeq(_ seq: UInt64?) {
+        guard let seq, let groupId = relay.currentGroupId else { return }
+        AckSeqStore.recordAcked(seq: seq, forGroupId: groupId)
+        relay.ackTracker.recordPersisted(seq)
+    }
+
+    /// Per protocol §6.6.4: relay confirmed our outbound message reached the
+    /// queue. Flips the matching local row from `.sending` → `.sent`.
+    private func handleRelayRecvAck(msgId: String) {
+        AppLog.log("📦 relay_recv_ack received msg_id=%@", msgId)
+        guard let match = messages.first(where: { $0.msgId == msgId }) else { return }
+        if match.status == .sending {
+            match.status = .sent
+            try? modelContext?.save()
+        }
+    }
+
+    /// Per protocol §6.6.5: plugin or peer-app emitted an end-to-end ack for
+    /// an outbound message we sent. Flips the matching local row to
+    /// `.delivered`. We accept any `stage` value as a delivered signal in v1.
+    private func handleInnerAck(refs: String) {
+        AppLog.log("📦 inner ack received refs=%@", refs)
+        guard let match = messages.first(where: { $0.msgId == refs }) else { return }
+        // Only advance forward — never demote a message that's already
+        // delivered or failed.
+        if match.status == .sending || match.status == .sent {
+            match.status = .delivered
+            try? modelContext?.save()
+        }
+    }
+
+    /// Per protocol §6.6.9 — idempotent insert by inner `msg_id`. Returns
+    /// true if a row with the same wire id already exists locally; callers
+    /// must skip the insert in that case but should still record the seq for
+    /// the relay's ack high-water mark.
+    private func isDuplicateInnerId(_ id: String) -> Bool {
+        if messages.contains(where: { $0.msgId == id }) { return true }
+        guard let modelContext else { return false }
+        var descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.msgId == id }
+        )
+        descriptor.fetchLimit = 1
+        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty {
+            return true
+        }
+        return false
     }
 
     private func receiveText(_ text: String, id: String, sender: MessageSender) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if isDuplicateInnerId(id) {
+            AppLog.log("📥 receiveText skipping duplicate id=%@", id)
+            return
+        }
         Haptics.success()
-        DevLog.log(
+        AppLog.log(
             "📥 receiveText id=%@ sender=%@ chars=%d",
             id,
             sender.rawValue,
             text.count
         )
 
-        let message = ChatMessage(text: text, sender: sender)
+        let message = ChatMessage(msgId: id, text: text, sender: sender)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
         requestScrollToBottom()
     }
 
-    private func receiveImage(dataBase64: String, sender: MessageSender) {
+    private func receiveImage(dataBase64: String, id: String, sender: MessageSender) {
         guard let imageData = Data(base64Encoded: dataBase64) else { return }
+        if isDuplicateInnerId(id) {
+            AppLog.log("📥 receiveImage skipping duplicate id=%@", id)
+            return
+        }
         Haptics.success()
-        DevLog.log(
-            "📥 receiveImage sender=%@ bytes=%d",
+        AppLog.log(
+            "📥 receiveImage id=%@ sender=%@ bytes=%d",
+            id,
             sender.rawValue,
             imageData.count
         )
 
-        let message = ChatMessage(imageData: imageData, sender: sender)
+        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
         requestScrollToBottom()
     }
 
-    private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], sender: MessageSender) {
+    private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender) {
         guard let audioData = Data(base64Encoded: dataBase64) else { return }
+        if isDuplicateInnerId(id) {
+            AppLog.log("📥 receiveAudio skipping duplicate id=%@", id)
+            return
+        }
         Haptics.success()
-        DevLog.log(
-            "📥 receiveAudio sender=%@ mime=%@ duration_ms=%d bytes=%d waveform=%d",
+        AppLog.log(
+            "📥 receiveAudio id=%@ sender=%@ mime=%@ duration_ms=%d bytes=%d waveform=%d",
+            id,
             sender.rawValue,
             mimeType,
             durationMs,
@@ -1151,6 +1267,7 @@ final class ChatViewModel {
         )
 
         let message = ChatMessage(
+            msgId: id,
             audioData: audioData,
             audioMimeType: mimeType,
             audioDuration: Double(durationMs) / 1000,
@@ -1164,7 +1281,7 @@ final class ChatViewModel {
     }
 
     private func beginStreamingMessage(streamId: String, sender: MessageSender) {
-        DevLog.log(
+        AppLog.log(
             "🧵 beginStreamingMessage stream_id=%@ sender=%@ existing_stream=%@",
             streamId,
             sender.rawValue,
@@ -1175,8 +1292,14 @@ final class ChatViewModel {
 
         if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
             existing.text = ""
+            existing.msgId = streamId
+        } else if isDuplicateInnerId(streamId) {
+            // Stream already finalized locally — relay redrive of an
+            // already-handled stream. Skip creation; subsequent deltas will
+            // also be no-ops because the existing finalized row matches.
+            AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
         } else {
-            let message = ChatMessage(text: "", sender: sender, status: .sending)
+            let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending)
             messages.append(message)
             modelContext?.insert(message)
             currentStreamMessageId = message.id
@@ -1185,7 +1308,7 @@ final class ChatViewModel {
     }
 
     private func updateCurrentStreamingMessage(text: String, sender: MessageSender) {
-        DevLog.log(
+        AppLog.log(
             "🧵 updateStreamingMessage stream_id=%@ sender=%@ chars=%d",
             currentStreamId ?? "nil",
             sender.rawValue,
@@ -1194,7 +1317,8 @@ final class ChatViewModel {
         if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
             existing.text = text
         } else {
-            let message = ChatMessage(text: text, sender: sender, status: .sending)
+            let streamId = currentStreamId
+            let message = ChatMessage(msgId: streamId, text: text, sender: sender, status: .sending)
             messages.append(message)
             modelContext?.insert(message)
             currentStreamMessageId = message.id
@@ -1204,7 +1328,7 @@ final class ChatViewModel {
 
     private func finalizeCurrentStreamingMessage(text: String, sender: MessageSender) {
         Haptics.success()
-        DevLog.log(
+        AppLog.log(
             "🧵 finalizeStreamingMessage stream_id=%@ sender=%@ chars=%d",
             currentStreamId ?? "nil",
             sender.rawValue,
@@ -1215,9 +1339,16 @@ final class ChatViewModel {
             existing.text = text
             existing.status = .sent
         } else {
-            let message = ChatMessage(text: text, sender: sender)
-            messages.append(message)
-            modelContext?.insert(message)
+            let streamId = currentStreamId
+            // Per §6.6.9 dedupe: if the stream was already finalized in a
+            // prior session and we re-received the redrive, skip the insert.
+            if let streamId, isDuplicateInnerId(streamId) {
+                AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
+            } else {
+                let message = ChatMessage(msgId: streamId, text: text, sender: sender)
+                messages.append(message)
+                modelContext?.insert(message)
+            }
         }
 
         currentStreamId = nil
@@ -1228,7 +1359,7 @@ final class ChatViewModel {
     }
 
     private func cancelCurrentStreamingMessage(streamId: String) {
-        DevLog.log("🧵 cancelStreamingMessage stream_id=%@ current=%@", streamId, currentStreamId ?? "nil")
+        AppLog.log("🧵 cancelStreamingMessage stream_id=%@ current=%@", streamId, currentStreamId ?? "nil")
 
         if currentStreamId == streamId, let existing = currentStreamingMessage() {
             withAnimation(.easeOut(duration: 0.2)) {
@@ -1359,7 +1490,7 @@ final class ChatViewModel {
             let pending = await PendingIncomingMessageStore.shared.drain()
             guard !pending.isEmpty else { return }
 
-            DevLog.log("📬 importing pending incoming messages count=%ld", pending.count)
+            AppLog.log("📬 importing pending incoming messages count=%ld", pending.count)
 
             for pendingMessage in pending {
                 switch pendingMessage.payload {
@@ -1372,7 +1503,7 @@ final class ChatViewModel {
                     )
                     messages.append(message)
                     modelContext?.insert(message)
-                    DevLog.log(
+                    AppLog.log(
                         "📬 imported pending text id=%@ chars=%ld",
                         pendingMessage.messageId,
                         text.count
@@ -1380,7 +1511,7 @@ final class ChatViewModel {
 
                 case .image(let dataBase64):
                     guard let imageData = Data(base64Encoded: dataBase64) else {
-                        DevLog.log("ERROR: Failed to decode pending image id=%@", pendingMessage.messageId)
+                        AppLog.log("ERROR: Failed to decode pending image id=%@", pendingMessage.messageId)
                         continue
                     }
                     let message = ChatMessage(
@@ -1391,7 +1522,7 @@ final class ChatViewModel {
                     )
                     messages.append(message)
                     modelContext?.insert(message)
-                    DevLog.log(
+                    AppLog.log(
                         "📬 imported pending image id=%@ bytes=%ld",
                         pendingMessage.messageId,
                         imageData.count
@@ -1399,7 +1530,7 @@ final class ChatViewModel {
 
                 case .audio(let dataBase64, let mimeType, let durationMs, let waveform):
                     guard let audioData = Data(base64Encoded: dataBase64) else {
-                        DevLog.log("ERROR: Failed to decode pending audio id=%@", pendingMessage.messageId)
+                        AppLog.log("ERROR: Failed to decode pending audio id=%@", pendingMessage.messageId)
                         continue
                     }
                     let message = ChatMessage(
@@ -1413,7 +1544,7 @@ final class ChatViewModel {
                     )
                     messages.append(message)
                     modelContext?.insert(message)
-                    DevLog.log(
+                    AppLog.log(
                         "📬 imported pending audio id=%@ bytes=%ld duration_ms=%ld",
                         pendingMessage.messageId,
                         audioData.count,

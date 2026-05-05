@@ -28,24 +28,24 @@ final class PushNotificationManager: NSObject {
 
     func registerForRemoteNotifications() {
         #if os(macOS)
-        DevLog.log("🔔 [push] registerForRemoteNotifications skipped on macOS")
+        AppLog.log("🔔 [push] registerForRemoteNotifications skipped on macOS")
         return
         #else
         configure()
-        DevLog.log(
+        AppLog.log(
             "🔔 [push] starting APNS registration (existing_token=%@)",
             deviceToken == nil ? "false" : "true"
         )
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                DevLog.log("⚠️ [push] notification authorization failed: \(error.localizedDescription)")
+                AppLog.log("⚠️ [push] notification authorization failed: \(error.localizedDescription)")
             } else {
-                DevLog.log("🔔 [push] notification authorization granted: \(granted)")
+                AppLog.log("🔔 [push] notification authorization granted: \(granted)")
             }
 
             Task { @MainActor in
                 let settings = await UNUserNotificationCenter.current().notificationSettings()
-                DevLog.log(
+                AppLog.log(
                     "🔔 [push] notification settings auth=%ld alert=%ld sound=%ld badge=%ld",
                     settings.authorizationStatus.rawValue,
                     settings.alertSetting.rawValue,
@@ -53,7 +53,7 @@ final class PushNotificationManager: NSObject {
                     settings.badgeSetting.rawValue
                 )
                 #if os(iOS)
-                DevLog.log("🔔 [push] calling UIApplication.registerForRemoteNotifications()")
+                AppLog.log("🔔 [push] calling UIApplication.registerForRemoteNotifications()")
                 UIApplication.shared.registerForRemoteNotifications()
                 #elseif os(macOS)
                 NSApplication.shared.registerForRemoteNotifications()
@@ -67,7 +67,7 @@ final class PushNotificationManager: NSObject {
         #if os(iOS)
         UNUserNotificationCenter.current().setBadgeCount(0) { error in
             if let error {
-                DevLog.log("🔔 [push] clearBadge failed: \(error.localizedDescription)")
+                AppLog.log("🔔 [push] clearBadge failed: \(error.localizedDescription)")
             }
         }
         #endif
@@ -76,7 +76,7 @@ final class PushNotificationManager: NSObject {
     func storeDeviceToken(_ tokenData: Data) {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(token, forKey: tokenDefaultsKey)
-        DevLog.log(
+        AppLog.log(
             "🔔 [push] stored remote notification token len=%ld prefix=%@",
             token.count,
             String(token.prefix(12))
@@ -97,7 +97,7 @@ final class PushNotificationManager: NSObject {
         } else {
             alertDescription = "none"
         }
-        DevLog.log(
+        AppLog.log(
             "🔔 [push] remote notification received silent=%@ keys=%@ aps_keys=%@ badge=%@ content_available=%@ mutable_content=%@ alert=%@",
             silent ? "true" : "false",
             userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ","),
@@ -109,7 +109,7 @@ final class PushNotificationManager: NSObject {
         )
         guard silent else { return false }
         let handled = await backgroundWakeHandler?() ?? false
-        DevLog.log("🔔 [push] silent push handler finished handled=%@", handled ? "true" : "false")
+        AppLog.log("🔔 [push] silent push handler finished handled=%@", handled ? "true" : "false")
         return handled
     }
 
@@ -131,7 +131,7 @@ final class PushNotificationManager: NSObject {
 
         do {
             try await UNUserNotificationCenter.current().add(request)
-            DevLog.log(
+            AppLog.log(
                 "🔔 [push] local notification scheduled id=%@ title=%@ body_length=%ld body_prefix=%@",
                 request.identifier,
                 content.title,
@@ -139,7 +139,7 @@ final class PushNotificationManager: NSObject {
                 String(body.prefix(32))
             )
         } catch {
-            DevLog.log("⚠️ [push] failed to enqueue local notification: \(error.localizedDescription)")
+            AppLog.log("⚠️ [push] failed to enqueue local notification: \(error.localizedDescription)")
         }
         #endif
     }
@@ -157,7 +157,7 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let content = notification.request.content
-        DevLog.log(
+        AppLog.log(
             "🔔 [push] willPresent id=%@ title=%@ body=%@ badge=%@ trigger=%@",
             notification.request.identifier,
             content.title,
@@ -177,26 +177,31 @@ final class BackgroundRelayWakeService {
 
     func handleSilentPush() async -> Bool {
         guard !isRunning else {
-            DevLog.log("🔔 [push] background wake already running, skipping duplicate wake")
+            AppLog.log("🔔 [push] background wake already running, skipping duplicate wake")
             return true
         }
         guard let config = KeychainService.load() else {
-            DevLog.log("🔔 [push] silent push received but no saved pair config exists")
+            AppLog.log("🔔 [push] silent push received but no saved pair config exists")
             return false
         }
 
-        DevLog.log("🔔 [push] background wake starting relay reconnect")
+        AppLog.log("🔔 [push] background wake starting relay reconnect")
         isRunning = true
         defer {
             isRunning = false
-            DevLog.log("🔔 [push] background wake finished")
+            AppLog.log("🔔 [push] background wake finished")
         }
 
         let relay = RelayClient()
-        relay.onInnerMessage = { inner in
+        relay.onInnerMessage = { inner, seq in
             Task { @MainActor in
+                // Background-wake path also drives the ack high-water mark
+                // so the relay can drop seq from the offline queue.
+                if let seq, let groupId = relay.currentGroupId {
+                    AckSeqStore.recordAcked(seq: seq, forGroupId: groupId)
+                }
                 if let from = inner.from, from.role == .app {
-                    DevLog.log(
+                    AppLog.log(
                         "🔔 [push] background inner ignored app-side message type=%@ id=%@ device=%@",
                         inner.t.rawValue,
                         inner.id,
@@ -205,7 +210,7 @@ final class BackgroundRelayWakeService {
                     return
                 }
 
-                DevLog.log(
+                AppLog.log(
                     "🔔 [push] background inner received type=%@ id=%@ from_role=%@",
                     inner.t.rawValue,
                     inner.id,
@@ -216,7 +221,7 @@ final class BackgroundRelayWakeService {
                 case .text(let body):
                     let text = body.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else {
-                        DevLog.log("🔔 [push] skipping empty text id=%@", inner.id)
+                        AppLog.log("🔔 [push] skipping empty text id=%@", inner.id)
                         return
                     }
 
@@ -229,7 +234,7 @@ final class BackgroundRelayWakeService {
                             receivedAt: .now
                         )
                     )
-                    DevLog.log(
+                    AppLog.log(
                         "🔔 [push] queued text id=%@ chars=%ld queued=%@",
                         inner.id,
                         body.text.count,
@@ -245,13 +250,13 @@ final class BackgroundRelayWakeService {
 
                 case .textEnd(let body):
                     if body.reset == true {
-                        DevLog.log("🔔 [push] skipping reset text_end id=%@", inner.id)
+                        AppLog.log("🔔 [push] skipping reset text_end id=%@", inner.id)
                         return
                     }
 
                     let text = body.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else {
-                        DevLog.log("🔔 [push] skipping empty text_end id=%@", inner.id)
+                        AppLog.log("🔔 [push] skipping empty text_end id=%@", inner.id)
                         return
                     }
 
@@ -264,7 +269,7 @@ final class BackgroundRelayWakeService {
                             receivedAt: .now
                         )
                     )
-                    DevLog.log(
+                    AppLog.log(
                         "🔔 [push] queued text_end id=%@ chars=%ld reset=%@ queued=%@",
                         inner.id,
                         body.text.count,
@@ -289,7 +294,7 @@ final class BackgroundRelayWakeService {
                             receivedAt: .now
                         )
                     )
-                    DevLog.log(
+                    AppLog.log(
                         "🔔 [push] queued image id=%@ bytes_b64=%ld queued=%@",
                         inner.id,
                         body.dataBase64.count,
@@ -311,7 +316,7 @@ final class BackgroundRelayWakeService {
                             receivedAt: .now
                         )
                     )
-                    DevLog.log(
+                    AppLog.log(
                         "🔔 [push] queued audio id=%@ duration_ms=%ld queued=%@",
                         inner.id,
                         body.durationMs,
@@ -319,17 +324,17 @@ final class BackgroundRelayWakeService {
                     )
 
                 case .status(let body):
-                    DevLog.log("🔔 [push] background status id=%@ status=%@", inner.id, body.status)
+                    AppLog.log("🔔 [push] background status id=%@ status=%@", inner.id, body.status)
 
                 case .textDelta(let body):
-                    DevLog.log(
+                    AppLog.log(
                         "🔔 [push] background text_delta id=%@ chars=%ld",
                         inner.id,
                         body.delta.count
                     )
 
                 default:
-                    DevLog.log("🔔 [push] background inner ignored type=%@", inner.t.rawValue)
+                    AppLog.log("🔔 [push] background inner ignored type=%@", inner.t.rawValue)
                     break
                 }
             }
@@ -338,7 +343,7 @@ final class BackgroundRelayWakeService {
         relay.connect(config: config)
 
         let connected = await waitForRelayConnection(relay)
-        DevLog.log("🔔 [push] background wake relay connected=%@", connected ? "true" : "false")
+        AppLog.log("🔔 [push] background wake relay connected=%@", connected ? "true" : "false")
         if connected {
             try? await Task.sleep(for: .seconds(8))
         }
@@ -352,16 +357,16 @@ final class BackgroundRelayWakeService {
         while Date() < deadline {
             switch relay.state {
             case .connected:
-                DevLog.log("🔔 [push] background wake saw relay connected")
+                AppLog.log("🔔 [push] background wake saw relay connected")
                 return true
             case .failed:
-                DevLog.log("🔔 [push] background wake saw relay failed")
+                AppLog.log("🔔 [push] background wake saw relay failed")
                 return false
             default:
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
-        DevLog.log("🔔 [push] background wake timed out waiting for relay connection")
+        AppLog.log("🔔 [push] background wake timed out waiting for relay connection")
         return false
     }
 }

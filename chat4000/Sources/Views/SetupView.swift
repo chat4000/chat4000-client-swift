@@ -48,7 +48,7 @@ struct EnterPairingCodeView: View {
 
         let normalized = RelayCrypto.normalizePairingCode(trimmed)
         let submissionKey = normalized.count == 8 ? normalized : trimmed
-        DevLog.log("🔗 UI submitInput raw=\(trimmed) normalized=\(normalized) submissionKey=\(submissionKey) lastSubmitted=\(lastSubmittedCode)")
+        AppLog.log("🔗 UI submitInput raw=\(trimmed) normalized=\(normalized) submissionKey=\(submissionKey) lastSubmitted=\(lastSubmittedCode)")
         guard submissionKey != lastSubmittedCode else { return }
 
         lastSubmittedCode = submissionKey
@@ -128,7 +128,7 @@ struct EnterPairingCodeView: View {
                 onScanned: { scannedText in
                     let trimmed = scannedText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let normalized = RelayCrypto.normalizePairingCode(trimmed)
-                    DevLog.log("🔗 UI scanner scanned raw=\(trimmed) normalized=\(normalized)")
+                    AppLog.log("🔗 UI scanner scanned raw=\(trimmed) normalized=\(normalized)")
                     codeText = normalized.count == 8 ? normalized : trimmed
                     showScanner = false
                     if requiresConsent {
@@ -186,13 +186,13 @@ extension EnterPairingCodeView {
                         .autocorrectionDisabled()
                         .onSubmit {
                             guard canSubmit else { return }
-                            DevLog.log("🔗 UI TextField onSubmit trimmedInput=\(trimmedInput)")
+                            AppLog.log("🔗 UI TextField onSubmit trimmedInput=\(trimmedInput)")
                             submitInput(trimmedInput)
                         }
                         .onChange(of: codeText) { _, newValue in
                             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                             if trimmed.isEmpty {
-                                DevLog.log("🔗 UI codeText cleared")
+                                AppLog.log("🔗 UI codeText cleared")
                                 codeText = ""
                                 lastSubmittedCode = ""
                                 return
@@ -202,11 +202,11 @@ extension EnterPairingCodeView {
                                 RelayCrypto.pairingCodeAlphabet.contains($0)
                             }
                             let nextCode = String(filtered.prefix(8))
-                            DevLog.log("🔗 UI codeText onChange raw=\(newValue) filtered=\(filtered) nextCode=\(nextCode)")
+                            AppLog.log("🔗 UI codeText onChange raw=\(newValue) filtered=\(filtered) nextCode=\(nextCode)")
                             codeText = nextCode
 
                             if !requiresConsent, nextCode.count == 8, nextCode != lastSubmittedCode {
-                                DevLog.log("🔗 UI codeText reached 8 chars, auto-submitting \(nextCode)")
+                                AppLog.log("🔗 UI codeText reached 8 chars, auto-submitting \(nextCode)")
                                 submitInput(nextCode)
                             }
                         }

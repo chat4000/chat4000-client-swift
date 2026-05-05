@@ -116,7 +116,7 @@ struct chat4000App: App {
                     TelemetryManager.shared.track(.appOpened)
                 case .background:
                     if groupConfig != nil {
-                        DevLog.log("🔌 App entering background, disconnecting relay socket")
+                        AppLog.log("🔌 App entering background, disconnecting relay socket")
                         chatViewModel.disconnectRelayForBackground()
                     }
                     finishActiveSessionIfNeeded()
@@ -126,7 +126,7 @@ struct chat4000App: App {
             }
             .onChange(of: chatViewModel.config) { _, newConfig in
                 if newConfig == nil {
-                    DevLog.log("🔗 App observed chatViewModel.config=nil on screen \(String(describing: currentScreen))")
+                    AppLog.log("🔗 App observed chatViewModel.config=nil on screen \(String(describing: currentScreen))")
                     groupConfig = nil
                     if currentScreen != .pairing {
                         pairingCoordinator.reset()
@@ -177,7 +177,7 @@ struct chat4000App: App {
                 }
             }
             .onOpenURL { url in
-                DevLog.log("🎯 onOpenURL %@", url.absoluteString)
+                AppLog.log("🎯 onOpenURL %@", url.absoluteString)
                 guard let action = LaunchActionStore.action(for: url) else { return }
                 LaunchActionStore.set(action)
             }
@@ -329,18 +329,18 @@ struct chat4000App: App {
     #endif
 
     private func startJoinPairing(_ input: String) {
-        DevLog.log("🔗 App startJoinPairing input=\(input) currentScreen=\(String(describing: currentScreen))")
+        AppLog.log("🔗 App startJoinPairing input=\(input) currentScreen=\(String(describing: currentScreen))")
         if currentScreen == .pairing {
-            DevLog.log("🔗 Ignoring duplicate startJoinPairing while already pairing")
+            AppLog.log("🔗 Ignoring duplicate startJoinPairing while already pairing")
             return
         }
 
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = RelayCrypto.normalizePairingCode(trimmed)
-        DevLog.log("🔗 App startJoinPairing trimmed=\(trimmed) normalized=\(normalized)")
+        AppLog.log("🔗 App startJoinPairing trimmed=\(trimmed) normalized=\(normalized)")
 
         if let invite = RelayCrypto.parsePairingURI(trimmed) {
-            DevLog.log("🔗 App startJoinPairing taking pairing-uri path")
+            AppLog.log("🔗 App startJoinPairing taking pairing-uri path")
             TelemetryManager.shared.track(
                 .pairingCodeSubmitted,
                 properties: ["input_type": "uri"]
@@ -358,7 +358,7 @@ struct chat4000App: App {
         }
 
         if normalized.count == 8, trimmed == normalized {
-            DevLog.log("🔗 App startJoinPairing taking pairing-code path")
+            AppLog.log("🔗 App startJoinPairing taking pairing-code path")
             TelemetryManager.shared.track(
                 .pairingCodeSubmitted,
                 properties: ["input_type": "code"]
@@ -376,7 +376,7 @@ struct chat4000App: App {
         }
 
         if let config = GroupConfig.parse(trimmed) {
-            DevLog.log("🔗 App startJoinPairing taking direct-config path")
+            AppLog.log("🔗 App startJoinPairing taking direct-config path")
             TelemetryManager.shared.track(
                 .pairingCodeSubmitted,
                 properties: ["input_type": "direct_config"]
@@ -386,7 +386,7 @@ struct chat4000App: App {
             return
         }
 
-        DevLog.log("🔗 App startJoinPairing invalid input")
+        AppLog.log("🔗 App startJoinPairing invalid input")
         errorMessage = "Enter a valid pairing code or group key"
         Haptics.error()
     }
@@ -474,6 +474,51 @@ struct UpgradeRecommendedBanner: View {
                     .font(AppFonts.label)
                     .foregroundStyle(AppColors.textPrimary)
                 Text("Recommended version \(recommendedVersion)")
+                    .font(AppFonts.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColors.textSecondary)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(AppColors.cardBackground)
+        .overlay(
+            Rectangle()
+                .fill(AppColors.inputBorder)
+                .frame(height: 1),
+            alignment: .bottom
+        )
+    }
+}
+
+/// Per protocol §6.3 plugin_version_policy — soft nag banner shown when the
+/// plugin running on the user's paired computer is below the recommended
+/// version. Same visual treatment as `UpgradeRecommendedBanner` but with
+/// copy that points at OpenClaw rather than the app itself.
+struct PluginUpgradeRecommendedBanner: View {
+    let recommendedVersion: String
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "desktopcomputer.and.arrow.down")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(AppColors.textPrimary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Plugin update available")
+                    .font(AppFonts.label)
+                    .foregroundStyle(AppColors.textPrimary)
+                Text("Update OpenClaw on your paired computer to \(recommendedVersion) or newer")
                     .font(AppFonts.caption)
                     .foregroundStyle(AppColors.textSecondary)
             }

@@ -1,6 +1,6 @@
 # chat4000 iOS/macOS Client — Implementation Status
 
-Last updated: 2026-04-28
+Last updated: 2026-05-05
 
 ## Feature Status
 
@@ -72,14 +72,30 @@ Last updated: 2026-04-28
 | **9. Observability** | | | |
 | 9.1 | Sentry | Implemented | Routed through `TelemetryManager`. Used for crashes/errors only; respects the in-app telemetry toggle. |
 | 9.2 | PostHog | Implemented | Routed through `TelemetryManager`. Used for explicit analytics events only; crash/error autocapture is disabled. |
-| 9.3 | DevLog file | Implemented | Bundle-id-gated (`*.dev` only) plain-text log at `<app sandbox>/Library/Caches/chat4000-dev.log`. Pullable via `xcrun devicectl device copy from --domain-type appDataContainer`. |
+| 9.3 | AppLog file | Implemented | Bundle-id-gated (`*.dev` only) plain-text log at `<app sandbox>/Library/Caches/chat4000-dev.log`. Pullable via `xcrun devicectl device copy from --domain-type appDataContainer`. (Renamed from DevLog.) |
+| **10. Reliable Delivery (protocol §6.6)** | | | |
+| 10.1 | macOS App Nap blocker | Implemented | `AppNapBlocker.shared.begin()` on `connect()` holds `ProcessInfo.beginActivity([.userInitiated, .idleSystemSleepDisabled])` for the lifetime of the WebSocket session. Released only on `.failed` / `.disconnected`. Fixes the silent-loss bug where macOS suspends the receive loop, kernel buffers fill, and the relay's idle-ping kills the socket discarding the buffer. |
+| 10.2 | App-layer 25 s heartbeat | Implemented | `RelayProtocol.heartbeatIntervalSecs = 25`. Keeps the relay's 60 s idle-ping timeout from firing under normal conditions and proves the receive loop is actively pumping (not just the kernel TCP stack). |
+| 10.3 | Outer-frame `seq` parsing | Implemented | `MsgPayload.seq: UInt64?` decoded from inbound `msg.payload`. Senders never assign `seq`. |
+| 10.4 | `last_acked_seq` on every `hello` | Implemented | `AckSeqStore` (UserDefaults, per-group_id high-water mark) is read on connect and written into `HelloPayload.lastAckedSeq`. Allows the relay to redrive only un-acked tail. |
+| 10.5 | `recv_ack` debounced cumulative + selective ranges | Implemented | `AckTracker` emits `RelayOutgoing.recvAck(upToSeq:ranges:)` whenever (a) 32 pending seqs accumulate, (b) 50 ms idle since the most recent persistence, or (c) on disconnect / handle-loss flush. Cumulative high-water mark for in-order; selective ranges for out-of-order recovery (TCP/QUIC-style). |
+| 10.6 | `relay_recv_ack` parsing → `.sent` tick | Implemented | `RelayClient.onRelayRecvAck` flips matching outbound `ChatMessage.status` from `.sending` to `.sent`. Pre-ack relays don't emit it; the client falls back to `.sent` immediately after `relay.send(...)` returns. |
+| 10.7 | Inner `ack` type (Flow B) | Implemented | `InnerMessageType.ack`, `InnerBody.ack(AckBody { refs, stage })`, `InnerMessage.ack(refs:stage:)` factory. Decode + encode paths in place. |
+| 10.8 | Plugin inner `ack` → `.delivered` tick | Implemented | When inner `ack` arrives with `from.role == .plugin` and `body.refs == msgId` of a local outbound row, status flips `.sent` → `.delivered`. Per §6.6.7 v1 rule, app-sourced acks (other apps in same group) are ignored for tick rendering. |
+| 10.9 | Idempotent insert by `msg_id` (§6.6.9) | Implemented | `ChatMessage.msgId` field; new helper `isDuplicateInnerId(_:)` checks the in-memory `messages` array and SwiftData via `FetchDescriptor<ChatMessage>(predicate: #Predicate { $0.msgId == id })`. Receive paths (`receiveText/Image/Audio`, `beginStreamingMessage`, `finalizeCurrentStreamingMessage`) skip duplicates while still recording the `seq` for ack. |
+| 10.10 | Tick UI on `MessageBubble` | Implemented | User bubbles render `clock` (sending) / `checkmark` (sent) / `checkmark.circle.fill` (delivered) / `exclamationmark.triangle.fill` (failed) next to the timestamp. Agent bubbles never show ticks. |
+| 10.11 | Mac single-tap toggles message timestamp | Implemented | `MessageBubble` text view uses `.textSelection(.disabled)` + `contentShape(Rectangle())` + `onTapGesture { showsTimestamp.toggle() }`. Copy moved to context menu (right-click on macOS, long-press on iOS). |
+| 10.12 | `plugin_version_policy` parsing + UI banner | Implemented | `PluginVersionPolicyManager` parses `hello_ok.plugin_version_policy` and observes `from.app_version` on inbound plugin inner messages; `PluginUpgradeRecommendedBanner` renders the soft-nag in `ChatView`. Hard-block UX deferred. |
 
 ## Verification Status
 
 | Check | Status |
 |-------|--------|
-| iOS build (`xcodebuild`) | Passed on 2026-04-28 against iPhone 17 simulator and physical iPhone 17 Pro Max |
-| macOS build (`xcodebuild`) | Passed on 2026-04-28 (Debug + Release) |
-| Unit tests | Passed on 2026-04-28 — 48 tests across crypto, protocol, pair config, pairing crypto, inner messages, version policy |
-| Mac DMG pipeline | Build + sign + DMG packaging verified; first notarization round-trip in progress |
+| iOS build (`xcodebuild`) | Passed on 2026-05-05 against iPhone 17 Pro Max device build (Debug) |
+| macOS build (`xcodebuild`) | Passed on 2026-05-05 (Debug + Release) |
+| Unit tests | Last passed 2026-04-28 — 48 tests across crypto, protocol, pair config, pairing crypto, inner messages, version policy. Reliable-delivery layer (AckTracker, AckSeqStore, idempotent insert, plugin policy) does not yet have unit-test coverage. |
+| Mac DMG pipeline | Build + sign + DMG packaging + Apple Notary + stapler validate verified end-to-end (notarized 2026-05-01). |
+| App Nap fix end-to-end | Manual smoke test pending — leave Mac unfocused for 2 min, send from iPhone, verify message arrives without re-focus. |
+| Reliable-delivery layer end-to-end | Pending — depends on relay agent landing `seq` assignment, durable queue, `recv_ack` accept, `relay_recv_ack` emission. Client degrades gracefully against pre-ack relays today. |
+| Plugin `delivered` tick end-to-end | Pending — depends on plugin agent landing inner `ack` emission with `from.role == "plugin"` and `body.refs == inbound msg_id`. |
 | Integration test (app → relay → plugin) | Not run in this repo |

@@ -48,7 +48,7 @@ final class PairingCoordinator {
         pairingRelayURL = config.relayURL.absoluteString
         initiatorSalt = RelayCrypto.randomData(length: 32)
 
-        DevLog.log("🔗 Pairing host opening room \(roomId.prefix(16))... for code \(pairingCode)")
+        AppLog.log("🔗 Pairing host opening room \(roomId.prefix(16))... for code \(pairingCode)")
         phase = .opening
         openSocket()
         send(RelayOutgoing.pairOpen(role: "initiator", roomId: roomId))
@@ -58,7 +58,7 @@ final class PairingCoordinator {
         prepareForNewAttempt()
         flow = .join
         let normalized = RelayCrypto.normalizePairingCode(code)
-        DevLog.log("🔗 PairingCoordinator.join raw=\(code) normalized=\(normalized)")
+        AppLog.log("🔗 PairingCoordinator.join raw=\(code) normalized=\(normalized)")
         guard normalized.count == 8 else {
             phase = .failed("Enter a valid pairing code")
             return
@@ -71,20 +71,20 @@ final class PairingCoordinator {
         joinerPrivateKey = privateKey
         joinerPublicKey = RelayCrypto.publicKeyData(from: privateKey)
 
-        DevLog.log("🔗 Pairing join opening room \(roomId.prefix(16))... for code \(normalized)")
+        AppLog.log("🔗 Pairing join opening room \(roomId.prefix(16))... for code \(normalized)")
         phase = .opening
         openSocket()
         send(RelayOutgoing.pairOpen(role: "joiner", roomId: roomId))
     }
 
     func reset() {
-        DevLog.log("🔗 Pairing reset called; phase=\(String(describing: phase))")
+        AppLog.log("🔗 Pairing reset called; phase=\(String(describing: phase))")
         closeConnection(sendCancel: true)
         clearState()
     }
 
     private func prepareForNewAttempt() {
-        DevLog.log("🔗 Pairing prepareForNewAttempt called; phase=\(String(describing: phase))")
+        AppLog.log("🔗 Pairing prepareForNewAttempt called; phase=\(String(describing: phase))")
         closeConnection(sendCancel: false)
         clearState()
     }
@@ -106,7 +106,7 @@ final class PairingCoordinator {
     }
 
     func cancel() {
-        DevLog.log("🔗 Pairing cancel called; phase=\(String(describing: phase))")
+        AppLog.log("🔗 Pairing cancel called; phase=\(String(describing: phase))")
         closeConnection(sendCancel: true)
     }
 
@@ -140,17 +140,17 @@ final class PairingCoordinator {
 
     private func send(_ json: String?) {
         guard let json else { return }
-        DevLog.log("📤 Pairing send: \(json)")
+        AppLog.log("📤 Pairing send: \(json)")
         let task = webSocketTask
         Task {
             do {
                 guard let task else {
-                    DevLog.log("ERROR: Pairing send skipped; socket was nil")
+                    AppLog.log("ERROR: Pairing send skipped; socket was nil")
                     return
                 }
                 try await task.send(.string(json))
             } catch {
-                DevLog.log("ERROR: Pairing send failed: \(error.localizedDescription)")
+                AppLog.log("ERROR: Pairing send failed: \(error.localizedDescription)")
                 await MainActor.run {
                     self.phase = .failed("Pairing connection failed")
                     self.cancel()
@@ -177,13 +177,13 @@ final class PairingCoordinator {
                 }
 
                 if let parsed {
-                    DevLog.log("📥 Pairing recv: \(String(describing: parsed))")
+                    AppLog.log("📥 Pairing recv: \(String(describing: parsed))")
                 }
 
                 guard let parsed else { continue }
                 await handle(parsed)
             } catch {
-                DevLog.log("ERROR: Pairing receive failed: \(error.localizedDescription)")
+                AppLog.log("ERROR: Pairing receive failed: \(error.localizedDescription)")
                 if !Task.isCancelled, !isFinished {
                     phase = .failed("Pairing connection closed")
                 }
@@ -194,7 +194,7 @@ final class PairingCoordinator {
     }
 
     private func handle(_ message: RelayMessage) async {
-        DevLog.log("🔗 Pairing handle message: \(String(describing: message))")
+        AppLog.log("🔗 Pairing handle message: \(String(describing: message))")
         switch message {
         case .pairOpenOk:
             phase = isHosting ? .waitingForPeer : .waitingForInitiator
@@ -227,11 +227,11 @@ final class PairingCoordinator {
     }
 
     private func handleHosting(_ data: PairDataMessage) async {
-        DevLog.log("🔗 handleHosting data=\(String(describing: data)) phase=\(String(describing: phase))")
+        AppLog.log("🔗 handleHosting data=\(String(describing: data)) phase=\(String(describing: phase))")
         switch data {
         case .join(let salt):
             guard let joinerPublic = Data(base64Encoded: salt) else {
-                DevLog.log("🔗 handleHosting invalid join salt")
+                AppLog.log("🔗 handleHosting invalid join salt")
                 phase = .failed("Invalid join request")
                 cancel()
                 return
@@ -244,7 +244,7 @@ final class PairingCoordinator {
                   let joinerPublicKey,
                   let groupKey = currentConfig?.groupKey
             else {
-                DevLog.log("🔗 handleHosting incomplete state initiatorSalt=\(initiatorSalt != nil) joinerPublicKey=\(joinerPublicKey != nil) groupKey=\(currentConfig?.groupKey != nil)")
+                AppLog.log("🔗 handleHosting incomplete state initiatorSalt=\(initiatorSalt != nil) joinerPublicKey=\(joinerPublicKey != nil) groupKey=\(currentConfig?.groupKey != nil)")
                 phase = .failed("Incomplete pairing state")
                 cancel()
                 return
@@ -258,7 +258,7 @@ final class PairingCoordinator {
             )
 
             guard proof == expected else {
-                DevLog.log("🔗 handleHosting proof mismatch expected=\(expected) actual=\(proof)")
+                AppLog.log("🔗 handleHosting proof mismatch expected=\(expected) actual=\(proof)")
                 phase = .failed("Pairing code mismatch")
                 cancel()
                 return
@@ -266,7 +266,7 @@ final class PairingCoordinator {
 
             guard let wrappedKey = RelayCrypto.wrapGroupKey(groupKey, to: joinerPublicKey)
             else {
-                DevLog.log("🔗 handleHosting wrapGroupKey failed")
+                AppLog.log("🔗 handleHosting wrapGroupKey failed")
                 phase = .failed("Key transfer failed")
                 cancel()
                 return
@@ -288,13 +288,13 @@ final class PairingCoordinator {
     }
 
     private func handleJoining(_ data: PairDataMessage) async {
-        DevLog.log("🔗 handleJoining data=\(String(describing: data)) phase=\(String(describing: phase))")
+        AppLog.log("🔗 handleJoining data=\(String(describing: data)) phase=\(String(describing: phase))")
         switch data {
         case .hello(let salt):
             guard let initiatorSalt = Data(base64Encoded: salt),
                   let joinerPublicKey
             else {
-                DevLog.log("🔗 handleJoining invalid initiator data initiatorSaltB64Valid=\(Data(base64Encoded: salt) != nil) joinerPublicKey=\(joinerPublicKey != nil)")
+                AppLog.log("🔗 handleJoining invalid initiator data initiatorSaltB64Valid=\(Data(base64Encoded: salt) != nil) joinerPublicKey=\(joinerPublicKey != nil)")
                 phase = .failed("Invalid initiator data")
                 cancel()
                 return
@@ -317,7 +317,7 @@ final class PairingCoordinator {
                   let joinerPrivateKey,
                   let joinerPublicKey
             else {
-                DevLog.log("🔗 handleJoining incomplete state initiatorSalt=\(initiatorSalt != nil) joinerPrivateKey=\(joinerPrivateKey != nil) joinerPublicKey=\(joinerPublicKey != nil)")
+                AppLog.log("🔗 handleJoining incomplete state initiatorSalt=\(initiatorSalt != nil) joinerPrivateKey=\(joinerPrivateKey != nil) joinerPublicKey=\(joinerPublicKey != nil)")
                 phase = .failed("Incomplete pairing state")
                 cancel()
                 return
@@ -331,7 +331,7 @@ final class PairingCoordinator {
             )
 
             guard proof == expected else {
-                DevLog.log("🔗 handleJoining proof mismatch expected=\(expected) actual=\(proof)")
+                AppLog.log("🔗 handleJoining proof mismatch expected=\(expected) actual=\(proof)")
                 phase = .failed("Pairing code mismatch")
                 cancel()
                 return
@@ -341,7 +341,7 @@ final class PairingCoordinator {
                 wrappedKey,
                 joinerPrivateKey: joinerPrivateKey
             ) else {
-                DevLog.log("🔗 handleJoining unwrapGroupKey failed wrappedKey.ephemeralPub.len=\(wrappedKey.ephemeralPub.count) nonce.len=\(wrappedKey.nonce.count) ciphertext.len=\(wrappedKey.ciphertext.count)")
+                AppLog.log("🔗 handleJoining unwrapGroupKey failed wrappedKey.ephemeralPub.len=\(wrappedKey.ephemeralPub.count) nonce.len=\(wrappedKey.nonce.count) ciphertext.len=\(wrappedKey.ciphertext.count)")
                 phase = .failed("Could not receive group key")
                 cancel()
                 return
@@ -368,23 +368,23 @@ final class PairingCoordinator {
         guard let json = RelayOutgoing.pairComplete(),
               let task = webSocketTask
         else {
-            DevLog.log("ERROR: Pairing final ack skipped; socket was nil")
+            AppLog.log("ERROR: Pairing final ack skipped; socket was nil")
             return false
         }
 
-        DevLog.log("📤 Pairing send (await): \(json)")
+        AppLog.log("📤 Pairing send (await): \(json)")
         do {
             try await task.send(.string(json))
             try? await Task.sleep(for: .milliseconds(300))
             return true
         } catch {
-            DevLog.log("ERROR: Pairing final ack failed: \(error.localizedDescription)")
+            AppLog.log("ERROR: Pairing final ack failed: \(error.localizedDescription)")
             return false
         }
     }
 
     private func closeConnection(sendCancel: Bool) {
-        DevLog.log("🔗 Pairing closeConnection sendCancel=\(sendCancel) phase=\(String(describing: phase)) hasTask=\(webSocketTask != nil)")
+        AppLog.log("🔗 Pairing closeConnection sendCancel=\(sendCancel) phase=\(String(describing: phase)) hasTask=\(webSocketTask != nil)")
         let task = webSocketTask
         if sendCancel, let task, let json = RelayOutgoing.pairCancel() {
             Task { try? await task.send(.string(json)) }

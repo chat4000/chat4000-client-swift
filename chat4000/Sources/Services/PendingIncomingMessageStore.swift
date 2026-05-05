@@ -37,13 +37,13 @@ actor PendingIncomingMessageStore {
         var envelope = loadEnvelope()
 
         if envelope.messages.contains(where: { $0.dedupeKey == message.dedupeKey }) {
-            DevLog.log("📬 pending enqueue skipped duplicate key=%@", message.dedupeKey)
+            AppLog.log("📬 pending enqueue skipped duplicate key=%@", message.dedupeKey)
             return false
         }
 
         envelope.messages.append(message)
         saveEnvelope(envelope)
-        DevLog.log(
+        AppLog.log(
             "📬 pending enqueue saved key=%@ id=%@ total=%ld",
             message.dedupeKey,
             message.messageId,
@@ -57,7 +57,7 @@ actor PendingIncomingMessageStore {
         let drained = envelope.messages.sorted { $0.receivedAt < $1.receivedAt }
         envelope.messages.removeAll()
         saveEnvelope(envelope)
-        DevLog.log("📬 pending drain count=%ld", drained.count)
+        AppLog.log("📬 pending drain count=%ld", drained.count)
         return drained
     }
 
@@ -65,7 +65,7 @@ actor PendingIncomingMessageStore {
     func markNotificationSent(for key: String) -> Bool {
         var envelope = loadEnvelope()
         if envelope.notifiedKeys.contains(key) {
-            DevLog.log("🔔 [push] notification dedupe hit key=%@", key)
+            AppLog.log("🔔 [push] notification dedupe hit key=%@", key)
             return false
         }
 
@@ -74,7 +74,7 @@ actor PendingIncomingMessageStore {
             envelope.notifiedKeys.removeFirst(envelope.notifiedKeys.count - maxNotifiedKeys)
         }
         saveEnvelope(envelope)
-        DevLog.log("🔔 [push] notification dedupe stored key=%@ total=%ld", key, envelope.notifiedKeys.count)
+        AppLog.log("🔔 [push] notification dedupe stored key=%@ total=%ld", key, envelope.notifiedKeys.count)
         return true
     }
 
@@ -89,14 +89,14 @@ actor PendingIncomingMessageStore {
 
     private func saveEnvelope(_ envelope: PendingIncomingEnvelope) {
         guard let data = try? JSONEncoder().encode(envelope) else {
-            DevLog.log("ERROR: Failed to encode pending incoming envelope")
+            AppLog.log("ERROR: Failed to encode pending incoming envelope")
             return
         }
 
         do {
             try data.write(to: fileURL, options: [.atomic])
         } catch {
-            DevLog.log("ERROR: Failed to persist pending incoming envelope: %@", error.localizedDescription)
+            AppLog.log("ERROR: Failed to persist pending incoming envelope: %@", error.localizedDescription)
         }
     }
 }

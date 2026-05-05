@@ -2,7 +2,7 @@
 
 ## Current State
 
-The app is implemented around a shared group key stored in local config, relay-based transport, XChaCha20-Poly1305 encrypted messaging, App Attest-backed registration, APNs token registration, and silent-push wake handling.
+The app is implemented around a shared group key stored in local config, relay-based transport, XChaCha20-Poly1305 encrypted messaging, App Attest-backed registration, APNs token registration, silent-push wake handling, and a reliable-delivery acknowledgement layer (per protocol §6.6) that prevents the silent message loss caused by app-suspended kernel-buffered TCP frames.
 
 ---
 
@@ -23,16 +23,20 @@ chat4000/
 │   │   ├── ConnectionState.swift    ← Enum: disconnected/connecting/connected/reconnecting/failed
 │   │   └── ServerConfig.swift       ← GroupConfig model + shared-key parsing helpers
 │   ├── Services/
+│   │   ├── AckSeqStore.swift        ← Durable per-group last_acked_seq (UserDefaults), drives hello.last_acked_seq replay
+│   │   ├── AckTracker.swift         ← Debounced cumulative + selective-ranges recv_ack emitter (protocol §6.6.3)
 │   │   ├── AppAttestService.swift   ← AppAttestManager: key generation + attestation against relay challenge
 │   │   ├── AnalyticsEvent.swift     ← Explicit analytics event names + shared bucket helpers
 │   │   ├── AppEnvironment.swift     ← Build-config snapshot (relay URL, storage namespace, kind)
+│   │   ├── AppLog.swift             ← Bundle-id-gated logger (NSLog + ~/Library/Caches/chat4000-dev.log)
+│   │   ├── AppNapBlocker.swift      ← macOS ProcessInfo.beginActivity holder; keeps WebSocket receive loop alive
 │   │   ├── Crypto.swift             ← RelayCrypto: SHA-256 group ID, pairing URI helpers, XChaCha20-Poly1305 via swift-sodium
-│   │   ├── DevLog.swift             ← Bundle-id-gated logger (NSLog + ~/Library/Caches/chat4000-dev.log)
 │   │   ├── Haptics.swift            ← UIKit haptic feedback (iOS only, no-op on macOS)
 │   │   ├── KeychainService.swift    ← File-based GroupConfig persistence (Application Support)
 │   │   ├── LaunchActionStore.swift  ← Pending launch-action persistence (e.g. chat4000://record deep link)
 │   │   ├── LegalConsent.swift       ← Terms acceptance state + reconsent modal
 │   │   ├── PairingService.swift     ← PairingCoordinator: pair_open/data/complete state machine
+│   │   ├── PluginVersionPolicyManager.swift ← Observes plugin version from inner messages; resolves hello_ok.plugin_version_policy → soft-nag/hard-block
 │   │   ├── RelaySessionDelegate.swift ← URLSession delegate (TLS trust handling for dev relays)
 │   │   ├── TelemetryManager.swift   ← Sentry/PostHog setup, privacy toggle, analytics capture routing
 │   │   ├── TelemetryPreferences.swift ← Local persisted on/off switch for diagnostics + analytics
@@ -177,12 +181,17 @@ enum ConnectionState: Equatable {
 User taps Send
   → ChatViewModel.send(text:)
     → Creates ChatMessage(.user, .sending), inserts into SwiftData
-    → RelayClient.send(text:)
+    → RelayClient.send(text:) -> wireId
       → InnerMessage.text(text) → JSONEncoder → plaintext bytes
       → RelayCrypto.encrypt(plaintext, pairKey) → (nonce_b64, ciphertext_b64)
       → RelayOutgoing.msg(nonce, ciphertext, msgId) → JSON envelope string
       → URLSessionWebSocketTask.send(.string(envelope))
-    → Updates message status to .sent
+      → returns the inner.id (wireId)
+    → ChatMessage.msgId = wireId  (so relay_recv_ack and inner ack can match)
+    → message.status = .sent (defensive fallback for pre-ack relays)
+  → Later, on relay_recv_ack matching wireId: status → .sent (✓)
+  → Later, on inner ack stage=received from from.role==plugin matching wireId:
+       status → .delivered (✓-circle-fill)
 ```
 
 ### Inbound Message (agent → user)
@@ -190,30 +199,57 @@ User taps Send
 ```
 URLSessionWebSocketTask.receive()
   → Raw text frame
-  → RelayMessage.parse(from: text) → .msg(nonce, ciphertext, msgId)
+  → RelayMessage.parse(from: text) → .msg(nonce, ciphertext, msgId, seq)
   → RelayClient.handleMessage(.msg)
     → RelayCrypto.decrypt(nonce, ciphertext, pairKey) → plaintext bytes
     → JSONDecoder → InnerMessage
-    → RelayClient.processInnerMessage(inner)
-      → Updates isAgentThinking / thinkingStartTime
-      → Calls onInnerMessage callback
-  → ChatViewModel.handleInnerMessage(inner)
-    → For .text: creates ChatMessage(.agent), inserts into SwiftData, haptic
-    → For .textDelta: creates or updates streaming message bubble
-    → For .textEnd: finalizes streaming message, persists to SwiftData, haptic
-    → For .status: no-op (handled by relay's observable state)
+    → If inner.from.role == .plugin: PluginVersionPolicyManager.observePlugin(...)
+    → RelayClient.processInnerMessage(inner, seq:)
+      → Calls onInnerMessage callback with (inner, seq)
+  → ChatViewModel.handleInnerMessage(inner, seq:)
+    → If duplicate inner.id (per §6.6.9): skip insert, still record seq for ack
+    → For .text: receiveText(.., id: inner.id, ..) creates ChatMessage(msgId: inner.id)
+    → For .textDelta: creates or updates streaming bubble (msgId = stream id)
+    → For .textEnd: finalizes streaming bubble
+    → For .status: drives isAgentBusy/phase
+    → For .ack: if from.role == .plugin → flip matching outbound row to .delivered
+    → After dispatch: AckSeqStore.recordAcked(seq) + relay.ackTracker.recordPersisted(seq)
+      → AckTracker debounce: emits recv_ack {up_to_seq, ranges?} after 32 pending
+        OR 50 ms idle OR disconnect/handle-loss flush
+```
+
+### Acknowledgement Layer (per protocol §6.6)
+
+```
+Outer envelope on inbound msg carries relay-assigned `seq` (per recipient).
+Outer recv_ack frame: { up_to_seq, ranges? } cumulative + selective.
+Outer relay_recv_ack frame: { msg_id, queued_for } drives sender's ✓ tick.
+Inner `ack` type: { refs, stage } end-to-end; encrypted; drives sender's ✓✓.
+hello.last_acked_seq: replayed from AckSeqStore on every reconnect; relay
+  redrives only seq > last_acked_seq.
+AckTracker emits cumulative + selective ranges; queue eviction is ack-driven
+  on relay side. App Nap blocker keeps receive loop alive on macOS so the
+  kernel buffer is drained before the relay's idle-ping kills the socket.
 ```
 
 ### Connection Lifecycle
 
 ```
 connect(config)
+  → AppNapBlocker.shared.begin()  (macOS: holds beginActivity for the
+       lifetime of the WS so the receive loop isn't suspended by App Nap)
+  → ackTracker.reset(); ackTracker.groupId = config.groupId
+  → ackTracker.send = { frame in webSocketTask.send(frame) }
   → state = .connecting
   → URLSession + webSocketTask(with: relayURL)
   → webSocketTask.resume()
   → performHandshake(pairId)
+    → hello JSON now carries last_acked_seq from AckSeqStore.lastAckedSeq(groupId)
     → Send hello JSON
-    → Receive hello_ok → state = .connected, start heartbeat, listen loop
+    → Receive hello_ok(currentTermsVersion, version_policy, plugin_version_policy)
+      → VersionPolicyManager.update(version_policy)
+      → PluginVersionPolicyManager.updatePolicy(plugin_version_policy)
+      → state = .connected, start 25 s heartbeat, listen loop
     → Receive hello_error(KEY_NOT_REGISTERED)
       → send challenge
       → receive challenge_ok(nonce)
@@ -225,11 +261,17 @@ connect(config)
     → Error → handleConnectionLoss()
 
 handleConnectionLoss()
+  → ackTracker.flushNow()  (best-effort send of pending recv_ack before close)
   → Cancel heartbeat + websocket
-  → state = .reconnecting
+  → state = .reconnecting   (App Nap stays held for the reconnect attempt)
   → Sleep retryDelay seconds
-  → retryDelay *= 2 (max 60s)
+  → retryDelay *= 2 (max 60 s)
   → connect(config) again
+
+disconnect()    (user-initiated)
+  → ackTracker.flushNow()
+  → Cancel heartbeat + websocket
+  → state = .disconnected → AppNapBlocker.end()
 ```
 
 ### Silent Push Wake Path

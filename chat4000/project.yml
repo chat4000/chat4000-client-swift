@@ -115,6 +115,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
         CODE_SIGN_ENTITLEMENTS: Resources/chat4000Mac.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Required for Apple notarization of Developer ID-signed apps.
+        ENABLE_HARDENED_RUNTIME: YES
         # Mac does not register for remote notifications — APNS env unused.
         APP_APNS_ENV: ""
       configs:

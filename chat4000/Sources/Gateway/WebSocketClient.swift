@@ -3,10 +3,27 @@ import Foundation
 @MainActor
 @Observable
 final class RelayClient {
-    private(set) var state: ConnectionState = .disconnected
+    private(set) var state: ConnectionState = .disconnected {
+        didSet {
+            // Release the App Nap activity token whenever the relay leaves
+            // an active state. .reconnecting deliberately keeps the token
+            // held so the pending reconnect itself cannot be suspended.
+            switch state {
+            case .failed, .disconnected:
+                AppNapBlocker.shared.end()
+            default:
+                break
+            }
+        }
+    }
 
     /// Called when a decrypted inner message arrives from the plugin.
-    var onInnerMessage: ((InnerMessage) -> Void)?
+    /// `seq` is the relay-assigned per-recipient sequence number, or nil if
+    /// the relay is running a pre-ack build.
+    var onInnerMessage: ((InnerMessage, UInt64?) -> Void)?
+    /// Called when the relay confirms an outbound message was accepted and
+    /// fanned out (per protocol §6.6.4). Drives the "✓ sent" UI tick.
+    var onRelayRecvAck: ((String) -> Void)?
     /// Called when the relay reports the current required Terms version.
     var onTermsVersionUpdate: ((Int) -> Void)?
 
@@ -20,6 +37,11 @@ final class RelayClient {
     private var shouldReconnect = true
     private var isRegistering = false
     nonisolated(unsafe) private var deviceTokenRefreshTask: Task<Void, Never>?
+
+    /// Per-connection persistence-ack tracker (per protocol §6.6.3). Owned by
+    /// the relay client because its emit cadence depends on the WebSocket
+    /// being live.
+    let ackTracker = AckTracker()
 
     // Accumulates streamed text deltas keyed by inner message id
     private var streamBuffers: [String: String] = [:]
@@ -45,7 +67,7 @@ final class RelayClient {
         if webSocketTask != nil {
             switch state {
             case .connecting, .connected:
-                DevLog.log("🔌 connect() ignored — already \(String(describing: state))")
+                AppLog.log("🔌 connect() ignored — already \(String(describing: state))")
                 self.config = config
                 shouldReconnect = true
                 return
@@ -64,6 +86,12 @@ final class RelayClient {
             }
         }
 
+        // Block macOS App Nap for the lifetime of the relay session. Without
+        // this the receive loop gets suspended when the chat window is
+        // unfocused, the relay's idle-ping fails, the connection RSTs, and
+        // any kernel-buffered frames are silently lost.
+        AppNapBlocker.shared.begin()
+
         self.config = config
         shouldReconnect = true
         retryDelay = 2
@@ -74,7 +102,17 @@ final class RelayClient {
             return
         }
 
-        DevLog.log("🔌 Connecting to relay: \(config.relayURL.absoluteString)")
+        // Wire the ack tracker against this connection. Reset clears any
+        // pending seqs left over from a previous session — they would have
+        // already been durably checkpointed in AckSeqStore.
+        ackTracker.reset()
+        ackTracker.groupId = groupId
+        ackTracker.send = { [weak self] frame in
+            guard let task = self?.webSocketTask else { return }
+            Task { try? await task.send(.string(frame)) }
+        }
+
+        AppLog.log("🔌 Connecting to relay: \(config.relayURL.absoluteString)")
 
         let sessionConfig = URLSessionConfiguration.default
         // WebSocket sessions are intentionally long-lived. A short resource
@@ -94,8 +132,15 @@ final class RelayClient {
         connectionTask = Task { await performHandshake(groupId: groupId) }
     }
 
+    /// The currently-connected group_id, or nil if not configured. Used by
+    /// the message persistence layer to scope the ack high-water mark store.
+    var currentGroupId: String? { config?.groupId }
+
     func disconnect() {
-        DevLog.log("🔌 Disconnecting from relay")
+        AppLog.log("🔌 Disconnecting from relay")
+        // Final ack flush before tearing down the socket so the relay can
+        // evict everything we've persisted.
+        ackTracker.flushNow()
         shouldReconnect = false
         connectionTask?.cancel()
         connectionTask = nil
@@ -106,26 +151,36 @@ final class RelayClient {
         session?.invalidateAndCancel()
         session = nil
         state = .disconnected
+        AppNapBlocker.shared.end()
     }
 
-    /// Encrypt and send a text message to the plugin.
-    func send(text: String) {
-        sendInner(InnerMessage.text(text))
+    /// Encrypt and send a text message to the plugin. Returns the inner
+    /// `id` that the relay will echo on `relay_recv_ack` and that peers will
+    /// reference in their inner `ack` `refs` field.
+    @discardableResult
+    func send(text: String) -> String {
+        let inner = InnerMessage.text(text)
+        sendInner(inner)
+        return inner.id
     }
 
-    func sendImage(jpegData: Data, mimeType: String = "image/jpeg") {
-        sendInner(InnerMessage.image(dataBase64: jpegData.base64EncodedString(), mimeType: mimeType))
+    @discardableResult
+    func sendImage(jpegData: Data, mimeType: String = "image/jpeg") -> String {
+        let inner = InnerMessage.image(dataBase64: jpegData.base64EncodedString(), mimeType: mimeType)
+        sendInner(inner)
+        return inner.id
     }
 
-    func sendAudio(audioData: Data, mimeType: String = VoiceNoteConstants.mimeType, durationMs: Int, waveform: [Float]) {
-        sendInner(
-            InnerMessage.audio(
-                dataBase64: audioData.base64EncodedString(),
-                mimeType: mimeType,
-                durationMs: durationMs,
-                waveform: waveform
-            )
+    @discardableResult
+    func sendAudio(audioData: Data, mimeType: String = VoiceNoteConstants.mimeType, durationMs: Int, waveform: [Float]) -> String {
+        let inner = InnerMessage.audio(
+            dataBase64: audioData.base64EncodedString(),
+            mimeType: mimeType,
+            durationMs: durationMs,
+            waveform: waveform
         )
+        sendInner(inner)
+        return inner.id
     }
 
     func sendStatus(_ status: String) {
@@ -139,22 +194,27 @@ final class RelayClient {
 
         // Send hello
         let deviceToken = PushNotificationManager.shared.deviceToken
-        DevLog.log(
+        AppLog.log(
             "📤 [push] preparing hello token_present=%@ token_prefix=%@ release_channel=%@",
             deviceToken == nil ? "false" : "true",
             String((deviceToken ?? "").prefix(12)),
             AppRegistrationIdentity.currentReleaseChannel
         )
-        guard let helloJSON = RelayOutgoing.hello(groupId: groupId, deviceToken: deviceToken) else {
+        let lastAckedSeq = AckSeqStore.lastAckedSeq(forGroupId: groupId)
+        guard let helloJSON = RelayOutgoing.hello(
+            groupId: groupId,
+            deviceToken: deviceToken,
+            lastAckedSeq: lastAckedSeq > 0 ? lastAckedSeq : nil
+        ) else {
             state = .failed("Failed to encode hello")
             return
         }
 
         do {
             try await webSocketTask?.send(.string(helloJSON))
-            DevLog.log("📤 Sent hello (group_id: \(groupId.prefix(16))...)")
+            AppLog.log("📤 Sent hello (group_id: \(groupId.prefix(16))...)")
         } catch {
-            DevLog.log("ERROR: Send hello failed: \(error.localizedDescription)")
+            AppLog.log("ERROR: Send hello failed: \(error.localizedDescription)")
             handleConnectionLoss()
             return
         }
@@ -167,17 +227,18 @@ final class RelayClient {
             }
 
             switch parsed {
-            case .helloOk(let currentTermsVersion, let versionPolicy):
-                DevLog.log("✅ hello_ok — connected to relay")
+            case .helloOk(let currentTermsVersion, let versionPolicy, let pluginVersionPolicy):
+                AppLog.log("✅ hello_ok — connected to relay")
                 onTermsVersionUpdate?(currentTermsVersion)
                 VersionPolicyManager.shared.update(with: versionPolicy)
+                PluginVersionPolicyManager.shared.updatePolicy(pluginVersionPolicy)
                 state = .connected
                 retryDelay = 2
                 startHeartbeat()
                 await listenForMessages()
 
             case .helloError(let code, let msg):
-                DevLog.log("ERROR: hello_error \(code): \(msg)")
+                AppLog.log("ERROR: hello_error \(code): \(msg)")
                 if code == "KEY_NOT_REGISTERED" {
                     let registered = await registerPairIfNeeded(groupId: groupId)
                     if registered {
@@ -193,7 +254,7 @@ final class RelayClient {
                     // propagated yet (TCP handoff, force-quit, rapid bg→fg).
                     // Tear down and let exponential backoff retry; the slot
                     // frees within seconds once the relay observes the close.
-                    DevLog.log("⏳ device slot still held; retrying with backoff")
+                    AppLog.log("⏳ device slot still held; retrying with backoff")
                     handleConnectionLoss()
                 } else {
                     state = .failed("\(code): \(msg)")
@@ -203,7 +264,7 @@ final class RelayClient {
                 state = .failed("Unexpected handshake response")
             }
         } catch {
-            DevLog.log("ERROR: Handshake receive failed: \(error.localizedDescription)")
+            AppLog.log("ERROR: Handshake receive failed: \(error.localizedDescription)")
             handleConnectionLoss()
         }
     }
@@ -220,13 +281,13 @@ final class RelayClient {
 
         do {
             try await webSocketTask?.send(.string(helloJSON))
-            DevLog.log(
+            AppLog.log(
                 "📤 [push] refreshed hello with device token token_present=%@ token_prefix=%@",
                 deviceToken == nil ? "false" : "true",
                 String((deviceToken ?? "").prefix(12))
             )
         } catch {
-            DevLog.log("⚠️ [push] failed to refresh hello device token: \(error.localizedDescription)")
+            AppLog.log("⚠️ [push] failed to refresh hello device token: \(error.localizedDescription)")
         }
     }
 
@@ -253,7 +314,7 @@ final class RelayClient {
                 }
             } catch {
                 if !Task.isCancelled, state == .connected {
-                    DevLog.log("ERROR: Receive failed: \(error.localizedDescription)")
+                    AppLog.log("ERROR: Receive failed: \(error.localizedDescription)")
                     handleConnectionLoss()
                 }
                 return
@@ -282,12 +343,12 @@ final class RelayClient {
         defer { isRegistering = false }
 
         guard AppAttestManager.shared.isSupported else {
-            DevLog.log("⚠️ App Attest unsupported on this device")
+            AppLog.log("⚠️ App Attest unsupported on this device")
             return false
         }
 
         guard let challengeJSON = RelayOutgoing.challenge() else {
-            DevLog.log("ERROR: Failed to encode challenge request")
+            AppLog.log("ERROR: Failed to encode challenge request")
             return false
         }
 
@@ -296,13 +357,13 @@ final class RelayClient {
             guard let challengeResponse = try await receiveParsedMessage() else { return false }
 
             guard case .challengeOk(let nonce, _) = challengeResponse else {
-                DevLog.log("ERROR: Expected challenge_ok during registration")
+                AppLog.log("ERROR: Expected challenge_ok during registration")
                 return false
             }
 
             let attestation = try await AppAttestManager.shared.attest(challengeBase64: nonce)
             guard let registerJSON = RelayOutgoing.register(groupId: groupId, attestation: attestation, challenge: nonce) else {
-                DevLog.log("ERROR: Failed to encode register payload")
+                AppLog.log("ERROR: Failed to encode register payload")
                 return false
             }
 
@@ -311,26 +372,38 @@ final class RelayClient {
 
             switch registerResponse {
             case .registerOk:
-                DevLog.log("✅ register_ok — group registered")
+                AppLog.log("✅ register_ok — group registered")
                 return true
             case .registerError(let code, let message):
-                DevLog.log("ERROR: register_error \(code): \(message)")
+                AppLog.log("ERROR: register_error \(code): \(message)")
                 return false
             default:
-                DevLog.log("ERROR: Unexpected registration response")
+                AppLog.log("ERROR: Unexpected registration response")
                 return false
             }
         } catch {
-            DevLog.log("ERROR: Group registration failed: \(error.localizedDescription)")
+            AppLog.log("ERROR: Group registration failed: \(error.localizedDescription)")
             return false
         }
     }
 
     private func handleMessage(_ message: RelayMessage) {
         switch message {
-        case .msg(let nonce, let ciphertext, _):
-            DevLog.log("📥 relay msg envelope received")
-            decryptAndDispatch(nonce: nonce, ciphertext: ciphertext)
+        case .msg(let nonce, let ciphertext, _, let seq):
+            if let seq {
+                AppLog.log("📥 relay msg envelope received seq=%llu", seq)
+            } else {
+                AppLog.log("📥 relay msg envelope received (no seq, pre-ack relay)")
+            }
+            decryptAndDispatch(nonce: nonce, ciphertext: ciphertext, seq: seq)
+
+        case .relayRecvAck(let msgId, let queuedFor):
+            AppLog.log(
+                "✅ relay_recv_ack msg_id=%@ queued_for=%@",
+                msgId,
+                (queuedFor ?? []).joined(separator: ",")
+            )
+            onRelayRecvAck?(msgId)
 
         case .pong:
             lastPongTime = .now
@@ -342,20 +415,20 @@ final class RelayClient {
 
     // MARK: - Decrypt + Inner Message Handling
 
-    private func decryptAndDispatch(nonce: String, ciphertext: String) {
+    private func decryptAndDispatch(nonce: String, ciphertext: String, seq: UInt64?) {
         guard let key = config?.groupKey,
               let plaintext = RelayCrypto.decrypt(nonceBase64: nonce, ciphertextBase64: ciphertext, key: key)
         else {
-            DevLog.log("ERROR: Failed to decrypt message")
+            AppLog.log("ERROR: Failed to decrypt message")
             return
         }
 
         guard let inner = try? JSONDecoder().decode(InnerMessage.self, from: plaintext) else {
-            DevLog.log("ERROR: Failed to decode inner message")
+            AppLog.log("ERROR: Failed to decode inner message")
             return
         }
 
-        DevLog.log(
+        AppLog.log(
             "📥 inner decoded type=%@ from_role=%@ from_device=%@ from_bundle=%@",
             inner.t.rawValue,
             inner.from?.role.rawValue ?? "nil",
@@ -363,16 +436,25 @@ final class RelayClient {
             inner.from?.bundleId ?? "nil"
         )
 
-        processInnerMessage(inner)
+        // Per protocol §6.3 plugin version policy: observe the plugin's actual
+        // running version from inner messages where `from.role == "plugin"`.
+        if let from = inner.from, from.role == .plugin {
+            PluginVersionPolicyManager.shared.observePlugin(
+                version: from.appVersion,
+                bundleId: from.bundleId
+            )
+        }
+
+        processInnerMessage(inner, seq: seq)
     }
 
-    private func processInnerMessage(_ inner: InnerMessage) {
+    private func processInnerMessage(_ inner: InnerMessage, seq: UInt64?) {
         if case .textDelta(let d) = inner.body {
             streamBuffers[inner.id, default: ""] += d.delta
         } else if case .textEnd = inner.body {
             streamBuffers.removeValue(forKey: inner.id)
         }
-        onInnerMessage?(inner)
+        onInnerMessage?(inner, seq)
     }
 
     private func sendInner(_ inner: InnerMessage, notifyIfOffline: Bool = true) {
@@ -382,7 +464,7 @@ final class RelayClient {
 
         let frameBytes = envelope.lengthOfBytes(using: .utf8)
         guard frameBytes <= RelayProtocol.maxMessageSize else {
-            DevLog.log(
+            AppLog.log(
                 "ERROR: Outgoing inner type=%@ exceeds relay max frame size bytes=%ld max=%ld",
                 inner.t.rawValue,
                 frameBytes,
@@ -397,17 +479,17 @@ final class RelayClient {
 
     private func encodedEnvelope(for inner: InnerMessage, notifyIfOffline: Bool) -> String? {
         guard let key = config?.groupKey else {
-            DevLog.log("ERROR: No group key for inner send type=%@", inner.t.rawValue)
+            AppLog.log("ERROR: No group key for inner send type=%@", inner.t.rawValue)
             return nil
         }
 
         guard let jsonData = try? JSONEncoder().encode(inner) else {
-            DevLog.log("ERROR: Failed to encode inner message type=%@", inner.t.rawValue)
+            AppLog.log("ERROR: Failed to encode inner message type=%@", inner.t.rawValue)
             return nil
         }
 
         guard let (nonce, ciphertext) = RelayCrypto.encrypt(plaintext: jsonData, key: key) else {
-            DevLog.log("ERROR: Encryption failed for inner type=%@", inner.t.rawValue)
+            AppLog.log("ERROR: Encryption failed for inner type=%@", inner.t.rawValue)
             return nil
         }
 
@@ -417,7 +499,7 @@ final class RelayClient {
             msgId: inner.id,
             notifyIfOffline: notifyIfOffline
         ) else {
-            DevLog.log("ERROR: Failed to build msg envelope for inner type=%@", inner.t.rawValue)
+            AppLog.log("ERROR: Failed to build msg envelope for inner type=%@", inner.t.rawValue)
             return nil
         }
         return envelope
@@ -438,7 +520,7 @@ final class RelayClient {
 
                 // Check pong timeout (2x interval = 60s without pong)
                 if Date.now.timeIntervalSince(self.lastPongTime) > interval * 2 {
-                    DevLog.log("WARN: Pong timeout — reconnecting")
+                    AppLog.log("WARN: Pong timeout — reconnecting")
                     self.handleConnectionLoss()
                     return
                 }
@@ -456,6 +538,12 @@ final class RelayClient {
     private func handleConnectionLoss() {
         guard shouldReconnect else { return }
 
+        // Best-effort flush before the socket is torn down. The actual send
+        // call may not land if the socket is already half-closed, but the
+        // tracker still updates AckSeqStore so the next hello carries the
+        // latest high-water mark and the relay redrives correctly.
+        ackTracker.flushNow()
+
         heartbeatTask?.cancel()
         heartbeatTask = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
@@ -467,7 +555,7 @@ final class RelayClient {
         let delay = retryDelay
         retryDelay = min(retryDelay * 2, 60) // exponential backoff, 60s max
 
-        DevLog.log("🔄 Reconnecting in \(Int(delay))s (next: \(Int(retryDelay))s)...")
+        AppLog.log("🔄 Reconnecting in \(Int(delay))s (next: \(Int(retryDelay))s)...")
 
         connectionTask?.cancel()
         connectionTask = Task {

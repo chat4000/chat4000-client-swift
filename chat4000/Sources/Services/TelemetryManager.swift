@@ -89,7 +89,7 @@ final class TelemetryManager {
 
     private func startSentryIfNeeded(config: Config) {
         guard let dsn = config.sentryDsn, !dsn.isEmpty else {
-            DevLog.log("📊 Sentry DSN not configured, skipping")
+            AppLog.log("📊 Sentry DSN not configured, skipping")
             return
         }
         guard !sentryStarted else { return }
@@ -108,12 +108,12 @@ final class TelemetryManager {
             #endif
         }
         sentryStarted = true
-        DevLog.log("📊 Sentry initialized")
+        AppLog.log("📊 Sentry initialized")
     }
 
     private func startPostHogIfNeeded(config: Config) {
         guard let apiKey = config.postHogApiKey, !apiKey.isEmpty else {
-            DevLog.log("📊 PostHog API key not configured, skipping")
+            AppLog.log("📊 PostHog API key not configured, skipping")
             return
         }
         guard !postHogStarted else {
@@ -134,7 +134,7 @@ final class TelemetryManager {
         #endif
         PostHogSDK.shared.setup(postHogConfig)
         postHogStarted = true
-        DevLog.log("📊 PostHog initialized (project_id=%@, host=%@, sessionReplay=%@)",
+        AppLog.log("📊 PostHog initialized (project_id=%@, host=%@, sessionReplay=%@)",
               config.postHogProjectId ?? "unknown",
               config.postHogHost,
               config.postHogSessionReplayEnabled ? "true" : "false")
@@ -144,7 +144,7 @@ final class TelemetryManager {
         guard sentryStarted else { return }
         SentrySDK.close()
         sentryStarted = false
-        DevLog.log("📊 Sentry collection disabled")
+        AppLog.log("📊 Sentry collection disabled")
     }
 
     private func stopPostHogIfNeeded() {
@@ -152,7 +152,7 @@ final class TelemetryManager {
         PostHogSDK.shared.optOut()
         PostHogSDK.shared.close()
         postHogStarted = false
-        DevLog.log("📊 PostHog collection disabled")
+        AppLog.log("📊 PostHog collection disabled")
     }
 
     private func flushPostHogIfNeeded() {

@@ -628,7 +628,8 @@ The normal relay session uses:
     "device_token": "optional-apns-token",
     "app_id": "com.neonnode.chat4000app.dev",
     "app_version": "1.2.3",
-    "release_channel": "appstore"
+    "release_channel": "appstore",
+    "last_acked_seq": 4123
   }
 }
 ```
@@ -643,7 +644,8 @@ Or:
     "role": "plugin",
     "group_id": "64-char-lowercase-hex",
     "app_version": "1.2.3",
-    "release_channel": "dev"
+    "release_channel": "dev",
+    "last_acked_seq": 871
   }
 }
 ```
@@ -656,6 +658,8 @@ Rules:
 - `release_channel` is optional at the protocol level but should be sent by all normal clients and plugins
 - the relay may use these values for analytics, minimum-version enforcement, and operational debugging
 - the relay returns the current Terms version in `hello_ok`
+- `last_acked_seq` is the highest relay-assigned `seq` (see §6.4 and §6.6) that the client has stably persisted; on reconnect the relay must redrive every queued message with `seq > last_acked_seq` for that `(group_id, role, device_id)` pair before delivering any new messages
+- `last_acked_seq` is optional; if absent or `0`, ack-aware relays redrive the entire current queue, and pre-ack relays/clients fall back to the legacy fan-out-then-evict behavior described in §6.6
 
 Responses:
 
@@ -669,6 +673,11 @@ Responses:
       "min_version": "1.0.0",
       "recommended_version": "1.2.0",
       "latest_version": "1.3.0"
+    },
+    "plugin_version_policy": {
+      "min_version": "0.5.0",
+      "recommended_version": "0.7.0",
+      "latest_version": "0.8.1"
     }
   }
 }
@@ -696,6 +705,34 @@ Client behavior (informational; required for any client that ships a UI):
 
 If the policy is omitted entirely, behavior is unchanged (legacy clients keep working).
 
+#### Plugin Version Policy
+
+`plugin_version_policy` is the same shape as `version_policy` but applies to the plugin running on the user's paired computer rather than to the app itself. It allows the relay operator to flag outdated OpenClaw plugin builds without ever inspecting the plugin's traffic.
+
+Resolution rules on the relay:
+
+- the relay looks up the plugin policy by **plugin bundle id** (the same value that plugin-emitted inner messages carry as `from.bundle_id`, e.g. `@chat4000/openclaw-plugin`)
+- the resolved plugin bundle id may be configured per-`app_id` (so different apps can target different plugin packages) or as a single relay-wide default; relay implementations choose one
+- **the relay must never use default version values**; every field of every echoed `plugin_version_policy` must come from explicit relay config
+- if the relay has no configured plugin policy entry for the resolved plugin bundle id, `plugin_version_policy` is **omitted entirely** from `hello_ok`
+- all three inner fields (`min_version`, `recommended_version`, `latest_version`) are individually optional inside the config; fields not present in config are omitted from the wire shape
+- the relay never reads or trusts the plugin's actual running version; it only echoes config — the plugin's running version reaches the client only through encrypted inner messages
+
+Client behavior (informational; required for any client that ships a UI):
+
+- parse `payload.plugin_version_policy` after `hello_ok` exactly like `version_policy` — treat the object and each of `min_version` / `recommended_version` / `latest_version` as independently optional
+- the plugin version the client compares against is observed from inner messages with `from.role == "plugin"`, specifically `from.app_version`; until at least one plugin inner message arrives, the client has no version to compare and shows no UI
+- compare locally with semver:
+  - if `min_version` is set and `plugin_version < min_version` → hard block (non-dismissible "your paired computer is running an outdated plugin; update OpenClaw to continue"; do not allow further chat)
+  - else if `recommended_version` is set and `plugin_version < recommended_version` → soft nag (dismissible "plugin update available" banner)
+  - else → no UI
+  - `latest_version` is informational only
+- if the plugin's `from.app_version` is missing or unparseable → behave as if `recommended_version` was crossed (soft nag), never hard-block
+- re-evaluate on every plugin inner message and on every reconnect; do not cache as authoritative across launches
+- if multiple plugins exist in the same group, evaluate each plugin's version against the same policy and apply the worst-case status (hard-block dominates soft-nag)
+
+If `plugin_version_policy` is omitted entirely, behavior is unchanged (legacy apps and unconfigured relays keep working).
+
 ```json
 {
   "version": 1,
@@ -708,6 +745,8 @@ If the policy is omitted entirely, behavior is unchanged (legacy clients keep wo
 ```
 
 ### 6.4 Encrypted Chat Message
+
+Sender → relay form (no `seq`; the relay assigns one on fan-out):
 
 ```json
 {
@@ -722,6 +761,22 @@ If the policy is omitted entirely, behavior is unchanged (legacy clients keep wo
 }
 ```
 
+Relay → recipient form (relay-assigned `seq` added on the outbound copy):
+
+```json
+{
+  "version": 1,
+  "type": "msg",
+  "payload": {
+    "nonce": "24-byte-base64",
+    "ciphertext": "base64(ciphertext||tag)",
+    "msg_id": "uuid",
+    "notify_if_offline": true,
+    "seq": 4124
+  }
+}
+```
+
 Encryption:
 
 - algorithm: XChaCha20-Poly1305
@@ -731,10 +786,11 @@ Encryption:
 Relay-visible metadata:
 
 - `notify_if_offline`: optional boolean
+- `seq`: relay-assigned monotonic sequence number, scoped to a single recipient `(group_id, role, device_id)` triple; see §6.6 for full semantics
 
 Rules:
 
-- this field is on the outer relay `msg.payload`, not inside encrypted inner content
+- `notify_if_offline` is on the outer relay `msg.payload`, not inside encrypted inner content
 - it is intended for notification-worthy content only
 - senders should set it for plugin-sent:
   - `text`
@@ -746,20 +802,27 @@ Rules:
   - pairing traffic
 - if `notify_if_offline == true` and no app device is currently connected for the `group_id`, the relay should send push notifications to all registered devices for that group
 - offline delivery for apps is per registered `device_id`, not one shared group queue
+- senders must not set `seq`; the relay assigns it independently for each recipient and rewrites the outbound payload accordingly
+- recipients use `seq` exclusively for acknowledgement and offline-queue replay; ordering of message rendering still follows wall-clock `ts` and the streaming rules in §6.4.2
 
 ### 6.4.0 Offline Queue Semantics
 
 - plugin -> apps:
-  - relay sends to connected app devices
-  - relay queues the same encrypted `msg` for every registered app `device_id` that is not currently connected
+  - relay assigns a per-recipient `seq` for each connected and each registered-but-offline app `device_id`
+  - relay sends the message to connected app devices with that recipient's `seq` filled in
+  - relay also stores the encrypted `msg` (with the assigned `seq`) in a durable per-recipient queue keyed by `(group_id, role=app, device_id)`
 - app -> plugin:
-  - relay sends to plugin if connected
-  - otherwise relay queues for plugin by `group_id`
-  - relay fans out to other connected app devices
-  - relay also queues for other registered app devices that are offline
-- on app `hello`:
-  - relay drains only the queue for that app's `group_id + device_id`
+  - relay assigns a per-recipient `seq` for the plugin and for each other registered app device in the group
+  - relay sends the message to the plugin if connected, with the plugin's `seq` filled in
+  - relay otherwise stores the encrypted `msg` in the durable plugin queue keyed by `(group_id, role=plugin)`
+  - relay also fans out to every other connected app device with that recipient's `seq` and stores it in each offline app device's queue
+- on `hello` (any role):
+  - relay drains only the queue for that connection's `(group_id, role, device_id)` triple
   - relay must not drain one shared group queue for all app devices
+  - if `hello.last_acked_seq` is present, the relay redrives only entries with `seq > last_acked_seq` and discards lower entries from the queue
+  - if `hello.last_acked_seq` is absent or `0`, the relay redrives every entry currently in that recipient's queue
+- queue eviction: ack-driven; see §6.6 for the authoritative eviction rules. Pre-ack legacy clients still trigger optimistic eviction at fan-out time, but ack-aware clients must be served by ack-driven retention.
+- queue durability: per §8, the relay queue must survive process restarts
 
 ### 6.4.1 Encrypted Inner Message Metadata
 
@@ -884,6 +947,195 @@ Keepalive remains:
 { "version": 1, "type": "pong", "payload": null }
 ```
 
+Application-layer keepalive rules:
+
+- `ping` and `pong` are application-layer frames (not WebSocket protocol-level pings); they prove the receiving side's app process is actively pumping its receive loop, not just that the kernel TCP stack is alive
+- a connected client (app or plugin) should send `ping` no less often than every `25 seconds` of socket-idle time
+- the relay must reply to every `ping` with a `pong` on the same connection
+- the relay must send a `ping` if it has not received any frame from the client for `60 seconds`; if no `pong` arrives within `15 seconds` of that relay-initiated `ping`, the relay closes the connection but **must not** evict that connection's per-device queue (see §6.6)
+- clients may use a missed `pong` as a signal to drop and re-establish the WebSocket connection
+- application-layer `ping`/`pong` are exempt from the offline queue and never carry `seq`
+
+---
+
+### 6.6 Reliable Delivery (Acknowledgements and Ticks)
+
+This section is normative. It defines the acknowledgement layer that protects against silent message loss when a TCP socket dies between "bytes written by sender" and "bytes processed by receiver application".
+
+#### 6.6.1 Failure Model
+
+Two observed failure classes motivate this section. Implementations must assume both can happen:
+
+- A receiver's TCP socket appears alive (kernel ACKs flowing) while the receiving app process is suspended (macOS App Nap, iOS background, plugin host swapping). The relay writes frames into the kernel receive buffer; the app never reads them; on connection reset the kernel discards the buffer; the frames are silently lost.
+- A receiver opens a connection, the relay immediately fan-out-writes a large backlog, the receiver closes the socket within milliseconds (e.g. iOS re-backgrounds the app on launch). Bytes still in flight or in the kernel receive buffer are lost on close.
+
+In both cases TCP guarantees byte transport from kernel to kernel, not application to application. The acknowledgement layer closes that gap.
+
+#### 6.6.2 Two Ack Flows
+
+There are two distinct ack flows. Implementations must support both.
+
+- **Flow A — Persistence ack (outer, hop-by-hop, plaintext):** the receiver tells the relay "I have stably persisted the message identified by `seq` to my local durable store". The relay uses this to evict messages from the per-recipient queue. Carried in an outer `recv_ack` frame outside the encrypted envelope so that the relay can act on it.
+- **Flow B — Processed ack (inner, end-to-end, encrypted):** the plugin tells the originating app "I have decrypted and accepted your prompt at the application layer". Carried as an inner message of `t == "ack"` inside the encrypted envelope so that the relay cannot forge or read it. Used to drive UI delivery indicators.
+
+Flow A and Flow B are independent — a message may be Flow-A-acked by the recipient and never Flow-B-acked by the plugin, or vice versa. Implementations must track them separately.
+
+#### 6.6.3 Outer `recv_ack` Frame (Flow A)
+
+Sent from a receiving client (app or plugin) to the relay over the same WebSocket. Plaintext. Cumulative with optional selective ranges (TCP/QUIC-style):
+
+```json
+{
+  "version": 1,
+  "type": "recv_ack",
+  "payload": {
+    "up_to_seq": 4180,
+    "ranges": [[4182, 4191]]
+  }
+}
+```
+
+Field rules:
+
+- `up_to_seq`: the highest `seq` for which **every** lower seq has also been persisted. Cumulative high-water mark.
+- `ranges`: optional array of `[low, high]` inclusive pairs identifying additional persisted seqs above `up_to_seq` that arrived out of order. Each pair must satisfy `low > up_to_seq` and `low <= high`. The relay may treat the ranges as advisory and either evict them or wait for them to be folded into the cumulative high-water mark.
+- `ranges` should remain bounded; senders should keep at most 32 ranges and must keep at most 256
+
+Sender obligations (the receiving client):
+
+- emit `recv_ack` only **after** the inner message has been decoded and stably persisted to local durable storage (e.g. SwiftData's `ModelContext.save()` has returned)
+- batch acks: emit a `recv_ack` when **any** of these conditions becomes true, whichever first
+  - 32 newly persisted seqs are pending acknowledgement
+  - 50 milliseconds have elapsed since the most recent persistence
+  - the application is about to suspend, background, or close the WebSocket cleanly (final flush)
+  - on receipt of a duplicate seq (re-emit the same cumulative high-water mark idempotently)
+- never emit `recv_ack` for a seq the receiver has not durably persisted; doing so re-introduces the silent-loss bug
+
+Relay obligations on receipt:
+
+- advance per-recipient `last_acked_seq` to `max(current, payload.up_to_seq)`
+- evict every queued entry with `seq <= last_acked_seq`
+- additionally evict any queued entry whose `seq` falls inside any of `payload.ranges`
+- never evict on any other signal — fan-out write does not evict, ws.close does not evict, idle_ping kill does not evict
+- duplicate `recv_ack` for already-evicted seqs is a no-op
+
+#### 6.6.4 Outer `relay_recv_ack` Frame (sender → relay → sender, optional v1)
+
+Sent from the relay back to the originating client to confirm the relay accepted, queued, and fanned out an outbound message. Plaintext, outside the envelope:
+
+```json
+{
+  "version": 1,
+  "type": "relay_recv_ack",
+  "payload": {
+    "msg_id": "uuid",
+    "queued_for": ["app:device-id-A", "plugin"]
+  }
+}
+```
+
+- `msg_id` echoes the inner `msg_id` of the originating message
+- `queued_for` lists the recipient identities for which the relay assigned a `seq` and either delivered live or stored in a durable queue
+
+This frame drives the "sent" tick in the originating client's UI. It is optional in v1 — clients must not depend on it for correctness, only as a UI hint. Pre-ack relays may omit it entirely.
+
+#### 6.6.5 Inner `ack` Type (Flow B, end-to-end)
+
+Sent inside the encrypted envelope. The relay cannot read or forge it. Used to render plugin-side delivery indicators in the originating app's UI.
+
+```json
+{
+  "t": "ack",
+  "id": "uuid-of-this-ack",
+  "from": {
+    "role": "plugin",
+    "device_id": "...",
+    "device_name": "...",
+    "app_version": "0.7.2",
+    "bundle_id": "@chat4000/openclaw-plugin"
+  },
+  "body": {
+    "refs": "uuid-of-the-message-being-acked",
+    "stage": "received"
+  },
+  "ts": 1710000000000
+}
+```
+
+Field rules on `body`:
+
+- `refs`: required; the inner `msg_id` of the message being acknowledged
+- `stage`: required; one of:
+  - `received` — the receiving party decrypted and accepted the message at the application layer
+  - `processing` — the receiving party has handed the prompt to its agent runtime (optional; v1 implementations may skip and rely on subsequent `text_delta` as the "agent typing" signal)
+  - `displayed` — the receiving party has shown the message to a human user (optional; reserved for human-to-human use; not required for plugin acks)
+
+Sender obligations:
+
+- emit a `received` ack as soon as the inner message has been decrypted and the body has been parsed without error; do not wait for downstream agent processing
+- emit at most one `ack` of each `stage` per `refs`; duplicate `ack` frames for the same `(refs, stage)` are a no-op for the receiver
+- senders must not include `ack` frames in offline queues semantically distinct from regular messages; they ride through the same encrypted-envelope path and inherit Flow A semantics for transport reliability
+
+Receiver obligations:
+
+- match `body.refs` to a locally-tracked outbound message and update its delivery state (see §6.6.7)
+- ignore unknown values of `body.stage`
+
+Sender restriction in v1 (multi-device groups):
+
+- in v1 only the **plugin** emits inner `ack` frames. Apps do **not** emit inner `ack` frames for messages received from other apps. A multi-app-device group will therefore **not** show a "delivered to other app device" tick in v1; the "delivered" tick reflects exclusively that the plugin received the prompt
+- a future protocol minor revision may relax this; until then, app implementations must omit the inner `ack` emission path for inbound `from.role == "app"` messages
+
+#### 6.6.6 Sliding Window and Flow Control
+
+To prevent unbounded relay-side buffering when a client is genuinely behind, the relay applies per-recipient flow control:
+
+- the relay maintains a per-recipient unacked window with a default size of `64` queued entries (`seq` values) above the recipient's current `last_acked_seq`
+- while the window is full, the relay must continue to enqueue inbound messages for that recipient durably, but must pause live fan-out writes to that recipient's socket (if connected)
+- when an incoming `recv_ack` advances `last_acked_seq` and frees window slots, the relay resumes live fan-out for that recipient
+- the relay should impose a hard upper bound on per-recipient queue depth (suggested: `10000` entries); above this bound, the relay may drop the oldest entries and surface this as an out-of-band operational alert; clients that hit this bound have effectively missed a chunk of history and the implementation should expose that fact to the user
+
+#### 6.6.7 Delivery Status (Ticks)
+
+UI-level meaning of each delivery state, in the originating client's view of an outbound message:
+
+| Tick state | Trigger                                                                | Source of truth | Frame                 |
+|------------|------------------------------------------------------------------------|-----------------|-----------------------|
+| sending    | message created locally, not yet acknowledged by the relay             | local           | none                  |
+| sent       | relay accepted, queued, and fanned out the outbound message            | relay           | `relay_recv_ack`      |
+| delivered  | every recipient client and/or the plugin has decrypted the message     | recipient       | inner `ack` (stage=received) |
+| failed     | message could not be sent (relay never reached, or network error)      | local           | none                  |
+
+Rendering rules:
+
+- `sending` is the initial state for any user-originated outbound message
+- on receipt of `relay_recv_ack` for the message, transition to `sent`
+- on receipt of an inner `ack` with `stage == "received"` and `refs == this message's msg_id` from a peer where `from.role == "plugin"`, transition to `delivered`
+- in v1 the "delivered" tick is driven **exclusively by plugin acks**. Inner `ack` frames from `from.role == "app"` (other app devices in the same multi-device group) must be ignored for tick rendering, and apps must not emit such acks (see §6.6.5). A future protocol minor revision may add app-to-app delivery indicators
+- the `processing` and `displayed` stages are optional in v1; first-token streaming via `text_delta` is the canonical signal that an agent has begun replying, and is sufficient for v1 UIs without a dedicated "agent typing" tick
+- `failed` is set locally only after a client-side timeout or socket error; the protocol does not define a relay-emitted `relay_send_error` frame in v1
+
+#### 6.6.8 Reconnect and Replay
+
+On reconnect:
+
+- the connecting party sends `hello` with `last_acked_seq` set to the highest `seq` it has stably persisted for the prior session of the same `(group_id, role, device_id)` triple
+- the relay redrives every queued message with `seq > hello.last_acked_seq` for that recipient before delivering any newly arrived messages
+- redriven messages keep their original `seq`; the relay does not re-assign sequence numbers on replay
+- the originating sender of any redriven message is **not** notified of the redrive; the redrive is invisible to the original sender unless and until a fresh inner `ack` arrives back through the envelope
+
+#### 6.6.9 Idempotency
+
+- inner `msg_id` is the canonical identifier for application-layer deduplication
+- recipients must dedupe by `msg_id` (and by stream-bound `id` for `text_delta` / `text_end`); a duplicate `msg_id` from any source must be processed exactly once at the application layer and its `seq` must still be acknowledged
+- the relay must not modify or rewrite `msg_id` between fan-out copies; only the outer `seq` differs per recipient
+
+#### 6.6.10 Backwards Compatibility
+
+- pre-ack clients (no `last_acked_seq` in `hello`, no emission of `recv_ack`) interoperate with ack-aware relays; the relay falls back to legacy fan-out-then-evict behavior for those connections, accepting the legacy silent-loss risk
+- pre-ack relays (no `seq` on outbound `msg.payload`, no acceptance of `recv_ack`) interoperate with ack-aware clients; clients treat absent `seq` as "ack layer disabled, do not emit `recv_ack`, transition `sent` based on best-effort local timeout, and skip `delivered` rendering entirely"
+- the `version` field on the outer envelope remains `1`; the ack layer is purely additive
+
 ---
 
 ## 7. Push Notifications
@@ -912,6 +1164,17 @@ Protocol requirements:
 - storage location, file format, and host integration are implementation details outside this protocol
 
 This specification defines what value must survive pairing, not where a specific implementation stores it.
+
+### 8.1 Relay Queue Durability
+
+The per-recipient offline queue defined in §6.4.0 and §6.6 must be durable across relay process restarts. Implementations:
+
+- must persist each enqueued message to non-volatile storage before considering the message accepted (e.g. SQLite with `synchronous=FULL` per-write, or equivalent fsync-on-commit semantics)
+- must persist `last_acked_seq` per `(group_id, role, device_id)` triple alongside the queue
+- must restore both queue contents and `last_acked_seq` on restart before accepting any new connections
+- may compact or vacuum the queue on a coarse schedule but must not evict entries on any signal other than ack receipt or the queue-depth hard cap from §6.6.6
+
+Without queue durability, the ack layer in §6.6 cannot deliver its correctness guarantee — a single relay restart would silently lose every message in the queue. Durability is therefore a normative protocol requirement, not an implementation detail.
 
 ## 9. Security Notes
 

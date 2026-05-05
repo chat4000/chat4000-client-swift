@@ -56,6 +56,40 @@ struct MessageBubble: View {
             .padding(.bottom, 2)
     }
 
+    /// Tiny inline tick that lives at the bottom-right inside user bubbles
+    /// (per the chat-app convention). Agent bubbles get no tick.
+    /// Color: timestamp grey for sending/sent, green for delivered, red for
+    /// failed. Per protocol §6.6.7.
+    @ViewBuilder
+    private var statusTick: some View {
+        if isUser {
+            switch message.status {
+            case .sending:
+                Image(systemName: "clock")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.55))
+            case .sent:
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.55))
+            case .delivered:
+                // WhatsApp-style double tick: two checkmarks overlapping
+                // tightly so they read as a single stacked glyph. Blue marks
+                // the "delivered to plugin" terminal state.
+                ZStack {
+                    Image(systemName: "checkmark").offset(x: -2.5)
+                    Image(systemName: "checkmark").offset(x: 2.5)
+                }
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x53BDEB))
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.red.opacity(0.85))
+            }
+        }
+    }
+
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: contentSpacing) {
             if let imageData = message.imageData,
@@ -85,16 +119,16 @@ struct MessageBubble: View {
                 Text(message.text)
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
-                    .textSelection(.enabled)
-#if os(iOS)
+                    // Disable Text's built-in selection so a single tap can
+                    // toggle the timestamp on macOS without first being
+                    // captured by the selection gesture. Copy is still
+                    // reachable via the context menu below (right-click on
+                    // macOS, long-press on iOS).
+                    .textSelection(.disabled)
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         showsTimestamp.toggle()
                     }
-#elseif os(macOS)
-                    .onTapGesture(count: 2) {
-                        showsTimestamp.toggle()
-                    }
-#endif
                     .contextMenu {
                         Button("Copy") {
                             copyText(message.text)
@@ -110,6 +144,16 @@ struct MessageBubble: View {
             BubbleShape(isUser: isUser)
                 .stroke(isUser ? Color(hex: 0x71767A) : .clear, lineWidth: 1.5)
         )
+        .overlay(alignment: .bottomTrailing) {
+            // Tiny inline tick anchored to the bottom-right corner of the
+            // user bubble. Doesn't affect text layout; floats over the
+            // padding region.
+            if isUser {
+                statusTick
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 4)
+            }
+        }
     }
 
     private var contentSpacing: CGFloat {

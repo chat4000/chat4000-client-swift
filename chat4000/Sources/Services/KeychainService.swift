@@ -19,7 +19,7 @@ enum KeychainService {
         )
         let data = try JSONEncoder().encode(scopedConfig)
         try data.write(to: configFileURL, options: [.atomic, .completeFileProtection])
-        DevLog.log("💾 Group config saved for \(AppEnvironment.current.kind.rawValue)")
+        AppLog.log("💾 Group config saved for \(AppEnvironment.current.kind.rawValue)")
     }
 
     static func load() -> GroupConfig? {
@@ -33,6 +33,6 @@ enum KeychainService {
 
     static func delete() {
         try? FileManager.default.removeItem(at: configFileURL)
-        DevLog.log("💾 Group config deleted for \(AppEnvironment.current.kind.rawValue)")
+        AppLog.log("💾 Group config deleted for \(AppEnvironment.current.kind.rawValue)")
     }
 }

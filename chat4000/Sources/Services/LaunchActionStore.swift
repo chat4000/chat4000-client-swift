@@ -10,7 +10,7 @@ enum LaunchActionStore {
     static let didSetNotification = Notification.Name("chat4000.pendingLaunchActionDidSet")
 
     static func set(_ action: LaunchAction) {
-        DevLog.log("🎯 LaunchActionStore.set action=%@", action.rawValue)
+        AppLog.log("🎯 LaunchActionStore.set action=%@", action.rawValue)
         UserDefaults.standard.set(action.rawValue, forKey: key)
         NotificationCenter.default.post(name: didSetNotification, object: action.rawValue)
     }
@@ -22,13 +22,13 @@ enum LaunchActionStore {
             return nil
         }
 
-        DevLog.log("🎯 LaunchActionStore.consume action=%@", action.rawValue)
+        AppLog.log("🎯 LaunchActionStore.consume action=%@", action.rawValue)
         UserDefaults.standard.removeObject(forKey: key)
         return action
     }
 
     static func action(for url: URL) -> LaunchAction? {
-        DevLog.log("🎯 LaunchActionStore.action url=%@", url.absoluteString)
+        AppLog.log("🎯 LaunchActionStore.action url=%@", url.absoluteString)
         guard url.scheme?.lowercased() == "chat4000" else { return nil }
 
         let host = url.host?.lowercased()
@@ -36,10 +36,10 @@ enum LaunchActionStore {
 
         switch (host, firstPathComponent) {
         case ("record", _), (_, "record"):
-            DevLog.log("🎯 LaunchActionStore.action resolved=startVoiceRecording")
+            AppLog.log("🎯 LaunchActionStore.action resolved=startVoiceRecording")
             return .startVoiceRecording
         default:
-            DevLog.log("🎯 LaunchActionStore.action resolved=nil")
+            AppLog.log("🎯 LaunchActionStore.action resolved=nil")
             return nil
         }
     }
