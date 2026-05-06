@@ -49,8 +49,10 @@
 		3F526B0BF134FCC64086E91A /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
 		3F9D35BA6B8C2DB58869F001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		41A8F895F8DC2A34838C57B3 /* PendingIncomingMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F10C1E55EC5F82836D376C5 /* PendingIncomingMessageStore.swift */; };
+		42107D550C0CB70220AD758B /* RelayMessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6619574DA2EA173E14EB227C /* RelayMessageTransport.swift */; };
 		443327C01E32612D0585DD74 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		44BDDEA07FBAD822E0680CFD /* ProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73988230D25B644B8C0FF304 /* ProtocolTests.swift */; };
+		47F08064A47D2B766992EBB5 /* RelayMessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6619574DA2EA173E14EB227C /* RelayMessageTransport.swift */; };
 		499A7F16C1608A8380374249 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
 		5090338F809B82F32B646A93 /* Sodium in Frameworks */ = {isa = PBXBuildFile; productRef = F387CF724D0C7E35429BC1F7 /* Sodium */; };
 		517FEC29AAE2F9F0E60A2785 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
@@ -61,6 +63,7 @@
 		61C94687A4B83B85DB92D515 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		6344C9D91CC944DD0E689465 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
 		64CDDF57454574602D298DDB /* AppNapBlocker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22B94C54970CFF1F395117B7 /* AppNapBlocker.swift */; };
+		6794FC117B78C73C326D8DB1 /* PendingAcksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46C71176520DBDF5F231961 /* PendingAcksStore.swift */; };
 		69692E7B8A99FB36510B268E /* AckTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C321129A48D784ADAAE2F32 /* AckTracker.swift */; };
 		6D42E3F66D3E40C67839BDE2 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
 		7145FAF920C55FE32AA4B2D6 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4286293C0D698B77037DFBC /* KeychainService.swift */; };
@@ -75,6 +78,7 @@
 		84ED60531807CBAF0A6653CF /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		85871F19E67D9C1984BED023 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
 		8711B3E831F996DAA0E33AEC /* RelaySessionDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894E8FFA5C312247A853AEA2 /* RelaySessionDelegate.swift */; };
+		87187C1F8BA83474C24D8CFA /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C463E211CCE7A8B204A526 /* MessageTransport.swift */; };
 		8736C6B4AD69A58019841C2E /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
 		881EADD1FE460FF5CB568D96 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		8AB0F868AB5D33C12F071EA0 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 22A6C684720BC98F432DB9E2 /* Sentry */; };
@@ -84,6 +88,7 @@
 		8E21C09D5C1D65275630A20C /* PairingCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADE946F39155FB3671118D7 /* PairingCryptoTests.swift */; };
 		8EAA0DB6BE568DE1EFD8D966 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF80C3D35458420BB02536E /* PushNotificationService.swift */; };
 		901B4441638C91545DFBF037 /* VersionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D22FFACA5DC05AF48ADCA48 /* VersionPolicy.swift */; };
+		9095E77BC8EF2B502FB1B416 /* PendingAcksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46C71176520DBDF5F231961 /* PendingAcksStore.swift */; };
 		9BB49FF0EC2415E7E31D445B /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		9CBC2908C31E7A5261AC2C4A /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
 		9CCBE4B1941F8A586A8D80DD /* Crypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4BF953BCCB91E8BE5218FF /* Crypto.swift */; };
@@ -106,12 +111,14 @@
 		B694ED24C248551432D6D475 /* PairConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E20967816CAFDB185786053 /* PairConfigTests.swift */; };
 		B72E789C360692F416ABFCAE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		B978F05F8D48E304A6AC6DAF /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
+		B9F3980B184DDF86102D28A1 /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C463E211CCE7A8B204A526 /* MessageTransport.swift */; };
 		BBFCF7DD06B72A18B1DBC63E /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
 		BC88FA9990D138C31407D0AD /* AppAttestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969CE1B0FCD66263E480A680 /* AppAttestService.swift */; };
 		BF513B9874C522794D7B414E /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
 		C0A642664DD26D34F0EF7473 /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
 		C265CC61705A11DF0DF9B14B /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
 		C5D9C9266871FE067F588E12 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
+		C67FC11DE503F5B1822EEC7D /* PendingAcksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46C71176520DBDF5F231961 /* PendingAcksStore.swift */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
 		C9AE11A70D5480A5BF132B63 /* AckTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C321129A48D784ADAAE2F32 /* AckTracker.swift */; };
 		CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
@@ -120,6 +127,7 @@
 		CFB9A345D88CDCEA35C22EF2 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */; };
 		D02C328A2EDEFFB92700EB9E /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
 		D0C76657330EBA5D20213B2C /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
+		D3CA1CD8B4051FABFC9DCF7B /* RelayMessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6619574DA2EA173E14EB227C /* RelayMessageTransport.swift */; };
 		D71964EA9FCE6279922ED795 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
 		D844D398F476545D3D5531A7 /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */; };
 		DB3527DA199928F13CAC39E5 /* AckSeqStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 641F4B9E1384FF6C97535FFB /* AckSeqStore.swift */; };
@@ -132,6 +140,7 @@
 		E17E7932A15275C8D7BD05CC /* PluginVersionPolicyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C85D5F2056ADE9F9EDCCC5 /* PluginVersionPolicyManager.swift */; };
 		E1DDA50F8E16FC6476923644 /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
 		E1E75A684462EE02BB6849C7 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 4CFD4AB9E3DE7ECDAA1A90DE /* Sentry */; };
+		E34581EC1C72D2D844E95CA5 /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C463E211CCE7A8B204A526 /* MessageTransport.swift */; };
 		E42F63D988F87F7CDD8C3356 /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		E4C3833143DDBF54829E9481 /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		E6AC34F9ED611B9DB460BB49 /* ServerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8253E3B96069D33726811C /* ServerConfig.swift */; };
@@ -180,6 +189,7 @@
 		5A8BF1914A6E192A09704942 /* chat4000App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat4000App.swift; sourceTree = "<group>"; };
 		5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
 		641F4B9E1384FF6C97535FFB /* AckSeqStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AckSeqStore.swift; sourceTree = "<group>"; };
+		6619574DA2EA173E14EB227C /* RelayMessageTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayMessageTransport.swift; sourceTree = "<group>"; };
 		6E034B59B3D25EB2105676B2 /* InnerMessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InnerMessageTests.swift; sourceTree = "<group>"; };
 		73988230D25B644B8C0FF304 /* ProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolTests.swift; sourceTree = "<group>"; };
 		75B42D7242579BD437991A3C /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
@@ -197,8 +207,10 @@
 		ABF80C3D35458420BB02536E /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		B2921479514ABE106F4A0EE2 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		B2C85D5F2056ADE9F9EDCCC5 /* PluginVersionPolicyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginVersionPolicyManager.swift; sourceTree = "<group>"; };
+		B9C463E211CCE7A8B204A526 /* MessageTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTransport.swift; sourceTree = "<group>"; };
 		BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat4000Shortcuts.swift; sourceTree = "<group>"; };
 		BFEED4353925A1326B21221D /* PairingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingService.swift; sourceTree = "<group>"; };
+		C46C71176520DBDF5F231961 /* PendingAcksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingAcksStore.swift; sourceTree = "<group>"; };
 		C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = chat4000Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CB8627734E252FE4E0D03E22 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		D577136CE593FD82EF78E86F /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
@@ -248,7 +260,9 @@
 		1C2AB8301B27E765CE09C77F /* Gateway */ = {
 			isa = PBXGroup;
 			children = (
+				B9C463E211CCE7A8B204A526 /* MessageTransport.swift */,
 				F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */,
+				6619574DA2EA173E14EB227C /* RelayMessageTransport.swift */,
 				2232140EE4AF69B38B528E23 /* WebSocketClient.swift */,
 			);
 			path = Gateway;
@@ -357,6 +371,7 @@
 				E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */,
 				1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */,
 				BFEED4353925A1326B21221D /* PairingService.swift */,
+				C46C71176520DBDF5F231961 /* PendingAcksStore.swift */,
 				8F10C1E55EC5F82836D376C5 /* PendingIncomingMessageStore.swift */,
 				B2C85D5F2056ADE9F9EDCCC5 /* PluginVersionPolicyManager.swift */,
 				ABF80C3D35458420BB02536E /* PushNotificationService.swift */,
@@ -619,13 +634,16 @@
 				FE8E61893B9CEC1FCE1049BE /* LaunchActionStore.swift in Sources */,
 				6344C9D91CC944DD0E689465 /* LegalConsent.swift in Sources */,
 				F22B4670321D98EE3CD6DB28 /* MessageBubble.swift in Sources */,
+				B9F3980B184DDF86102D28A1 /* MessageTransport.swift in Sources */,
 				2081BF7C87BF62EF8611ACFD /* PairingService.swift in Sources */,
+				6794FC117B78C73C326D8DB1 /* PendingAcksStore.swift in Sources */,
 				020B0AF01AD85D8C85025427 /* PendingIncomingMessageStore.swift in Sources */,
 				E42F63D988F87F7CDD8C3356 /* PlatformAppDelegate.swift in Sources */,
 				27E702EA93AA894A4A3B8ABD /* PluginVersionPolicyManager.swift in Sources */,
 				517FEC29AAE2F9F0E60A2785 /* ProtocolModels.swift in Sources */,
 				F7070CFFF020F789D8061919 /* PushNotificationService.swift in Sources */,
 				B3191AE96E6215A7F3A2DF25 /* QRScannerView.swift in Sources */,
+				D3CA1CD8B4051FABFC9DCF7B /* RelayMessageTransport.swift in Sources */,
 				8711B3E831F996DAA0E33AEC /* RelaySessionDelegate.swift in Sources */,
 				27BA5D81EF3EB0FB10B9A671 /* ServerConfig.swift in Sources */,
 				BF513B9874C522794D7B414E /* SettingsSheet.swift in Sources */,
@@ -665,13 +683,16 @@
 				CFB9A345D88CDCEA35C22EF2 /* LaunchActionStore.swift in Sources */,
 				7A1D32E7E45FA056F6F7A094 /* LegalConsent.swift in Sources */,
 				C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */,
+				E34581EC1C72D2D844E95CA5 /* MessageTransport.swift in Sources */,
 				81AD9998EF78FE4FA150786B /* PairingService.swift in Sources */,
+				9095E77BC8EF2B502FB1B416 /* PendingAcksStore.swift in Sources */,
 				41A8F895F8DC2A34838C57B3 /* PendingIncomingMessageStore.swift in Sources */,
 				761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */,
 				E17E7932A15275C8D7BD05CC /* PluginVersionPolicyManager.swift in Sources */,
 				F26811CC469379438C76C3B3 /* ProtocolModels.swift in Sources */,
 				E013DEB8130901A6F927CD4D /* PushNotificationService.swift in Sources */,
 				1D1A63B60A2A7AE3A473C17F /* QRScannerView.swift in Sources */,
+				42107D550C0CB70220AD758B /* RelayMessageTransport.swift in Sources */,
 				9E3292A1E4C51B33B634FBFC /* RelaySessionDelegate.swift in Sources */,
 				7DAAA83FF668B650B485293E /* ServerConfig.swift in Sources */,
 				B0BE4C42C5F53E1A1B1AE53C /* SettingsSheet.swift in Sources */,
@@ -711,13 +732,16 @@
 				3BCDAEE981D96DBAE6998A6A /* LaunchActionStore.swift in Sources */,
 				E914934D11E28D9A4A88EAD6 /* LegalConsent.swift in Sources */,
 				CBF9C19ECD484466C60C197E /* MessageBubble.swift in Sources */,
+				87187C1F8BA83474C24D8CFA /* MessageTransport.swift in Sources */,
 				143DAA5E0E21DA39F41DE0A3 /* PairingService.swift in Sources */,
+				C67FC11DE503F5B1822EEC7D /* PendingAcksStore.swift in Sources */,
 				1C62922CBEAB1697CA42563F /* PendingIncomingMessageStore.swift in Sources */,
 				B978F05F8D48E304A6AC6DAF /* PlatformAppDelegate.swift in Sources */,
 				35DE89E237B070AE9BA16F19 /* PluginVersionPolicyManager.swift in Sources */,
 				D02C328A2EDEFFB92700EB9E /* ProtocolModels.swift in Sources */,
 				8EAA0DB6BE568DE1EFD8D966 /* PushNotificationService.swift in Sources */,
 				2247288E706BC0A2CE49AA35 /* QRScannerView.swift in Sources */,
+				47F08064A47D2B766992EBB5 /* RelayMessageTransport.swift in Sources */,
 				24C49CEC18BA70A182A7ACE8 /* RelaySessionDelegate.swift in Sources */,
 				E6AC34F9ED611B9DB460BB49 /* ServerConfig.swift in Sources */,
 				B16AEEC41FE3E265CAEB1488 /* SettingsSheet.swift in Sources */,

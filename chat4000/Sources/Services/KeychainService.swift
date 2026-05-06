@@ -18,7 +18,15 @@ enum KeychainService {
             groupKey: groupKey
         )
         let data = try JSONEncoder().encode(scopedConfig)
-        try data.write(to: configFileURL, options: [.atomic, .completeFileProtection])
+        // No file protection class — file is readable in any device state
+        // (including pre-first-unlock and silent-push wake). The group key
+        // therefore sits unencrypted-at-rest inside the app sandbox; an
+        // attacker with filesystem access (jailbreak, unencrypted backup,
+        // forensic tools) can recover it. Acceptable for now; revisit by
+        // moving the key into a shared Keychain access group with
+        // `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` if/when we add
+        // a Notification Service Extension.
+        try data.write(to: configFileURL, options: [.atomic])
         AppLog.log("💾 Group config saved for \(AppEnvironment.current.kind.rawValue)")
     }
 

@@ -877,9 +877,10 @@ Streaming inner message types:
 ```json
 {
   "t": "text_delta",
-  "id": "stream-uuid",
+  "id": "frame-uuid",
   "body": {
-    "delta": " world"
+    "delta": " world",
+    "stream_id": "stream-uuid"
   },
   "ts": 1710000000000
 }
@@ -890,10 +891,11 @@ Streaming inner message types:
 ```json
 {
   "t": "text_end",
-  "id": "stream-uuid",
+  "id": "frame-uuid",
   "body": {
     "text": "Hello world",
-    "reset": false
+    "reset": false,
+    "stream_id": "stream-uuid"
   },
   "ts": 1710000000000
 }
@@ -901,11 +903,14 @@ Streaming inner message types:
 
 Rules:
 
-- the inner `id` for `text_delta` and `text_end` is the `stream_id`
+- each `text_delta` and `text_end` frame has its own unique inner `id` — a fresh UUID per frame, just like every other inner type. Inner `id` is the logical-msg id and is dedup-able per §6.6.9.
+- the **stream correlator** lives in `body.stream_id` and is shared across every frame belonging to one logical streaming reply
 - within a single `stream_id`, `text_delta.body.delta` is append-only
 - receivers must concatenate deltas in arrival order for that `stream_id`
 - `text_end` finalizes that same `stream_id`
 - senders must not use later `text_delta` frames in the same `stream_id` to rewrite or replace earlier text
+
+Backwards-compat (transitional): receivers SHOULD prefer `body.stream_id` and fall back to inner `id` when `body.stream_id` is absent. This lets new clients render correctly against pre-spec senders that still reuse `inner.id == stream_id`. New senders MUST emit `body.stream_id`. The fallback path is removed once all known senders are upgraded.
 
 `reset` is an optional boolean on `text_end`:
 
@@ -1099,18 +1104,23 @@ To prevent unbounded relay-side buffering when a client is genuinely behind, the
 
 UI-level meaning of each delivery state, in the originating client's view of an outbound message:
 
-| Tick state | Trigger                                                                | Source of truth | Frame                 |
-|------------|------------------------------------------------------------------------|-----------------|-----------------------|
-| sending    | message created locally, not yet acknowledged by the relay             | local           | none                  |
-| sent       | relay accepted, queued, and fanned out the outbound message            | relay           | `relay_recv_ack`      |
-| delivered  | every recipient client and/or the plugin has decrypted the message     | recipient       | inner `ack` (stage=received) |
-| failed     | message could not be sent (relay never reached, or network error)      | local           | none                  |
+| Tick state | Trigger                                                                | Source of truth | Frame                 | Layer            |
+|------------|------------------------------------------------------------------------|-----------------|-----------------------|------------------|
+| sending    | message created locally, not yet acknowledged by the relay             | local           | none                  | local            |
+| sent       | relay accepted, queued, and fanned out the outbound message            | relay           | `relay_recv_ack`      | **transport**    |
+| delivered  | every recipient client and/or the plugin has decrypted the message     | recipient       | inner `ack` (stage=received) | **application** |
+| failed     | message could not be sent (relay never reached, or network error)      | local           | none                  | local            |
+
+The `sent` and `delivered` ticks are produced by **two different layers** and **must not be conflated**:
+
+- **`sent` is a transport-layer event.** It originates from `relay_recv_ack`, which lives outside the encrypted envelope. The relay is its source of truth, and a reference client's `MessageTransport` (see §6.6.11) emits this signal automatically as part of its outbound-msg state machine.
+- **`delivered` is an application-layer event.** It originates from an inner `ack` message with `t == "ack"`, which lives inside the encrypted envelope. The plugin (or another peer at the application layer) is its source of truth. The transport layer surfaces this purely as a regular received inner message — the consumer (e.g. ChatViewModel) is responsible for interpreting `inner.t == "ack"` and updating the matching outbound row's status.
 
 Rendering rules:
 
 - `sending` is the initial state for any user-originated outbound message
-- on receipt of `relay_recv_ack` for the message, transition to `sent`
-- on receipt of an inner `ack` with `stage == "received"` and `refs == this message's msg_id` from a peer where `from.role == "plugin"`, transition to `delivered`
+- on receipt of `relay_recv_ack` for the message, transition to `sent` (transport-layer signal)
+- on receipt of an inner `ack` with `stage == "received"` and `refs == this message's msg_id` from a peer where `from.role == "plugin"`, transition to `delivered` (application-layer signal)
 - in v1 the "delivered" tick is driven **exclusively by plugin acks**. Inner `ack` frames from `from.role == "app"` (other app devices in the same multi-device group) must be ignored for tick rendering, and apps must not emit such acks (see §6.6.5). A future protocol minor revision may add app-to-app delivery indicators
 - the `processing` and `displayed` stages are optional in v1; first-token streaming via `text_delta` is the canonical signal that an agent has begun replying, and is sufficient for v1 UIs without a dedicated "agent typing" tick
 - `failed` is set locally only after a client-side timeout or socket error; the protocol does not define a relay-emitted `relay_send_error` frame in v1
@@ -1126,8 +1136,8 @@ On reconnect:
 
 #### 6.6.9 Idempotency
 
-- inner `msg_id` is the canonical identifier for application-layer deduplication
-- recipients must dedupe by `msg_id` (and by stream-bound `id` for `text_delta` / `text_end`); a duplicate `msg_id` from any source must be processed exactly once at the application layer and its `seq` must still be acknowledged
+- inner `msg_id` is the canonical identifier for application-layer deduplication, applied uniformly across all inner types — including `text_delta` and `text_end`, since every streaming frame carries its own fresh inner `id` (the stream correlator now lives in `body.stream_id`, see §6.4.2)
+- recipients must dedupe by `msg_id`; a duplicate `msg_id` from any source must be processed exactly once at the application layer and its `seq` must still be acknowledged
 - the relay must not modify or rewrite `msg_id` between fan-out copies; only the outer `seq` differs per recipient
 
 #### 6.6.10 Backwards Compatibility
@@ -1135,6 +1145,62 @@ On reconnect:
 - pre-ack clients (no `last_acked_seq` in `hello`, no emission of `recv_ack`) interoperate with ack-aware relays; the relay falls back to legacy fan-out-then-evict behavior for those connections, accepting the legacy silent-loss risk
 - pre-ack relays (no `seq` on outbound `msg.payload`, no acceptance of `recv_ack`) interoperate with ack-aware clients; clients treat absent `seq` as "ack layer disabled, do not emit `recv_ack`, transition `sent` based on best-effort local timeout, and skip `delivered` rendering entirely"
 - the `version` field on the outer envelope remains `1`; the ack layer is purely additive
+
+#### 6.6.11 Reference Client Architecture (informative)
+
+The protocol prescribes the wire format. Implementations are free to structure their internals however they like, but reference clients on every supported language (Swift, Rust, TypeScript) should expose a uniform **`MessageTransport`** facade so that downstream code (chat UI, agent runner, CLI command) does not need to know about WebSockets, encryption, the ack layer, dedup, or reconnect logic. Two reasons:
+
+> **Scope: session-time messaging only.** `MessageTransport` covers everything that happens AFTER pairing has produced a stable group key — `msg`, `recv_ack`, `relay_recv_ack`, `ping`/`pong`, hello/handshake using the established `group_id`, the §6.6 ack flow, dedup, reconnect, redrive. **Pairing is explicitly NOT in scope** and must remain a separate module (`PairingService` / `pairing.ts` / equivalent). Pairing is a one-shot bootstrap that runs BEFORE the group key exists, uses a different frame family (`pair_open`, `pair_open_ok`, `pair_ready`, `pair_data`, `pair_complete`, `pair_cancel`), routes by `room_id` not `group_id`, has no `seq`, no `last_acked_seq`, no idempotency table, no streaming, no encryption with the group key — none of `MessageTransport`'s machinery applies. A `MessageTransport` instance must only be constructed after pairing has succeeded and a group key is available. If a future protocol amendment makes pairing reuse the session connection, revisit this scope.
+
+- swappable implementations (today's `seq` + cumulative `recv_ack` scheme, or a simpler per-msg-ack-with-retry scheme, or any future scheme) without touching consumers
+- testable in isolation — a mock transport can drive consumers in unit tests without a real relay
+
+The recommended interface, in language-agnostic terms:
+
+```
+MessageTransport {
+
+  // Fire-and-forget. Returns the wire-level inner.id immediately.
+  // The transport handles encryption, outbox, retries, and reconnects.
+  send(msg: OutboundMessage) -> string  // inner.id
+
+  // Inbound delivery. Called once per inner message,
+  // GUARANTEED:
+  //   - exactly once per inner.id (transport deduplicates)
+  //   - in the sender's send order across reconnects (transport replays in order)
+  //   - already decrypted to a typed InnerMessage
+  // Note: inner messages of t == "ack" are surfaced through this callback
+  //       like any other inner message; the transport does not interpret them.
+  //       The consumer is responsible for updating "delivered" tick state when
+  //       it sees an inner ack matching one of its outbound msg_ids.
+  on_receive: (InnerMessage) -> void
+
+  // Per-msg outbound status updates derived from transport-layer signals only.
+  // Currently emits only:
+  //   .sent  (on relay_recv_ack matching the outbound msg_id)
+  //   .failed (on local timeout / socket error)
+  // The "delivered" state is NOT emitted here; it is an application-layer
+  // event derived from an inner ack and is the consumer's responsibility.
+  on_status: (msg_id, .sent | .failed) -> void
+
+  // Coarse connection state for UI and operational instrumentation.
+  on_connection_state: (.disconnected | .connecting | .connected | .failed) -> void
+
+  connect(group_config)
+  disconnect()
+}
+```
+
+Behaviour expected of any conformant transport:
+
+- encryption with `group_key` and outer envelope wrapping happen inside `send`; consumers pass `OutboundMessage` (text/image/audio/textDelta/textEnd/status/ack), not `InnerMessage`
+- the inner `ack` frame is a regular `OutboundMessage` variant; the transport emits it on the wire like any other inner type. The transport itself does not synthesize inner acks
+- `on_receive` fires for **every** inner message including `t == "ack"`, after dedup by `inner.id` and in-order delivery guarantees. The transport must not silently swallow inner acks
+- `on_status` only emits transport-layer states. The transport must not infer "delivered" from anything; that determination belongs to the consumer
+- the transport owns: the WebSocket lifecycle, hello/handshake, heartbeat/ping-pong, durable outbox (or `seq`+`recv_ack` machinery), dedup table, reconnect/replay logic, App Nap / background-suspend countermeasures
+- the transport does not own: chat history persistence, tick UI, agent runner integration, telemetry of business events
+
+This separation is what allows the transport implementation to evolve (e.g. drop `seq` and adopt a per-msg-ack-with-retry scheme) without breaking consumers. It also gives every implementing language (Swift, Rust, TypeScript) the same conceptual surface area, even though the wire protocol is the only thing that's strictly normative.
 
 ---
 

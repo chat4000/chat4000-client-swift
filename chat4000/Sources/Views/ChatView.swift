@@ -848,10 +848,9 @@ final class ChatViewModel {
     var config: GroupConfig?
     var scrollRevision = 0
 
-    private let relay = RelayClient()
+    private let transport: MessageTransport = RelayMessageTransport()
     private var modelContext: ModelContext?
     private let minimumPluginVersion = "0.1.0"
-    private var statePollingTask: Task<Void, Never>?
 
     // Tracks current streaming message being assembled
     private var currentStreamId: String?
@@ -866,13 +865,25 @@ final class ChatViewModel {
     }
 
     init() {
-        relay.onInnerMessage = { [weak self] inner, seq in
-            self?.handleInnerMessage(inner, seq: seq)
+        transport.onReceive = { [weak self] inner in
+            self?.handleInnerMessage(inner)
         }
-        relay.onRelayRecvAck = { [weak self] msgId in
-            self?.handleRelayRecvAck(msgId: msgId)
+        transport.onStatus = { [weak self] update in
+            switch update.status {
+            case .sent:
+                self?.handleRelayRecvAck(msgId: update.msgId)
+            case .failed:
+                // Transport-layer send failure. v1: leave the row in
+                // .sending; the relay's redrive on reconnect will eventually
+                // produce a relay_recv_ack. A future revision could surface
+                // a UI "failed" state here.
+                AppLog.log("📦 transport status=failed msg_id=%@", update.msgId)
+            }
         }
-        relay.onTermsVersionUpdate = { [weak self] currentTermsVersion in
+        transport.onConnectionState = { [weak self] state in
+            self?.connectionState = state
+        }
+        transport.onTermsVersionUpdate = { [weak self] currentTermsVersion in
             self?.onTermsVersionUpdate?(currentTermsVersion)
         }
     }
@@ -912,20 +923,8 @@ final class ChatViewModel {
         guard connectionState != .connected else { return }
         self.config = config
         loadStoredPluginMetadata(for: config)
-        relay.connect(config: config)
-
-        // Sync connection state from relay. Cancel any prior poller before
-        // spawning a new one — backgrounding sets state to .disconnected, so
-        // foregrounding always re-enters this function and would otherwise
-        // stack a fresh infinite Task each cycle.
-        statePollingTask?.cancel()
-        statePollingTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                self.connectionState = self.relay.state
-                try? await Task.sleep(for: .milliseconds(200))
-            }
-        }
+        transport.connect(config: config)
+        // Connection state is delivered via transport.onConnectionState.
     }
 
     // MARK: - Busy state
@@ -948,9 +947,7 @@ final class ChatViewModel {
     }
 
     func disconnect() {
-        statePollingTask?.cancel()
-        statePollingTask = nil
-        relay.disconnect()
+        transport.disconnect()
         connectionState = .disconnected
         KeychainService.delete()
         config = nil
@@ -958,9 +955,7 @@ final class ChatViewModel {
 
     func disconnectRelayForBackground() {
         AppLog.log("🔌 Background disconnect: closing relay only")
-        statePollingTask?.cancel()
-        statePollingTask = nil
-        relay.disconnect()
+        transport.disconnect()
         connectionState = .disconnected
     }
 
@@ -974,7 +969,7 @@ final class ChatViewModel {
         // Capture the wire-level inner id and store it on the local row so
         // we can correlate `relay_recv_ack` and inner `ack` frames back to
         // the bubble for tick-state updates (per protocol §6.6.7).
-        let wireId = relay.send(text: text)
+        let wireId = transport.send(.text(text))
         message.msgId = wireId
         try? modelContext?.save()
         TelemetryManager.shared.track(
@@ -1002,7 +997,7 @@ final class ChatViewModel {
         try? modelContext?.save()
         requestScrollToBottom()
 
-        let wireId = relay.sendImage(jpegData: jpegData)
+        let wireId = transport.send(.image(data: jpegData, mimeType: "image/jpeg"))
         message.msgId = wireId
         try? modelContext?.save()
         TelemetryManager.shared.track(
@@ -1032,11 +1027,13 @@ final class ChatViewModel {
         try? modelContext?.save()
         requestScrollToBottom()
 
-        let wireId = relay.sendAudio(
-            audioData: audioData,
-            mimeType: mimeType,
-            durationMs: Int((duration * 1000).rounded()),
-            waveform: waveform
+        let wireId = transport.send(
+            .audio(
+                data: audioData,
+                mimeType: mimeType,
+                durationMs: Int((duration * 1000).rounded()),
+                waveform: waveform
+            )
         )
         message.msgId = wireId
         try? modelContext?.save()
@@ -1063,7 +1060,7 @@ final class ChatViewModel {
 
     // MARK: - Inner Message Handling
 
-    private func handleInnerMessage(_ inner: InnerMessage, seq: UInt64?) {
+    private func handleInnerMessage(_ inner: InnerMessage) {
         rememberPluginMetadata(from: inner.from)
         updatePluginVersionWarning(from: inner.from)
 
@@ -1071,9 +1068,7 @@ final class ChatViewModel {
            from.role == .app,
            from.deviceId == DeviceIdentity.currentDeviceId {
             AppLog.log("📥 inner ignored self_echo type=%@ id=%@", inner.t.rawValue, inner.id)
-            // Self-echo is still a delivery signal: bump the ack high-water
-            // mark so the relay can drop it from the offline queue.
-            recordPersistedSeq(seq)
+            // Self-echo: transport already advanced the ack high-water mark.
             return
         }
 
@@ -1108,17 +1103,23 @@ final class ChatViewModel {
             if sender == .agent { clearBusy() }
 
         case .textDelta(let b):
-            if currentStreamId != inner.id {
-                beginStreamingMessage(streamId: inner.id, sender: sender)
+            // Per §6.4.2 (transitional): prefer `body.stream_id`, fall back
+            // to `inner.id` for senders that still reuse `inner.id == stream_id`.
+            let streamId = b.streamId ?? inner.id
+            if currentStreamId != streamId {
+                beginStreamingMessage(streamId: streamId, sender: sender)
             }
             currentStreamText += b.delta
             updateCurrentStreamingMessage(text: currentStreamText, sender: sender)
             if sender == .agent { markBusy(phase: "Typing") }
 
         case .textEnd(let b):
+            // Per §6.4.2 (transitional): prefer `body.stream_id`, fall back
+            // to `inner.id` for senders that still reuse `inner.id == stream_id`.
+            let streamId = b.streamId ?? inner.id
             if b.reset == true {
-                cancelCurrentStreamingMessage(streamId: inner.id)
-            } else if currentStreamId == inner.id {
+                cancelCurrentStreamingMessage(streamId: streamId)
+            } else if currentStreamId == streamId {
                 finalizeCurrentStreamingMessage(text: b.text, sender: sender)
             } else if currentStreamId == nil {
                 receiveText(b.text, id: inner.id, sender: sender)
@@ -1150,19 +1151,8 @@ final class ChatViewModel {
                 handleInnerAck(refs: a.refs)
             }
         }
-
-        // After dispatch + persist, advance the relay-ack high-water mark so
-        // the relay can drop this seq from the offline queue.
-        recordPersistedSeq(seq)
-    }
-
-    /// Per protocol §6.6.3: record a delivered seq for both durable
-    /// persistence (so the next hello replays correctly) and live debounced
-    /// `recv_ack` emission (so the relay can evict the queue immediately).
-    private func recordPersistedSeq(_ seq: UInt64?) {
-        guard let seq, let groupId = relay.currentGroupId else { return }
-        AckSeqStore.recordAcked(seq: seq, forGroupId: groupId)
-        relay.ackTracker.recordPersisted(seq)
+        // Transport advances the relay-ack high-water mark internally
+        // (see RelayMessageTransport.recordPersistedSeq, §6.6.3).
     }
 
     /// Per protocol §6.6.4: relay confirmed our outbound message reached the
@@ -1486,6 +1476,18 @@ final class ChatViewModel {
     private func importPendingIncomingMessagesIfNeeded() {
         guard modelContext != nil else { return }
 
+        // Drain any plugin acks that were received during background-wake.
+        // The background path can't touch SwiftData directly, so it parks the
+        // refs in PendingAcksStore. Apply them here so outbound rows flip
+        // from .sent to .delivered (✓ → ✓✓) on app launch.
+        let pendingAcks = PendingAcksStore.drain()
+        if !pendingAcks.isEmpty {
+            AppLog.log("📬 importing pending plugin acks count=%ld", pendingAcks.count)
+            for refs in pendingAcks {
+                handleInnerAck(refs: refs)
+            }
+        }
+
         Task { @MainActor in
             let pending = await PendingIncomingMessageStore.shared.drain()
             guard !pending.isEmpty else { return }
@@ -1493,9 +1495,22 @@ final class ChatViewModel {
             AppLog.log("📬 importing pending incoming messages count=%ld", pending.count)
 
             for pendingMessage in pending {
+                // Per §6.6.9 — dedupe by inner msg_id (stream_id for streamed
+                // text). Without this, if the live foreground receive path
+                // already finalized this stream, the import would create a
+                // duplicate bubble.
+                if isDuplicateInnerId(pendingMessage.messageId) {
+                    AppLog.log(
+                        "📬 imported pending skipping duplicate id=%@",
+                        pendingMessage.messageId
+                    )
+                    continue
+                }
+
                 switch pendingMessage.payload {
                 case .text(let text):
                     let message = ChatMessage(
+                        msgId: pendingMessage.messageId,
                         text: text,
                         sender: .agent,
                         timestamp: pendingMessage.receivedAt,
@@ -1515,6 +1530,7 @@ final class ChatViewModel {
                         continue
                     }
                     let message = ChatMessage(
+                        msgId: pendingMessage.messageId,
                         imageData: imageData,
                         sender: .agent,
                         timestamp: pendingMessage.receivedAt,
@@ -1534,6 +1550,7 @@ final class ChatViewModel {
                         continue
                     }
                     let message = ChatMessage(
+                        msgId: pendingMessage.messageId,
                         audioData: audioData,
                         audioMimeType: mimeType,
                         audioDuration: Double(durationMs) / 1000,

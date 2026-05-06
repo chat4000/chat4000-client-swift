@@ -333,6 +333,28 @@ final class BackgroundRelayWakeService {
                         body.delta.count
                     )
 
+                case .ack(let body):
+                    // Plugin emitted an end-to-end ack for one of the user's
+                    // outbound messages while we were backgrounded. The
+                    // ChatView ModelContext isn't reachable from this
+                    // background context, so persist the refs and let the
+                    // foreground import flip the matching ChatMessage row to
+                    // .delivered. Without this the ✓✓ tick never lights up
+                    // when the user closes the app right after sending.
+                    if let from = inner.from, from.role == .plugin {
+                        PendingAcksStore.add(body.refs)
+                        AppLog.log(
+                            "🔔 [push] queued plugin ack refs=%@ stage=%@",
+                            body.refs,
+                            body.stage.rawValue
+                        )
+                    } else {
+                        AppLog.log(
+                            "🔔 [push] background ack ignored (non-plugin) refs=%@",
+                            body.refs
+                        )
+                    }
+
                 default:
                     AppLog.log("🔔 [push] background inner ignored type=%@", inner.t.rawValue)
                     break

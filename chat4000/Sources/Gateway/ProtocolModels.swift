@@ -699,6 +699,33 @@ struct InnerMessage: Codable {
             ts: Int64(Date().timeIntervalSince1970 * 1000)
         )
     }
+
+    /// Per protocol §6.4.2 — streaming text increment. Each frame gets a
+    /// fresh `inner.id` (UUID v4); the stable stream correlator lives in
+    /// `body.stream_id`.
+    static func textDelta(streamId: String, delta: String) -> InnerMessage {
+        InnerMessage(
+            t: .textDelta,
+            id: UUID().uuidString,
+            from: DeviceIdentity.currentSender,
+            body: .textDelta(InnerBody.TextDeltaBody(delta: delta, streamId: streamId)),
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+    }
+
+    /// Per protocol §6.4.2 — streaming text finalizer. Each frame gets a
+    /// fresh `inner.id` (UUID v4); the stable stream correlator lives in
+    /// `body.stream_id`. `reset == true` abandons the stream instead of
+    /// finalising it.
+    static func textEnd(streamId: String, text: String, reset: Bool? = nil) -> InnerMessage {
+        InnerMessage(
+            t: .textEnd,
+            id: UUID().uuidString,
+            from: DeviceIdentity.currentSender,
+            body: .textEnd(InnerBody.TextBody(text: text, reset: reset, streamId: streamId)),
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+    }
 }
 
 /// Type-safe inner message body.
@@ -719,31 +746,64 @@ enum InnerBody: Codable {
     struct TextBody: Codable {
         let text: String
         let reset: Bool?
+        /// Per §6.4.2: stream correlator on `text_end`. nil for plain `text`
+        /// frames. Optional on decode for transitional compat with senders
+        /// that still reuse `inner.id == stream_id`.
+        let streamId: String?
 
-        init(text: String, reset: Bool? = nil) {
+        init(text: String, reset: Bool? = nil, streamId: String? = nil) {
             self.text = text
             self.reset = reset
+            self.streamId = streamId
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             text = try container.decode(String.self, forKey: .text)
             reset = try container.decodeIfPresent(Bool.self, forKey: .reset)
+            streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
         }
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(text, forKey: .text)
             try container.encodeIfPresent(reset, forKey: .reset)
+            try container.encodeIfPresent(streamId, forKey: .streamId)
         }
 
         enum CodingKeys: String, CodingKey {
             case text, reset
+            case streamId = "stream_id"
         }
     }
 
     struct TextDeltaBody: Codable {
         let delta: String
+        /// Per §6.4.2: stream correlator. Optional on decode for transitional
+        /// compat with senders that still reuse `inner.id == stream_id`.
+        let streamId: String?
+
+        init(delta: String, streamId: String? = nil) {
+            self.delta = delta
+            self.streamId = streamId
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            delta = try container.decode(String.self, forKey: .delta)
+            streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(delta, forKey: .delta)
+            try container.encodeIfPresent(streamId, forKey: .streamId)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case delta
+            case streamId = "stream_id"
+        }
     }
 
     struct ImageBody: Codable {

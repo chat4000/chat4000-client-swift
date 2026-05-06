@@ -46,6 +46,17 @@ final class RelayClient {
     // Accumulates streamed text deltas keyed by inner message id
     private var streamBuffers: [String: String] = [:]
 
+    /// Per-protocol-§6.6.9 wire-level dedup. Drops a frame whose `inner.id`
+    /// we have already processed in this connection's lifetime. The relay
+    /// can occasionally redeliver the same outer envelope (e.g. post-ack
+    /// drain race on the relay side); this guard makes the rest of the
+    /// client immune so streaming bubbles, status flips, and inner acks all
+    /// stay singleton. Insertion order maintained in the array; lookup via
+    /// the set; oldest evicted past cap.
+    private var seenInnerIds: [String] = []
+    private var seenInnerIdSet: Set<String> = []
+    private let seenInnerIdCap = 1024
+
     // MARK: - Public API
 
     init() {
@@ -101,6 +112,13 @@ final class RelayClient {
             state = .failed("Invalid group key")
             return
         }
+
+        // Reset the §6.6.9 wire-dedup set so a fresh socket starts clean.
+        // The relay will redrive un-acked seqs from the prior session on
+        // hello — those are legitimate first-time deliveries to this
+        // connection and must not be skipped.
+        seenInnerIdSet.removeAll(keepingCapacity: true)
+        seenInnerIds.removeAll(keepingCapacity: true)
 
         // Wire the ack tracker against this connection. Reset clears any
         // pending seqs left over from a previous session — they would have
@@ -185,6 +203,16 @@ final class RelayClient {
 
     func sendStatus(_ status: String) {
         sendInner(InnerMessage.status(status), notifyIfOffline: false)
+    }
+
+    /// Lower-level outbound for cases where the consumer (the
+    /// `MessageTransport` facade) builds the inner message itself —
+    /// e.g. text_delta / text_end / ack which the existing convenience
+    /// helpers don't cover. Returns the inner.id for outbound tracking.
+    @discardableResult
+    func sendInnerMessage(_ inner: InnerMessage, notifyIfOffline: Bool = true) -> String {
+        sendInner(inner, notifyIfOffline: notifyIfOffline)
+        return inner.id
     }
 
     // MARK: - Handshake
@@ -449,6 +477,25 @@ final class RelayClient {
     }
 
     private func processInnerMessage(_ inner: InnerMessage, seq: UInt64?) {
+        // §6.6.9 wire-level dedup: drop redelivered frames before any
+        // type-specific side effect (especially streamBuffers accumulation,
+        // which would otherwise double-append a duplicated delta).
+        if seenInnerIdSet.contains(inner.id) {
+            AppLog.log(
+                "📥 inner dedup drop id=%@ type=%@ seq=%@",
+                inner.id,
+                inner.t.rawValue,
+                seq.map(String.init) ?? "nil"
+            )
+            return
+        }
+        seenInnerIdSet.insert(inner.id)
+        seenInnerIds.append(inner.id)
+        if seenInnerIds.count > seenInnerIdCap {
+            let evicted = seenInnerIds.removeFirst()
+            seenInnerIdSet.remove(evicted)
+        }
+
         if case .textDelta(let d) = inner.body {
             streamBuffers[inner.id, default: ""] += d.delta
         } else if case .textEnd = inner.body {

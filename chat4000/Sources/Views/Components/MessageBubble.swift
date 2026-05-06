@@ -74,11 +74,11 @@ struct MessageBubble: View {
                     .foregroundStyle(Color.white.opacity(0.55))
             case .delivered:
                 // WhatsApp-style double tick: two checkmarks overlapping
-                // tightly so they read as a single stacked glyph. Blue marks
-                // the "delivered to plugin" terminal state.
+                // very tightly so they read as a single stacked glyph. Blue
+                // marks the "delivered to plugin" terminal state.
                 ZStack {
-                    Image(systemName: "checkmark").offset(x: -2.5)
-                    Image(systemName: "checkmark").offset(x: 2.5)
+                    Image(systemName: "checkmark").offset(x: -1.5)
+                    Image(systemName: "checkmark").offset(x: 1.5)
                 }
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x53BDEB))
