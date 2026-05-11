@@ -279,6 +279,11 @@ struct ChatView: View {
 
     @ViewBuilder
     private var messageListRows: some View {
+        if viewModel.messages.isEmpty && !viewModel.isAgentBusy {
+            emptyChatPlaceholder
+                .id("emptyChatPlaceholder")
+        }
+
         ForEach(viewModel.messages, id: \.id) { message in
             MessageBubble(message: message)
                 .id(message.id)
@@ -292,6 +297,27 @@ struct ChatView: View {
         Color.clear
             .frame(height: 1)
             .id("chatBottomAnchor")
+    }
+
+    private var emptyChatPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(AppColors.textSecondary)
+
+            Text("No messages yet")
+                .font(AppFonts.title)
+                .foregroundStyle(AppColors.textPrimary)
+
+            Text("Type a message below and press send to talk to your agent.")
+                .font(AppFonts.body)
+                .foregroundStyle(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 48)
+        .frame(maxWidth: .infinity)
     }
 
     private func errorBanner(_ text: String) -> some View {
