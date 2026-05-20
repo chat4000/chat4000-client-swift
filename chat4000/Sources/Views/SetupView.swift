@@ -13,7 +13,10 @@ struct EnterPairingCodeView: View {
         case none
         case menu
         case pairedDevice
-        case freshPluginInstall
+        // Fresh-install help opens the canonical web page directly
+        // (https://chat4000.com/#install) instead of duplicating the
+        // setup steps in-app — that page is the single source of truth
+        // for both Hermes and OpenClaw flows.
     }
 
     @State private var codeText = ""
@@ -99,8 +102,6 @@ struct EnterPairingCodeView: View {
                         helpMenuContent
                     case .pairedDevice:
                         pairedDeviceHelpContent
-                    case .freshPluginInstall:
-                        freshPluginInstallHelpContent
                     }
                 }
                 .padding(AppSpacing.cardPadding)
@@ -345,60 +346,28 @@ extension EnterPairingCodeView {
             }
 
             helpButton(title: "Fresh Plugin Install") {
-                helpRoute = .freshPluginInstall
+                // Setup docs cover both Hermes and OpenClaw flows — keep
+                // it as a single canonical web page so we don't fork two
+                // copies in-app every time the install command changes.
+                if let url = URL(string: "https://chat4000.com/#install") {
+                    #if os(iOS)
+                    UIApplication.shared.open(url)
+                    #elseif os(macOS)
+                    NSWorkspace.shared.open(url)
+                    #endif
+                }
             }
 
             ChatWithFounderButton(source: "setup_help_menu")
         }
     }
 
-    private var freshPluginInstallHelpContent: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                helpDetailHeader(title: "Fresh Plugin Install")
-
-                Text("Open a terminal on the machine running OpenClaw, then run these commands.")
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 4)
-
-                VStack(spacing: 10) {
-                    helpStepCard(
-                        number: 1,
-                        title: "Install the plugin",
-                        command: "openclaw plugin install @chat4000/openclaw-plugin"
-                    )
-                    helpStepCard(
-                        number: 2,
-                        title: "Restart the gateway",
-                        command: "docker restart openclaw-gateway",
-                        hint: "Or stop the running openclaw gateway run process and start it again."
-                    )
-                    helpStepCard(
-                        number: 3,
-                        title: "Configure and pair",
-                        command: "openclaw chat4000 setup"
-                    )
-                    helpStepCard(
-                        number: 4,
-                        title: "Scan the QR or type the code",
-                        hint: "Use Scan QR on the previous screen, or enter the 8-character code shown in the terminal."
-                    )
-                }
-
-                ChatWithFounderCallout(caption: "That didn't help? Chat with founder.", source: "setup_pair_failed")
-
-                helpBackToMenuButton
-            }
-        }
-        .scrollIndicators(.hidden)
-        #if os(iOS)
-        .frame(maxHeight: 620)
-        #else
-        .frame(maxHeight: 560)
-        #endif
-    }
+    // `freshPluginInstallHelpContent` removed — the "Fresh Plugin Install"
+    // button now opens https://chat4000.com/#install in the system
+    // browser directly so the in-app help doesn't drift from the canonical
+    // setup docs every time the install command changes (and so we don't
+    // need to fork the page into separate Hermes / OpenClaw branches
+    // in-app — chat4000.com#install handles both).
 
     private var pairedDeviceHelpContent: some View {
         VStack(spacing: 16) {

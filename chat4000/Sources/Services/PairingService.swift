@@ -36,6 +36,10 @@ final class PairingCoordinator {
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
     private var listenTask: Task<Void, Never>?
+    /// Chains pairing sends in FIFO order. Each new `send` awaits the prior
+    /// task's value so URLSessionWebSocketTask never sees concurrent send
+    /// calls (which previously caused frame reordering — see `send`).
+    private var lastSendTask: Task<Void, Never>?
     private var delayedCloseTask: Task<Void, Never>?
 
     func startHosting(config: GroupConfig) {
@@ -142,7 +146,16 @@ final class PairingCoordinator {
         guard let json else { return }
         AppLog.log("📤 Pairing send: \(json)")
         let task = webSocketTask
-        Task {
+        // Chain each send after the previous one so URLSessionWebSocketTask
+        // never sees concurrent send() calls. When two sends fired in the
+        // same tick (e.g. the joiner's `join` immediately followed by
+        // `proof_b`), the previous fire-and-forget Task pattern raced — the
+        // second frame would sometimes land on the wire before the first,
+        // and the host would receive proof_b without the join salt that
+        // carries the joiner's public key.
+        let previous = lastSendTask
+        lastSendTask = Task {
+            _ = await previous?.value
             do {
                 guard let task else {
                     AppLog.log("ERROR: Pairing send skipped; socket was nil")
@@ -391,6 +404,8 @@ final class PairingCoordinator {
         }
         listenTask?.cancel()
         listenTask = nil
+        lastSendTask?.cancel()
+        lastSendTask = nil
         task?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         session?.invalidateAndCancel()
