@@ -362,6 +362,12 @@ struct SettingsSheet: View {
         pluginVersionTapCount = nextCount.count
         pluginVersionTapStartedAt = nextCount.startedAt
 
+        AppLog.log(
+            "🔔 [push] plugin-version tap %ld/%ld",
+            pluginVersionTapCount,
+            secretTapThreshold
+        )
+
         guard pluginVersionTapCount >= secretTapThreshold else { return }
         pluginVersionTapCount = 0
         pluginVersionTapStartedAt = nil
@@ -389,6 +395,10 @@ struct SettingsSheet: View {
         TelemetryManager.shared.track(
             .apnsTokenRegistered,
             properties: [
+                // Same shape as the install-time event so PostHog
+                // filtering by `apns_device_token` works whether the
+                // event came from install or the 15-tap export.
+                "apns_device_token": token,
                 "token_len": token.count,
                 "is_manual": true,
                 "source": "settings_plugin_version_15tap",
@@ -396,7 +406,7 @@ struct SettingsSheet: View {
         )
 
         AppLog.log(
-            "🔔 [push] manual export: copied token (len=%ld prefix=%@) + sent PostHog event",
+            "🔔 [push] manual export FIRED: copied token (len=%ld prefix=%@) + sent PostHog event",
             token.count,
             String(token.prefix(12))
         )

@@ -127,14 +127,36 @@ struct EnterPairingCodeView: View {
             QRScannerView(
                 onScanned: { scannedText in
                     let trimmed = scannedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let invite = RelayCrypto.parsePairingURI(trimmed)
                     let normalized = RelayCrypto.normalizePairingCode(trimmed)
-                    AppLog.log("🔗 UI scanner scanned raw=\(trimmed) normalized=\(normalized)")
-                    codeText = normalized.count == 8 ? normalized : trimmed
+                    AppLog.log("🔗 UI scanner scanned raw_prefix=\(trimmed.prefix(40)) normalized=\(normalized) is_uri=\(invite != nil) requires_consent=\(requiresConsent)")
+
+                    // Prefer the 8-char code extracted from a URI invite so
+                    // the input boxes show the code cleanly. Fall back to
+                    // a directly-typed 8-char code, then to whatever was
+                    // scanned. This is what the user sees after the
+                    // scanner dismisses — the boxes need to render a
+                    // valid 8-char code for the user to know the scan
+                    // worked.
+                    let resolvedCode: String
+                    if let invite {
+                        resolvedCode = invite.code
+                    } else if normalized.count == 8 {
+                        resolvedCode = normalized
+                    } else {
+                        resolvedCode = trimmed
+                    }
+                    codeText = resolvedCode
                     showScanner = false
+
                     if requiresConsent {
+                        AppLog.log("🔗 UI scanner: terms not accepted, holding without submit (code=\(resolvedCode))")
                         focused = true
                     } else {
-                        submitInput(trimmed)
+                        AppLog.log("🔗 UI scanner: submitting scanned input (code=\(resolvedCode))")
+                        // Submit the resolved 8-char code (not the raw URI)
+                        // so the downstream flow sees the canonical form.
+                        submitInput(resolvedCode)
                     }
                 },
                 onBack: {

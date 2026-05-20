@@ -766,10 +766,15 @@ enum InnerBody: Codable {
         let toolId: String
         let name: String
         let args: String
+        /// Per-tool emoji from Hermes' central registry
+        /// (`agent.display.get_tool_emoji`). Nil/empty → bubble falls back
+        /// to the default hammer glyph. Chat4000 inherits the same icon
+        /// vocabulary as Telegram, IRC, and the CLI this way.
+        let icon: String?
 
         enum CodingKeys: String, CodingKey {
             case toolId = "tool_id"
-            case name, args
+            case name, args, icon
         }
     }
 

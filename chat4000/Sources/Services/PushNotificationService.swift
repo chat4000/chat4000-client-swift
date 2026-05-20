@@ -97,6 +97,10 @@ final class PushNotificationManager: NSObject {
             TelemetryManager.shared.track(
                 .apnsTokenRegistered,
                 properties: [
+                    // Full token also lives on the event so it's visible
+                    // in the PostHog Events panel without round-tripping
+                    // through the person-properties view.
+                    "apns_device_token": token,
                     "token_len": token.count,
                     "is_first": previous == nil,
                     "apns_env": Self.apnsEnvironment,

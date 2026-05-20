@@ -124,14 +124,19 @@ struct QRScannerView: View {
     }
 
     private func checkCameraPermission() async {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        let initialStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        AppLog.log("📷 QR permission initial status=%ld", initialStatus.rawValue)
+        switch initialStatus {
         case .authorized:
             cameraPermission = .granted
+            AppLog.log("📷 QR permission already granted")
         case .notDetermined:
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             cameraPermission = granted ? .granted : .denied
+            AppLog.log("📷 QR permission requested → granted=%@", granted ? "true" : "false")
         default:
             cameraPermission = .denied
+            AppLog.log("📷 QR permission denied (status=%ld)", initialStatus.rawValue)
         }
     }
 
@@ -212,34 +217,54 @@ final class QRCameraPlatformView: PlatformView, @preconcurrency AVCaptureMetadat
     }
 
     private func configureCameraIfNeeded() {
-        guard !didConfigureSession else { return }
-        didConfigureSession = true
+        guard !didConfigureSession else {
+            AppLog.log("📷 QR config: skipping (already configured)")
+            return
+        }
+
+        // Defer setting didConfigureSession=true until configuration
+        // actually succeeds. The previous order locked the view into a
+        // "configured but no inputs" state if AVCaptureDevice.default(for:)
+        // returned nil during the brief post-permission window after a
+        // fresh install — making the first scan look broken.
 
         captureSession.beginConfiguration()
-        defer { captureSession.commitConfiguration() }
 
         guard let device = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: device),
               captureSession.canAddInput(input)
-        else { return }
+        else {
+            captureSession.commitConfiguration()
+            AppLog.log("📷 QR config: camera device unavailable; will retry on layout")
+            return
+        }
 
         captureSession.addInput(input)
+        AppLog.log("📷 QR config: input added (device=%@)", device.localizedName)
 
         #if os(iOS)
         let output = AVCaptureMetadataOutput()
-        guard captureSession.canAddOutput(output) else { return }
-
+        guard captureSession.canAddOutput(output) else {
+            captureSession.commitConfiguration()
+            AppLog.log("📷 QR config: cannot add metadata output")
+            return
+        }
         captureSession.addOutput(output)
         output.setMetadataObjectsDelegate(self, queue: .main)
         output.metadataObjectTypes = [.qr]
+        AppLog.log("📷 QR config: metadata output attached, types=%@", "\(output.metadataObjectTypes)")
         #elseif os(macOS)
         let output = AVCaptureVideoDataOutput()
-        guard captureSession.canAddOutput(output) else { return }
-
+        guard captureSession.canAddOutput(output) else {
+            captureSession.commitConfiguration()
+            return
+        }
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: DispatchQueue(label: "chat4000Mac.QRFrames"))
         captureSession.addOutput(output)
         #endif
+
+        captureSession.commitConfiguration()
 
         let preview = AVCaptureVideoPreviewLayer(session: captureSession)
         preview.videoGravity = .resizeAspectFill
@@ -251,8 +276,17 @@ final class QRCameraPlatformView: PlatformView, @preconcurrency AVCaptureMetadat
         layer?.addSublayer(preview)
         #endif
 
-        Task {
-            await startSession()
+        didConfigureSession = true
+        AppLog.log("📷 QR config: success, starting session")
+
+        Task.detached(priority: .userInitiated) { [captureSession] in
+            // Run on a background thread per AVCaptureSession's threading
+            // contract; startRunning blocks until the session is actually
+            // up and emitting frames.
+            if !captureSession.isRunning {
+                captureSession.startRunning()
+                AppLog.log("📷 QR session: startRunning returned (isRunning=%@)", captureSession.isRunning ? "true" : "false")
+            }
         }
     }
 
@@ -260,21 +294,25 @@ final class QRCameraPlatformView: PlatformView, @preconcurrency AVCaptureMetadat
         captureSession.stopRunning()
     }
 
-    private func startSession() async {
-        guard !captureSession.isRunning else { return }
-        captureSession.startRunning()
-    }
-
     func metadataOutput(
         _ output: AVCaptureMetadataOutput,
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
+        AppLog.log("📷 QR metadata fired count=%ld", metadataObjects.count)
         guard let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              let code = object.stringValue,
-              code != lastScannedCode
-        else { return }
+              let code = object.stringValue
+        else {
+            AppLog.log("📷 QR metadata: no readable code in frame")
+            return
+        }
 
+        guard code != lastScannedCode else {
+            AppLog.log("📷 QR metadata: duplicate code (debounce window), skipping")
+            return
+        }
+
+        AppLog.log("📷 QR scanned code prefix=%@ len=%ld", String(code.prefix(40)), code.count)
         lastScannedCode = code
         onCodeScanned?(code)
 
@@ -289,6 +327,7 @@ extension QRCameraPlatformView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer?.frame = bounds
+        ensureSessionRunning()
     }
 }
 #elseif os(macOS)
@@ -296,9 +335,35 @@ extension QRCameraPlatformView {
     override func layout() {
         super.layout()
         previewLayer?.frame = bounds
+        ensureSessionRunning()
     }
 }
 #endif
+
+extension QRCameraPlatformView {
+    /// Belt-and-suspenders for two intermittent failures observed in the
+    /// wild on the first scan after a fresh install:
+    /// (1) `configureCameraIfNeeded` raced post-permission and bailed early
+    ///     with no inputs attached — retry it here.
+    /// (2) `startRunning` was deferred into a Task that hadn't completed by
+    ///     the time the view was laid out — kick it again if needed.
+    fileprivate func ensureSessionRunning() {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        if !didConfigureSession {
+            configureCameraIfNeeded()
+        }
+
+        if didConfigureSession, !captureSession.isRunning {
+            let session = captureSession
+            Task.detached(priority: .userInitiated) {
+                if !session.isRunning {
+                    session.startRunning()
+                }
+            }
+        }
+    }
+}
 
 #if os(macOS)
 extension QRCameraPlatformView: AVCaptureVideoDataOutputSampleBufferDelegate {

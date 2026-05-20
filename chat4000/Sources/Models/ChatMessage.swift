@@ -90,6 +90,11 @@ final class ChatMessage {
     /// the `tool_end` frame. Nil while running.
     var toolDurationMs: Int?
 
+    /// Per-tool emoji from Hermes' `agent.display.get_tool_emoji` registry
+    /// (`skill_view → 📚`, `todo → 📋`, `cronjob → ⏰`, …). Nil/empty →
+    /// bubble uses its default hammer glyph.
+    var toolIcon: String?
+
     init(
         id: UUID = UUID(),
         msgId: String? = nil,
@@ -108,7 +113,8 @@ final class ChatMessage {
         toolArgs: String? = nil,
         toolResult: String? = nil,
         toolStatus: ToolCallStatus? = nil,
-        toolDurationMs: Int? = nil
+        toolDurationMs: Int? = nil,
+        toolIcon: String? = nil
     ) {
         self.id = id
         // Default new rows to use the local UUID as the msg_id when no
@@ -131,6 +137,7 @@ final class ChatMessage {
         self.toolResult = toolResult
         self.toolStatus = toolStatus
         self.toolDurationMs = toolDurationMs
+        self.toolIcon = toolIcon
     }
 }
 

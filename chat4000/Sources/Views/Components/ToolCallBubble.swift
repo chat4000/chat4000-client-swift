@@ -56,9 +56,7 @@ struct ToolCallBubble: View {
 
     private var headerRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: iconName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(iconColor)
+            iconView
                 .frame(width: 18, height: 18)
 
             Text(message.toolName ?? "tool")
@@ -104,11 +102,20 @@ struct ToolCallBubble: View {
         }
     }
 
-    private var iconName: String {
-        // Generic hammer icon. Future: map common tools (bash → terminal,
-        // read_file → doc, web → globe). v1 keeps it uniform — too easy
-        // to guess wrong with custom Hermes tools.
-        return "hammer.fill"
+    @ViewBuilder
+    private var iconView: some View {
+        // Prefer the per-tool emoji shipped by the plugin
+        // (`agent.display.get_tool_emoji` on the gateway side). Falls
+        // back to the SF Symbol hammer when the icon is missing — older
+        // plugin versions, custom tools without a registered emoji, etc.
+        if let icon = message.toolIcon, !icon.isEmpty {
+            Text(icon)
+                .font(.system(size: 14))
+        } else {
+            Image(systemName: "hammer.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(iconColor)
+        }
     }
 
     private var iconColor: Color {

@@ -138,6 +138,11 @@ final class TelemetryManager {
         postHogConfig.captureScreenViews = false
         postHogConfig.sendFeatureFlagEvent = false
         postHogConfig.errorTrackingConfig.autoCapture = false
+        // PostHog 3.x defaults to `identifiedOnly` which suppresses person
+        // profile creation for anonymous users. We need a profile per device
+        // so that `setPersonProperties` (e.g. `apns_device_token`) actually
+        // attaches somewhere queryable.
+        postHogConfig.personProfiles = .always
         #if os(iOS)
         postHogConfig.sessionReplay = config.postHogSessionReplayEnabled
         #endif

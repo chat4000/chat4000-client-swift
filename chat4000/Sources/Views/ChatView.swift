@@ -1210,6 +1210,7 @@ final class ChatViewModel {
                 toolId: b.toolId,
                 toolName: b.name,
                 args: b.args,
+                icon: b.icon,
                 sender: sender
             )
 
@@ -1249,6 +1250,7 @@ final class ChatViewModel {
         toolId: String,
         toolName: String,
         args: String,
+        icon: String?,
         sender: MessageSender
     ) {
         AppLog.log(
@@ -1263,6 +1265,7 @@ final class ChatViewModel {
         }) {
             existing.toolName = toolName
             existing.toolArgs = args
+            if let icon, !icon.isEmpty { existing.toolIcon = icon }
             if existing.toolStatus == nil {
                 existing.toolStatus = .running
             }
@@ -1279,7 +1282,8 @@ final class ChatViewModel {
             toolArgs: args,
             toolResult: "",
             toolStatus: .running,
-            toolDurationMs: nil
+            toolDurationMs: nil,
+            toolIcon: icon
         )
         messages.append(bubble)
         modelContext?.insert(bubble)
