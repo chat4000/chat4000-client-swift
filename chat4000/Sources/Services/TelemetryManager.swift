@@ -75,6 +75,18 @@ final class TelemetryManager {
         flushPostHogIfNeeded()
     }
 
+    /// Sets person-level properties on the current PostHog identity. Used
+    /// to attach the APNS device token so the backend can send targeted
+    /// push notifications (e.g. founder-chat prompts) via PostHog's
+    /// person-property targeting.
+    func setPersonProperties(_ properties: [String: Any]) {
+        guard postHogStarted, isCollectionEnabled else { return }
+        PostHogSDK.shared.capture(
+            "$set",
+            properties: ["$set": properties]
+        )
+    }
+
     private func applyCollectionPreference() {
         guard let config else { return }
 

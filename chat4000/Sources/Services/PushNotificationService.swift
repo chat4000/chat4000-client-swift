@@ -11,6 +11,7 @@ import AppKit
 final class PushNotificationManager: NSObject {
     static let shared = PushNotificationManager()
     static let deviceTokenDidChangeNotification = Notification.Name("chat4000.PushDeviceTokenDidChange")
+    static let founderChatPromptRequested = Notification.Name("chat4000.FounderChatPromptRequested")
 
     private let tokenDefaultsKey = "chat4000.PushDeviceToken"
 
@@ -75,13 +76,49 @@ final class PushNotificationManager: NSObject {
 
     func storeDeviceToken(_ tokenData: Data) {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
+        let previous = UserDefaults.standard.string(forKey: tokenDefaultsKey)
         UserDefaults.standard.set(token, forKey: tokenDefaultsKey)
         AppLog.log(
             "🔔 [push] stored remote notification token len=%ld prefix=%@",
             token.count,
             String(token.prefix(12))
         )
+
+        // Push the APNS token to PostHog as a person property so the
+        // backend can send targeted notifications (founder-chat prompts,
+        // etc.) by querying PostHog for users with this property set.
+        // Fire on first registration AND on any token rotation.
+        if previous != token {
+            TelemetryManager.shared.setPersonProperties([
+                "apns_device_token": token,
+                "apns_env": Self.apnsEnvironment,
+                "platform": Self.platformName,
+            ])
+            TelemetryManager.shared.track(
+                .apnsTokenRegistered,
+                properties: [
+                    "token_len": token.count,
+                    "is_first": previous == nil,
+                    "apns_env": Self.apnsEnvironment,
+                ]
+            )
+        }
+
         NotificationCenter.default.post(name: Self.deviceTokenDidChangeNotification, object: nil)
+    }
+
+    private static var apnsEnvironment: String {
+        Bundle.main.object(forInfoDictionaryKey: "APNSEnvironment") as? String ?? "unknown"
+    }
+
+    private static var platformName: String {
+        #if os(iOS)
+        return "ios"
+        #elseif os(macOS)
+        return "macos"
+        #else
+        return "unknown"
+        #endif
     }
 
     func handleRemoteNotification(userInfo: [AnyHashable: Any]) async -> Bool {
@@ -165,7 +202,84 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             String(describing: content.badge),
             String(describing: notification.request.trigger)
         )
+        // If this is a founder-chat prompt and the app is foregrounded,
+        // surface the in-app modal AND show the banner so the user can
+        // pick either entry point.
+        let userInfo = notification.request.content.userInfo
+        if let type = userInfo["type"] as? String, type == "founder_chat_prompt" {
+            let source = (userInfo["source"] as? String) ?? "push"
+            let modalTitle = userInfo["modal_title"] as? String
+            let modalBody = userInfo["modal_body"] as? String
+            Task { @MainActor in
+                Self.shared.handleFounderChatPromptPush(
+                    source: source,
+                    modalTitle: modalTitle,
+                    modalBody: modalBody
+                )
+            }
+        }
         completionHandler([.banner, .sound, .list])
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        AppLog.log(
+            "🔔 [push] didReceive action=%@ id=%@ keys=%@",
+            response.actionIdentifier,
+            response.notification.request.identifier,
+            userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
+        )
+        if let type = userInfo["type"] as? String, type == "founder_chat_prompt" {
+            let source = (userInfo["source"] as? String) ?? "push_tap"
+            let modalTitle = userInfo["modal_title"] as? String
+            let modalBody = userInfo["modal_body"] as? String
+            Task { @MainActor in
+                Self.shared.handleFounderChatPromptPush(
+                    source: source,
+                    modalTitle: modalTitle,
+                    modalBody: modalBody
+                )
+            }
+        }
+        completionHandler()
+    }
+}
+
+extension PushNotificationManager {
+    /// Posts the in-app notification that triggers `FounderChatPromptModal`.
+    /// Snooze-aware: if the user picked "Remind me later" within the last
+    /// 24 hours, this is a no-op.
+    func handleFounderChatPromptPush(
+        source: String,
+        modalTitle: String? = nil,
+        modalBody: String? = nil
+    ) {
+        guard !FounderChatPromptStore.shared.isSnoozed else {
+            AppLog.log("🔔 [push] founder_chat_prompt suppressed (snoozed) source=%@", source)
+            TelemetryManager.shared.track(
+                .founderChatPromptShown,
+                properties: ["source": source, "suppressed": "snoozed"]
+            )
+            return
+        }
+        AppLog.log(
+            "🔔 [push] founder_chat_prompt firing source=%@ title=%@ body=%@",
+            source,
+            modalTitle ?? "<default>",
+            modalBody ?? "<default>"
+        )
+        var info: [AnyHashable: Any] = ["source": source]
+        if let modalTitle { info["modal_title"] = modalTitle }
+        if let modalBody { info["modal_body"] = modalBody }
+        NotificationCenter.default.post(
+            name: Self.founderChatPromptRequested,
+            object: nil,
+            userInfo: info
+        )
     }
 }
 

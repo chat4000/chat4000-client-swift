@@ -17,11 +17,14 @@ packages:
   swift-sodium:
     url: https://github.com/jedisct1/swift-sodium.git
     from: "0.9.1"
+  Intercom:
+    url: https://github.com/intercom/intercom-ios.git
+    from: "19.0.0"
 
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.0.0"
+    MARKETING_VERSION: "1.0.1"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: H45JD827CU
     CODE_SIGN_STYLE: Automatic
@@ -61,6 +64,7 @@ targetTemplates:
       - package: PostHog
       - package: swift-sodium
         product: Sodium
+      - package: Intercom
     postBuildScripts:
       - name: Upload dSYM to Sentry
         basedOnDependencyAnalysis: false

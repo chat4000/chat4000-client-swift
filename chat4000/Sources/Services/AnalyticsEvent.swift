@@ -18,6 +18,15 @@ enum AnalyticsEvent: String {
     case actionButtonRecordingTriggered = "action_button_recording_triggered"
     case addDeviceFlowStarted = "add_device_flow_started"
     case legalConsentAccepted = "legal_consent_accepted"
+
+    // Founder-chat / Intercom funnel
+    case founderChatOpened = "founder_chat_opened"
+    case telegramCommunityOpened = "telegram_community_opened"
+    case founderChatPromptShown = "founder_chat_prompt_shown"
+    case founderChatPromptAction = "founder_chat_prompt_action"
+
+    // APNS / push
+    case apnsTokenRegistered = "apns_token_registered"
 }
 
 enum AnalyticsBuckets {

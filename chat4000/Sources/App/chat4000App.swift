@@ -55,6 +55,7 @@ struct chat4000App: App {
         PushNotificationManager.shared.clearBadge()
 
         TelemetryManager.shared.configure(from: Self.loadDevConfig())
+        IntercomService.startIfConfigured()
         Haptics.prime()
     }
 

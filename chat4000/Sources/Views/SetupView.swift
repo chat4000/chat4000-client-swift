@@ -326,7 +326,7 @@ extension EnterPairingCodeView {
                 helpRoute = .freshPluginInstall
             }
 
-            TalkToTeamButton()
+            ChatWithFounderButton(source: "setup_help_menu")
         }
     }
 
@@ -365,7 +365,7 @@ extension EnterPairingCodeView {
                     )
                 }
 
-                TalkToTeamCallout(caption: "That didn't help? Chat with the team.")
+                ChatWithFounderCallout(caption: "That didn't help? Chat with founder.", source: "setup_pair_failed")
 
                 helpBackToMenuButton
             }
@@ -400,7 +400,7 @@ extension EnterPairingCodeView {
                 )
             }
 
-            TalkToTeamCallout(caption: "That didn't help? Chat with the team.")
+            ChatWithFounderCallout(caption: "That didn't help? Chat with founder.", source: "setup_pair_failed")
 
             helpBackToMenuButton
         }

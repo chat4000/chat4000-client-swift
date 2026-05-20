@@ -1,8 +1,14 @@
 import SwiftUI
 import Sentry
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct SettingsSheet: View {
-    private let sentryGestureWindow: TimeInterval = 1.5
+    private let sentryGestureWindow: TimeInterval = 5.0
+    private let secretTapThreshold = 15
 
     @Environment(\.dismiss) private var dismiss
 
@@ -20,7 +26,12 @@ struct SettingsSheet: View {
     @State private var addDeviceTapStartedAt: Date?
     @State private var groupIDTapCount = 0
     @State private var groupIDTapStartedAt: Date?
+    @State private var privacyTapCount = 0
+    @State private var privacyTapStartedAt: Date?
+    @State private var pluginVersionTapCount = 0
+    @State private var pluginVersionTapStartedAt: Date?
     @State private var isCollectionEnabled = TelemetryPreferences.isCollectionEnabled
+    @State private var showFounderPromptTest = false
 
     var body: some View {
         ScrollView {
@@ -81,21 +92,40 @@ struct SettingsSheet: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
 
-                    TalkToTeamCallout(caption: "Need help, or just want to say hi?")
-                        .padding(.horizontal, 16)
+                    VStack(spacing: 12) {
+                        Text("Need help, or just want to say hi?")
+                            .font(AppFonts.caption)
+                            .foregroundStyle(AppColors.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+
+                        ChatWithFounderButton(source: "settings")
+                        JoinTelegramCommunityButton(source: "settings")
+                    }
+                    .padding(.horizontal, 16)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
 
-                Text(versionFooter)
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textTimestamp)
-                    .padding(.top, 24)
-                    .padding(.bottom, 24)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        handleAddAnotherDeviceGesture()
+                HStack(spacing: 0) {
+                    Text("chat4000 v\(AppRegistrationIdentity.currentAppVersion)")
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            handleAddAnotherDeviceGesture()
+                        }
+
+                    if let pluginVersion, !pluginVersion.isEmpty {
+                        Text(" · plugin v\(pluginVersion)")
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                handlePluginVersionGesture()
+                            }
                     }
+                }
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textTimestamp)
+                .padding(.top, 24)
+                .padding(.bottom, 24)
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -121,6 +151,9 @@ struct SettingsSheet: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(sentryResultMessage ?? "Done.")
+        }
+        .sheet(isPresented: $showFounderPromptTest) {
+            FounderChatPromptModal(source: "settings_10tap_test")
         }
     }
 
@@ -179,6 +212,10 @@ struct SettingsSheet: View {
             Text("Privacy")
                 .font(AppFonts.sectionTitle)
                 .foregroundStyle(AppColors.textSecondary)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    handlePrivacyGesture()
+                }
 
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(isOn: Binding(
@@ -297,7 +334,7 @@ struct SettingsSheet: View {
         addDeviceTapCount = nextCount.count
         addDeviceTapStartedAt = nextCount.startedAt
 
-        guard addDeviceTapCount >= 5 else { return }
+        guard addDeviceTapCount >= secretTapThreshold else { return }
         addDeviceTapCount = 0
         addDeviceTapStartedAt = nil
         sendHandledSentryException()
@@ -311,10 +348,75 @@ struct SettingsSheet: View {
         groupIDTapCount = nextCount.count
         groupIDTapStartedAt = nextCount.startedAt
 
-        guard groupIDTapCount >= 5 else { return }
+        guard groupIDTapCount >= secretTapThreshold else { return }
         groupIDTapCount = 0
         groupIDTapStartedAt = nil
         triggerSentryCrash()
+    }
+
+    private func handlePluginVersionGesture() {
+        let nextCount = nextTapCount(
+            currentCount: pluginVersionTapCount,
+            startedAt: pluginVersionTapStartedAt
+        )
+        pluginVersionTapCount = nextCount.count
+        pluginVersionTapStartedAt = nextCount.startedAt
+
+        guard pluginVersionTapCount >= secretTapThreshold else { return }
+        pluginVersionTapCount = 0
+        pluginVersionTapStartedAt = nil
+
+        // 15 taps on the "plugin vX.Y.Z" segment: export this device's
+        // APNS token. Copies to clipboard AND re-fires the PostHog
+        // `apns_token_registered` event with `is_manual: true` so the
+        // backend can target this device for push tests without
+        // round-tripping through the device-token-on-install event.
+        guard let token = PushNotificationManager.shared.deviceToken else {
+            AppLog.log("🔔 [push] manual export skipped — no device token yet")
+            return
+        }
+
+        #if os(iOS)
+        UIPasteboard.general.string = token
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(token, forType: .string)
+        #endif
+
+        TelemetryManager.shared.setPersonProperties([
+            "apns_device_token": token,
+        ])
+        TelemetryManager.shared.track(
+            .apnsTokenRegistered,
+            properties: [
+                "token_len": token.count,
+                "is_manual": true,
+                "source": "settings_plugin_version_15tap",
+            ]
+        )
+
+        AppLog.log(
+            "🔔 [push] manual export: copied token (len=%ld prefix=%@) + sent PostHog event",
+            token.count,
+            String(token.prefix(12))
+        )
+        Haptics.success()
+    }
+
+    private func handlePrivacyGesture() {
+        let nextCount = nextTapCount(
+            currentCount: privacyTapCount,
+            startedAt: privacyTapStartedAt
+        )
+        privacyTapCount = nextCount.count
+        privacyTapStartedAt = nextCount.startedAt
+
+        guard privacyTapCount >= secretTapThreshold else { return }
+        privacyTapCount = 0
+        privacyTapStartedAt = nil
+        // 15 taps on "Privacy" section header: surface the FounderChatPromptModal
+        // locally for QA without needing an actual APNS push.
+        showFounderPromptTest = true
     }
 
     private func nextTapCount(currentCount: Int, startedAt: Date?) -> (count: Int, startedAt: Date) {

@@ -1,6 +1,15 @@
 {
-  "originHash" : "017773431e8a75cc0104c29d4510ab9783306e2d207fcefff35e524c2054e41d",
+  "originHash" : "01ba363182b0de8647527aa782fed679a168a3e93746fce1c152246f8e0497c1",
   "pins" : [
+    {
+      "identity" : "intercom-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/intercom/intercom-ios.git",
+      "state" : {
+        "revision" : "938bc138c28d11546b3962cc197a9a15acb930eb",
+        "version" : "19.6.0"
+      }
+    },
     {
       "identity" : "plcrashreporter",
       "kind" : "remoteSourceControl",

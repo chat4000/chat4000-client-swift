@@ -22,6 +22,9 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var showSettings = false
     @State private var showCamera = false
+    @State private var founderPromptSource: String?
+    @State private var founderPromptTitle: String?
+    @State private var founderPromptBody: String?
     @State private var voiceRecorder = VoiceNoteRecorder()
     @State private var voiceErrorMessage: String?
     @FocusState private var inputFocused: Bool
@@ -150,6 +153,25 @@ struct ChatView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: LaunchActionStore.didSetNotification)) { _ in
             handlePendingLaunchActionIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PushNotificationManager.founderChatPromptRequested)) { note in
+            founderPromptSource = (note.userInfo?["source"] as? String) ?? "push"
+            founderPromptTitle = note.userInfo?["modal_title"] as? String
+            founderPromptBody = note.userInfo?["modal_body"] as? String
+        }
+        .sheet(isPresented: Binding(
+            get: { founderPromptSource != nil },
+            set: { if !$0 {
+                founderPromptSource = nil
+                founderPromptTitle = nil
+                founderPromptBody = nil
+            } }
+        )) {
+            FounderChatPromptModal(
+                source: founderPromptSource ?? "push",
+                modalTitle: founderPromptTitle ?? FounderChatPromptModal.defaultTitle,
+                modalBody: founderPromptBody ?? FounderChatPromptModal.defaultBody
+            )
         }
         .onDisappear {
             pendingLaunchActionTask?.cancel()
