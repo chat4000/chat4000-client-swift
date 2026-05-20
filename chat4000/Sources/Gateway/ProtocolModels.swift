@@ -538,6 +538,20 @@ enum InnerMessageType: String, Codable {
     /// Drives the "✓✓ delivered" tick. Travels inside the encrypted envelope
     /// so the relay cannot forge it.
     case ack
+    /// Tool-call streaming (Hermes-specific, additive on protocol v1).
+    /// `tool_id` is the stable correlator across start/delta/end. Each
+    /// wire frame gets a fresh inner.id per §6.4.2. Receivers dedupe by
+    /// inner.id (§6.6.9) and merge by tool_id.
+    case toolStart = "tool_start"
+    case toolDelta = "tool_delta"
+    case toolEnd = "tool_end"
+}
+
+/// Status of a tool invocation reported in `tool_end.body.status`.
+enum InnerToolStatus: String, Codable {
+    case running
+    case done
+    case failed
 }
 
 /// Acknowledgement stage values per §6.6.5. `received` is the only required
@@ -737,10 +751,53 @@ enum InnerBody: Codable {
     case textEnd(TextBody)
     case status(StatusBody)
     case ack(AckBody)
+    case toolStart(ToolStartBody)
+    case toolDelta(ToolDeltaBody)
+    case toolEnd(ToolEndBody)
 
     struct AckBody: Codable {
         let refs: String
         let stage: InnerAckStage
+    }
+
+    /// Body for `tool_start`. Args is a JSON string — may be truncated by
+    /// the plugin to ~2KB to keep wire frames small.
+    struct ToolStartBody: Codable {
+        let toolId: String
+        let name: String
+        let args: String
+
+        enum CodingKeys: String, CodingKey {
+            case toolId = "tool_id"
+            case name, args
+        }
+    }
+
+    /// Body for `tool_delta` — streamed intermediate output (stdout etc).
+    /// Coalesced by the plugin to ~256 char / 100 ms frames.
+    struct ToolDeltaBody: Codable {
+        let toolId: String
+        let delta: String
+
+        enum CodingKeys: String, CodingKey {
+            case toolId = "tool_id"
+            case delta
+        }
+    }
+
+    /// Body for `tool_end`. `result` is a short summary (~4KB truncation
+    /// cap on the plugin side) suitable for inline render.
+    struct ToolEndBody: Codable {
+        let toolId: String
+        let status: InnerToolStatus
+        let result: String
+        let durationMs: Int
+
+        enum CodingKeys: String, CodingKey {
+            case toolId = "tool_id"
+            case status, result
+            case durationMs = "duration_ms"
+        }
     }
 
     struct TextBody: Codable {
@@ -838,7 +895,13 @@ enum InnerBody: Codable {
     // This stub satisfies the Codable conformance; actual decoding uses InnerMessage.init(from:).
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if let b = try? container.decode(TextDeltaBody.self) {
+        if let b = try? container.decode(ToolStartBody.self) {
+            self = .toolStart(b)
+        } else if let b = try? container.decode(ToolDeltaBody.self) {
+            self = .toolDelta(b)
+        } else if let b = try? container.decode(ToolEndBody.self) {
+            self = .toolEnd(b)
+        } else if let b = try? container.decode(TextDeltaBody.self) {
             self = .textDelta(b)
         } else if let b = try? container.decode(AudioBody.self) {
             self = .audio(b)
@@ -868,6 +931,9 @@ enum InnerBody: Codable {
         case .textEnd(let b): try container.encode(b)
         case .status(let b): try container.encode(b)
         case .ack(let b): try container.encode(b)
+        case .toolStart(let b): try container.encode(b)
+        case .toolDelta(let b): try container.encode(b)
+        case .toolEnd(let b): try container.encode(b)
         }
     }
 }
@@ -901,6 +967,12 @@ extension InnerMessage {
             body = .status(try container.decode(InnerBody.StatusBody.self, forKey: .body))
         case .ack:
             body = .ack(try container.decode(InnerBody.AckBody.self, forKey: .body))
+        case .toolStart:
+            body = .toolStart(try container.decode(InnerBody.ToolStartBody.self, forKey: .body))
+        case .toolDelta:
+            body = .toolDelta(try container.decode(InnerBody.ToolDeltaBody.self, forKey: .body))
+        case .toolEnd:
+            body = .toolEnd(try container.decode(InnerBody.ToolEndBody.self, forKey: .body))
         }
     }
 
@@ -918,6 +990,9 @@ extension InnerMessage {
         case .textEnd(let b): try container.encode(b, forKey: .body)
         case .status(let b): try container.encode(b, forKey: .body)
         case .ack(let b): try container.encode(b, forKey: .body)
+        case .toolStart(let b): try container.encode(b, forKey: .body)
+        case .toolDelta(let b): try container.encode(b, forKey: .body)
+        case .toolEnd(let b): try container.encode(b, forKey: .body)
         }
     }
 }

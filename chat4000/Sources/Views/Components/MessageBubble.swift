@@ -10,11 +10,17 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            messageLayout
+        // Tool-call rows render with a dedicated component — they have
+        // their own header/expand/status UI distinct from text bubbles.
+        if message.kind == .toolCall {
+            ToolCallBubble(message: message)
+        } else {
+            HStack(alignment: .top, spacing: 8) {
+                messageLayout
+            }
+            .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+            .padding(.horizontal, AppSpacing.messageRowInset)
         }
-        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
-        .padding(.horizontal, AppSpacing.messageRowInset)
     }
 
     @ViewBuilder

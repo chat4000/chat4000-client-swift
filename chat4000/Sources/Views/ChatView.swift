@@ -1176,6 +1176,31 @@ final class ChatViewModel {
             if let from = inner.from, from.role == .plugin {
                 handleInnerAck(refs: a.refs)
             }
+
+        // ─── Tool-call streaming (Hermes-specific) ──────────────────────
+        // tool_start opens a new bubble; tool_delta appends streamed
+        // stdout into toolResult; tool_end flips status + sets duration.
+        // We only render tool calls from the agent — peer apps don't
+        // run tools.
+        case .toolStart(let b):
+            if sender == .agent { markBusy(phase: "Thinking") }
+            beginToolCallBubble(
+                toolId: b.toolId,
+                toolName: b.name,
+                args: b.args,
+                sender: sender
+            )
+
+        case .toolDelta(let b):
+            appendToolCallDelta(toolId: b.toolId, delta: b.delta)
+
+        case .toolEnd(let b):
+            completeToolCallBubble(
+                toolId: b.toolId,
+                status: b.status,
+                result: b.result,
+                durationMs: b.durationMs
+            )
         }
         // Transport advances the relay-ack high-water mark internally
         // (see RelayMessageTransport.recordPersistedSeq, §6.6.3).
@@ -1189,6 +1214,125 @@ final class ChatViewModel {
         if match.status == .sending {
             match.status = .sent
             try? modelContext?.save()
+        }
+    }
+
+    // ─── Tool-call rendering (Hermes-specific) ────────────────────────────
+    // Three frame types from the plugin: tool_start opens a bubble keyed by
+    // tool_id, tool_delta appends stream output, tool_end flips status +
+    // sets duration. The bubble itself is a ChatMessage with kind=.toolCall;
+    // MessageBubble.swift defers rendering to ToolCallBubble for that kind.
+
+    private func beginToolCallBubble(
+        toolId: String,
+        toolName: String,
+        args: String,
+        sender: MessageSender
+    ) {
+        AppLog.log(
+            "🔧 toolCall start id=%@ name=%@ sender=%@ args_len=%d",
+            toolId, toolName, sender.rawValue, args.count
+        )
+        // §6.6.9 dedup: if we already have a row for this tool_id (e.g.
+        // relay redrive of tool_start), update its fields in place rather
+        // than creating a duplicate bubble.
+        if let existing = messages.first(where: {
+            $0.kind == .toolCall && $0.toolId == toolId
+        }) {
+            existing.toolName = toolName
+            existing.toolArgs = args
+            if existing.toolStatus == nil {
+                existing.toolStatus = .running
+            }
+            try? modelContext?.save()
+            requestScrollToBottom()
+            return
+        }
+
+        let bubble = ChatMessage(
+            sender: sender,
+            kind: .toolCall,
+            toolId: toolId,
+            toolName: toolName,
+            toolArgs: args,
+            toolResult: "",
+            toolStatus: .running,
+            toolDurationMs: nil
+        )
+        messages.append(bubble)
+        modelContext?.insert(bubble)
+        try? modelContext?.save()
+        requestScrollToBottom()
+    }
+
+    private func appendToolCallDelta(toolId: String, delta: String) {
+        guard !delta.isEmpty else { return }
+        guard let row = messages.first(where: {
+            $0.kind == .toolCall && $0.toolId == toolId
+        }) else {
+            // tool_delta with no preceding tool_start — relay reorder edge
+            // case. Drop silently; the next tool_end will close the gap by
+            // creating the bubble in-place anyway.
+            AppLog.log("🔧 toolCall delta orphan tool_id=%@", toolId)
+            return
+        }
+        let current = row.toolResult ?? ""
+        // Cap the in-memory accumulation at 64 KB so a runaway tool can't
+        // bloat the row indefinitely. The plugin caps result at ~4 KB on
+        // tool_end anyway; this guard only matters for very chatty streams.
+        let combined = current + delta
+        row.toolResult = combined.count > 65_536
+            ? String(combined.suffix(65_536))
+            : combined
+        try? modelContext?.save()
+        requestScrollToBottom()
+    }
+
+    private func completeToolCallBubble(
+        toolId: String,
+        status: InnerToolStatus,
+        result: String,
+        durationMs: Int
+    ) {
+        AppLog.log(
+            "🔧 toolCall end id=%@ status=%@ duration=%dms result_len=%d",
+            toolId, status.rawValue, durationMs, result.count
+        )
+        // Either update the existing bubble or — if tool_start was missed
+        // due to a relay redrive race — synthesize the bubble from the end
+        // frame so the user sees the completed call.
+        if let row = messages.first(where: {
+            $0.kind == .toolCall && $0.toolId == toolId
+        }) {
+            row.toolStatus = mapToolStatus(status)
+            if !result.isEmpty {
+                row.toolResult = result  // final result replaces streamed
+            }
+            row.toolDurationMs = durationMs
+            try? modelContext?.save()
+        } else {
+            let bubble = ChatMessage(
+                sender: .agent,
+                kind: .toolCall,
+                toolId: toolId,
+                toolName: "tool",
+                toolArgs: nil,
+                toolResult: result,
+                toolStatus: mapToolStatus(status),
+                toolDurationMs: durationMs
+            )
+            messages.append(bubble)
+            modelContext?.insert(bubble)
+            try? modelContext?.save()
+        }
+        requestScrollToBottom()
+    }
+
+    private func mapToolStatus(_ status: InnerToolStatus) -> ToolCallStatus {
+        switch status {
+        case .running: return .running
+        case .done:    return .done
+        case .failed:  return .failed
         }
     }
 
