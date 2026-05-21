@@ -623,6 +623,17 @@ struct ChatView: View {
         }
     }
 
+    private func openComposerFromLaunchAction() {
+        AppLog.log("🎯 ChatView.openComposerFromLaunchAction begin")
+        messageText = ""
+        inputFocused = true
+        TelemetryManager.shared.track(
+            .actionButtonComposerTriggered,
+            properties: ["entry": "launch_action"]
+        )
+        AppLog.log("🎯 ChatView.openComposerFromLaunchAction success")
+    }
+
     private func startVoiceRecordingFromLaunchAction() async {
         guard !voiceRecorder.isRecording else { return }
         AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction begin")
@@ -711,6 +722,8 @@ struct ChatView: View {
                     switch action {
                     case .startVoiceRecording:
                         await startVoiceRecordingFromLaunchAction()
+                    case .openComposer:
+                        openComposerFromLaunchAction()
                     }
                     return
                 }

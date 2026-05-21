@@ -2,11 +2,13 @@ import Foundation
 
 enum LaunchAction: String {
     case startVoiceRecording
+    case openComposer
 }
 
 enum LaunchActionStore {
     private static let key = "chat4000.pendingLaunchAction"
     static let recordingURL = URL(string: "chat4000://record")!
+    static let composerURL = URL(string: "chat4000://compose")!
     static let didSetNotification = Notification.Name("chat4000.pendingLaunchActionDidSet")
 
     static func set(_ action: LaunchAction) {
@@ -38,6 +40,9 @@ enum LaunchActionStore {
         case ("record", _), (_, "record"):
             AppLog.log("🎯 LaunchActionStore.action resolved=startVoiceRecording")
             return .startVoiceRecording
+        case ("compose", _), (_, "compose"):
+            AppLog.log("🎯 LaunchActionStore.action resolved=openComposer")
+            return .openComposer
         default:
             AppLog.log("🎯 LaunchActionStore.action resolved=nil")
             return nil

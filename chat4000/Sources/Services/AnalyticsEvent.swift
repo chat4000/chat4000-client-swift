@@ -16,6 +16,7 @@ enum AnalyticsEvent: String {
     case settingsOpened = "settings_opened"
     case telemetryPreferenceChanged = "telemetry_preference_changed"
     case actionButtonRecordingTriggered = "action_button_recording_triggered"
+    case actionButtonComposerTriggered = "action_button_composer_triggered"
     case addDeviceFlowStarted = "add_device_flow_started"
     case legalConsentAccepted = "legal_consent_accepted"
 

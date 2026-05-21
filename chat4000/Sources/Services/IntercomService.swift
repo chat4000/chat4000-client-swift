@@ -44,6 +44,14 @@ enum IntercomService {
             return
         }
         Intercom.setApiKey(apiKey, forAppId: appId)
+        // Force Intercom to load the Dark palette regardless of iOS
+        // system appearance. chat4000 is dark-only; matching system would
+        // surface the Light palette on devices in light mode and produce
+        // a jarring color mismatch with the rest of the app. This pulls
+        // the Dark theme's "Background color" / "Action color" set in
+        // Intercom dashboard → Settings → Channels → Messenger → Mobile
+        // SDKs → Appearance → Dark tab. SDK 19.0.0+ required.
+        Intercom.setThemeOverride(.dark)
         // Register an anonymous user so message history persists across
         // launches. Once we have a stable per-device user id we can switch
         // to `loginUser` with that id.
