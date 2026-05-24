@@ -201,6 +201,17 @@ extension EnterPairingCodeView {
                         .font(AppFonts.input)
                         .foregroundStyle(.clear)
                         .accentColor(.clear)
+                        // macOS 14.x renders the TextField caret using the
+                        // underlying NSTextField field editor's
+                        // insertionPointColor, which neither .accentColor
+                        // nor .tint reach. Drop the entire TextField's
+                        // rendering opacity to ~0 so the caret is
+                        // invisible; the field stays fully interactive
+                        // (focus, typing, paste, return) because .opacity
+                        // affects rendering only, not hit testing or the
+                        // responder chain. PairingCodeBoxes shows the
+                        // visible state.
+                        .opacity(0.001)
                         .textContentType(.oneTimeCode)
                         #if os(iOS)
                         .keyboardType(.asciiCapable)
