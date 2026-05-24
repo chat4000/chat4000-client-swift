@@ -32,6 +32,8 @@ struct SettingsSheet: View {
     @State private var pluginVersionTapStartedAt: Date?
     @State private var isCollectionEnabled = TelemetryPreferences.isCollectionEnabled
     @State private var showFounderPromptTest = false
+    @State private var diagnosticStatusMessage: String?
+    @State private var showDiagnosticAlert = false
 
     var body: some View {
         ScrollView {
@@ -154,6 +156,27 @@ struct SettingsSheet: View {
         }
         .sheet(isPresented: $showFounderPromptTest) {
             FounderChatPromptModal(source: "settings_10tap_test")
+        }
+        .alert(
+            "Diagnostics",
+            isPresented: $showDiagnosticAlert
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(diagnosticStatusMessage ?? "Sending diagnostics…")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: DiagnosticReportService.statusChanged)) { note in
+            guard let status = note.object as? DiagnosticReportService.Status else { return }
+            switch status {
+            case .succeeded:
+                diagnosticStatusMessage = "Thanks for sending diagnostics! Our devs will start working on it immediately."
+                showDiagnosticAlert = true
+            case .failed(let reason):
+                diagnosticStatusMessage = "Couldn't send diagnostics: \(reason). Please try again."
+                showDiagnosticAlert = true
+            default:
+                break
+            }
         }
     }
 
@@ -413,6 +436,8 @@ struct SettingsSheet: View {
         Haptics.success()
     }
 
+    private static let diagnosticTapThreshold = 10
+
     private func handlePrivacyGesture() {
         let nextCount = nextTapCount(
             currentCount: privacyTapCount,
@@ -421,12 +446,22 @@ struct SettingsSheet: View {
         privacyTapCount = nextCount.count
         privacyTapStartedAt = nextCount.startedAt
 
-        guard privacyTapCount >= secretTapThreshold else { return }
+        guard privacyTapCount >= Self.diagnosticTapThreshold else { return }
         privacyTapCount = 0
         privacyTapStartedAt = nil
-        // 15 taps on "Privacy" section header: surface the FounderChatPromptModal
-        // locally for QA without needing an actual APNS push.
-        showFounderPromptTest = true
+        // 20 taps on "Privacy" section header: triggers in-app
+        // diagnostic bundle collection. Equivalent to the
+        // `chat4000.com/diagnose.sh` flow but contained inside the app
+        // so we don't need users to run Terminal commands.
+        //
+        // We deliberately do NOT show an alert while the report runs.
+        // SwiftUI's `.alert(...)` snapshots its message string when
+        // first presented and won't update on later @State changes,
+        // so the "Collecting…/Encrypting…/Uploading…" animation it
+        // attempts is invisible to the user. Wait for the terminal
+        // result and pop ONE alert instead.
+        Haptics.success()
+        DiagnosticReportService.shared.runReport()
     }
 
     private func nextTapCount(currentCount: Int, startedAt: Date?) -> (count: Int, startedAt: Date) {

@@ -45,6 +45,7 @@
 		33C4F44E6857B7DDE3FBE61D /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C08DE1E100F336266630F49 /* VoiceNotes.swift */; };
 		344BA343876716F140BFBC24 /* WebSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2232140EE4AF69B38B528E23 /* WebSocketClient.swift */; };
 		35DE89E237B070AE9BA16F19 /* PluginVersionPolicyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C85D5F2056ADE9F9EDCCC5 /* PluginVersionPolicyManager.swift */; };
+		37AEB826FD4E4255BEF0A8CE /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180349B31809B66A001D8B94 /* DiagnosticReportService.swift */; };
 		3B682D685AF528D32A08FF03 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
 		3BCDAEE981D96DBAE6998A6A /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */; };
 		3C51C0C38CA6BCC5EE598377 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
@@ -73,6 +74,7 @@
 		69692E7B8A99FB36510B268E /* AckTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C321129A48D784ADAAE2F32 /* AckTracker.swift */; };
 		6D42E3F66D3E40C67839BDE2 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
 		7145FAF920C55FE32AA4B2D6 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4286293C0D698B77037DFBC /* KeychainService.swift */; };
+		733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180349B31809B66A001D8B94 /* DiagnosticReportService.swift */; };
 		73F5D0F1CB8EFB33173C2392 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
 		761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
@@ -106,6 +108,7 @@
 		9E0ABFA1C2F324731A0EB65A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		9E3292A1E4C51B33B634FBFC /* RelaySessionDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894E8FFA5C312247A853AEA2 /* RelaySessionDelegate.swift */; };
 		A1CB35D2FBB6AA9D5229B44E /* WebSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2232140EE4AF69B38B528E23 /* WebSocketClient.swift */; };
+		A2E10BB4BC56CC9C20CA478B /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180349B31809B66A001D8B94 /* DiagnosticReportService.swift */; };
 		A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
 		A90B5478003BBD843B523B97 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
 		ADBA7109CFF1CB68A63FDF12 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
@@ -190,6 +193,7 @@
 		14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntercomMacSheet.swift; sourceTree = "<group>"; };
 		1574D1CDAB67C60CD828BBEE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		173C0E4A4F3F06EDCF887C4B /* chat4000iphonedev.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = chat4000iphonedev.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		180349B31809B66A001D8B94 /* DiagnosticReportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportService.swift; sourceTree = "<group>"; };
 		192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FounderChatPromptModal.swift; sourceTree = "<group>"; };
 		1C08DE1E100F336266630F49 /* VoiceNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNotes.swift; sourceTree = "<group>"; };
 		1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryManager.swift; sourceTree = "<group>"; };
@@ -394,6 +398,7 @@
 				D577136CE593FD82EF78E86F /* AppLog.swift */,
 				22B94C54970CFF1F395117B7 /* AppNapBlocker.swift */,
 				DD4BF953BCCB91E8BE5218FF /* Crypto.swift */,
+				180349B31809B66A001D8B94 /* DiagnosticReportService.swift */,
 				F20986EDB38AB39E9B87CF73 /* Haptics.swift */,
 				AC864A0C51C9B9647423BC9F /* IntercomService.swift */,
 				E4286293C0D698B77037DFBC /* KeychainService.swift */,
@@ -661,6 +666,7 @@
 				79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */,
 				061DD07107510A886DFB24F6 /* ConnectionState.swift in Sources */,
 				F5F7181550EF38EA01DBF4F9 /* Crypto.swift in Sources */,
+				A2E10BB4BC56CC9C20CA478B /* DiagnosticReportService.swift in Sources */,
 				E8436C5B504D38765372E21B /* FounderChatPromptModal.swift in Sources */,
 				CBD9415E86196C507B48311C /* Haptics.swift in Sources */,
 				17CD4E0AA892F9F7CBB04CE8 /* IntercomMacSheet.swift in Sources */,
@@ -715,6 +721,7 @@
 				E0CDCB82C7CE9FAA666FC30F /* ConnectingView.swift in Sources */,
 				8ACDD02C4B7F64F036A9424F /* ConnectionState.swift in Sources */,
 				9CCBE4B1941F8A586A8D80DD /* Crypto.swift in Sources */,
+				733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */,
 				A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */,
 				ADBA7109CFF1CB68A63FDF12 /* Haptics.swift in Sources */,
 				4AE8AC90DF5638962D2C19D9 /* IntercomMacSheet.swift in Sources */,
@@ -769,6 +776,7 @@
 				BBFCF7DD06B72A18B1DBC63E /* ConnectingView.swift in Sources */,
 				60342C78A130F40DD1726710 /* ConnectionState.swift in Sources */,
 				20F4BD99787E77708FDFF2D7 /* Crypto.swift in Sources */,
+				37AEB826FD4E4255BEF0A8CE /* DiagnosticReportService.swift in Sources */,
 				452474235E7C879E9686978B /* FounderChatPromptModal.swift in Sources */,
 				D71964EA9FCE6279922ED795 /* Haptics.swift in Sources */,
 				D6725C71873E18476DE50DFF /* IntercomMacSheet.swift in Sources */,

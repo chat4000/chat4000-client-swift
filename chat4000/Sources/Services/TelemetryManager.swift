@@ -150,6 +150,20 @@ final class TelemetryManager {
         postHogConfig.debug = true
         #endif
         PostHogSDK.shared.setup(postHogConfig)
+        // The PostHog Apple SDK ships as a single `posthog-ios` binary
+        // and identifies itself that way even when running on macOS,
+        // which makes the PostHog Activity view show "posthog-ios"
+        // for every Mac event. Override `$lib` and add an explicit
+        // `platform` super-property so we can tell macOS from iOS
+        // events at a glance.
+        #if os(macOS)
+        PostHogSDK.shared.register([
+            "$lib": "posthog-macos",
+            "platform": "macos",
+        ])
+        #else
+        PostHogSDK.shared.register(["platform": "ios"])
+        #endif
         postHogStarted = true
         AppLog.log("📊 PostHog initialized (project_id=%@, host=%@, sessionReplay=%@)",
               config.postHogProjectId ?? "unknown",

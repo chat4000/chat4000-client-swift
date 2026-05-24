@@ -858,6 +858,22 @@ private struct MacComposerTextView: NSViewRepresentable {
     final class ComposerNSTextView: NSTextView {
         var onSubmit: (() -> Void)?
 
+        /// Auto-focus the composer the moment it's installed in a
+        /// window. SwiftUI's `@FocusState`/`.focused()` isn't bound to
+        /// the AppKit text view on macOS, so `primeInitialFocus()` in
+        /// ChatView only flips a SwiftUI state nobody observes here.
+        /// Promoting ourselves to first responder via AppKit is what
+        /// actually lets the user start typing on app launch without
+        /// having to click into the field first.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+
         override func keyDown(with event: NSEvent) {
             let isReturn = event.keyCode == 36 || event.keyCode == 76
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
