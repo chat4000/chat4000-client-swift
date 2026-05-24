@@ -767,6 +767,15 @@ private struct MacComposerTextView: NSViewRepresentable {
         scrollView.verticalScrollElasticity = .automatic
 
         let textView = ComposerNSTextView()
+        // H1 fix: NSTextView() initializes at NSZeroRect. Without an
+        // explicit non-zero starting frame AND .width autoresizing, the
+        // text view inside NSScrollView can lay out with zero width — the
+        // text container clips every glyph to a width-0 rect, so typed
+        // characters insert into the storage but never render. SwiftUI's
+        // first layout pass on macOS 14.x can interleave with documentView
+        // assignment in a way that leaves us in this state.
+        textView.frame = NSRect(x: 0, y: 0, width: 400, height: minHeight)
+        textView.autoresizingMask = [.width]
         textView.delegate = context.coordinator
         textView.string = text
         textView.font = Self.composerFont
