@@ -53,7 +53,7 @@ protocol MessageTransport: AnyObject {
     /// itself does not interpret the policy.
     var onTermsVersionUpdate: ((Int) -> Void)? { get set }
 
-    func connect(config: GroupConfig)
+    func connect()
     func disconnect()
 }
 

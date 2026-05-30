@@ -160,9 +160,13 @@ final class TelemetryManager {
         PostHogSDK.shared.register([
             "$lib": "posthog-macos",
             "platform": "macos",
+            "environment": Self.appEnvironmentTag,
         ])
         #else
-        PostHogSDK.shared.register(["platform": "ios"])
+        PostHogSDK.shared.register([
+            "platform": "ios",
+            "environment": Self.appEnvironmentTag,
+        ])
         #endif
         postHogStarted = true
         AppLog.log("📊 PostHog initialized (project_id=%@, host=%@, sessionReplay=%@)",
@@ -217,11 +221,22 @@ final class TelemetryManager {
 
     private func enrichedProperties(_ properties: [String: Any]) -> [String: Any] {
         [
+            "environment": Self.appEnvironmentTag,
             "build_channel": Self.sentryEnvironment,
             "distribution_channel": Self.distributionChannel,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
             "build_number": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0",
         ].merging(properties) { _, new in new }
+    }
+
+    /// Explicit `dev` / `prod` tag attached to every PostHog event and the
+    /// person profile. Dev = a Debug build or a `.dev`-suffixed bundle id.
+    static var appEnvironmentTag: String {
+        #if DEBUG
+        return "dev"
+        #else
+        return (Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true) ? "dev" : "prod"
+        #endif
     }
 
     private static var sentryEnvironment: String {

@@ -19,6 +19,8 @@ struct ChatView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var viewModel: ChatViewModel
     var onAddDevice: () -> Void
+    /// When set, a leading sidebar-toggle button appears in the nav bar.
+    var onToggleSidebar: (() -> Void)?
     @State private var messageText = ""
     @State private var showSettings = false
     @State private var showCamera = false
@@ -183,6 +185,22 @@ struct ChatView: View {
 
     private var navBar: some View {
         HStack {
+            if let onToggleSidebar {
+                Button {
+                    Task { @MainActor in Haptics.impact() }
+                    onToggleSidebar()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppColors.textPrimary)
+                        .frame(width: 28, height: 28)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+
             Spacer()
 
             Button {
@@ -934,7 +952,14 @@ final class ChatViewModel {
     var config: GroupConfig?
     var scrollRevision = 0
 
-    private let transport: MessageTransport = RelayMessageTransport()
+    /// The Matrix room (session) currently shown. Messages are scoped to it.
+    var activeRoomId: String?
+
+    /// v2 Matrix session — owns the SDK client + sync. Shared with the
+    /// transport so the app-layer pairing flow and the messaging transport
+    /// operate on the same client.
+    @ObservationIgnored let matrixSession = MatrixSession()
+    @ObservationIgnored private let transport: MessageTransport
     private var modelContext: ModelContext?
     private let minimumPluginVersion = "0.1.0"
 
@@ -951,6 +976,7 @@ final class ChatViewModel {
     }
 
     init() {
+        transport = MatrixMessageTransport(session: matrixSession)
         transport.onReceive = { [weak self] inner in
             self?.handleInnerMessage(inner)
         }
@@ -981,37 +1007,49 @@ final class ChatViewModel {
         if isFirstAttachment || !messages.isEmpty {
             loadMessagesMergingTransientState()
         }
-
-        Task { @MainActor in
-            importPendingIncomingMessagesIfNeeded()
-        }
     }
 
-    func setup(modelContext: ModelContext, config: GroupConfig) {
+    /// v2 chat-screen setup: attach persistence and restore the Matrix session.
+    /// No `GroupConfig` — credentials live in `MatrixCredentialStore`.
+    func setupMatrix(modelContext: ModelContext) {
         attach(modelContext: modelContext)
-        self.config = config
-        loadStoredPluginMetadata(for: config)
         loadMessagesMergingTransientState()
-        if connectionState != .connected {
-            startConnection(config: config)
-        }
+        guard connectionState != .connected else { return }
+        Task { await matrixSession.connect() }
+    }
+
+    /// Switch the visible session. Local act: rebinds the transport's timeline
+    /// (via `MatrixSession.selectRoom`) and reloads this room's messages.
+    func switchRoom(id: String) {
+        guard activeRoomId != id else { return }
+        activeRoomId = id
+        currentStreamId = nil
+        currentStreamText = ""
+        currentStreamMessageId = nil
+        // Drop the previous room's in-memory rows before loading the new
+        // room's, so the transient-merge doesn't carry them across.
+        messages = []
+        matrixSession.selectRoom(id)
+        loadMessagesMergingTransientState()
     }
 
     func refreshMessages() {
         guard modelContext != nil else { return }
         loadMessagesMergingTransientState()
-        Task { @MainActor in
-            importPendingIncomingMessagesIfNeeded()
-        }
     }
 
-    func startConnection(config: GroupConfig) {
-        guard connectionState != .connected else { return }
-        self.config = config
-        loadStoredPluginMetadata(for: config)
-        transport.connect(config: config)
-        // Connection state is delivered via transport.onConnectionState.
+    /// v2 pairing: redeem the entered/scanned pairing code at the registrar and
+    /// bring up the client. Connection state flows back through
+    /// `transport.onConnectionState`.
+    func pair(code: String) async {
+        // Touch the transport so its connection-state observer is wired before
+        // pairing flips the session to `.connected`.
+        _ = transport
+        await matrixSession.pair(code: code)
     }
+
+    /// True once a Matrix session is persisted on disk (drives launch routing).
+    var isPaired: Bool { matrixSession.isPaired }
 
     // MARK: - Busy state
 
@@ -1033,20 +1071,14 @@ final class ChatViewModel {
     }
 
     func disconnect() {
-        transport.disconnect()
         connectionState = .disconnected
-        KeychainService.delete()
+        Task { await matrixSession.signOut() }
+        KeychainService.delete() // legacy v1 cleanup; harmless if absent
         config = nil
     }
 
-    func disconnectRelayForBackground() {
-        AppLog.log("🔌 Background disconnect: closing relay only")
-        transport.disconnect()
-        connectionState = .disconnected
-    }
-
     func send(text: String) {
-        let message = ChatMessage(text: text, sender: .user, status: .sending)
+        let message = ChatMessage(text: text, sender: .user, status: .sending, roomId: activeRoomId)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
@@ -1077,7 +1109,7 @@ final class ChatViewModel {
     func sendImage(_ image: PlatformImage) {
         guard let jpegData = image.clawConnectJPEGData else { return }
 
-        let message = ChatMessage(imageData: jpegData, sender: .user, status: .sending)
+        let message = ChatMessage(imageData: jpegData, sender: .user, status: .sending, roomId: activeRoomId)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
@@ -1106,7 +1138,8 @@ final class ChatViewModel {
             audioDuration: duration,
             audioWaveform: waveform,
             sender: .user,
-            status: .sending
+            status: .sending,
+            roomId: activeRoomId
         )
         messages.append(message)
         modelContext?.insert(message)
@@ -1314,6 +1347,7 @@ final class ChatViewModel {
 
         let bubble = ChatMessage(
             sender: sender,
+            roomId: activeRoomId,
             kind: .toolCall,
             toolId: toolId,
             toolName: toolName,
@@ -1377,6 +1411,7 @@ final class ChatViewModel {
         } else {
             let bubble = ChatMessage(
                 sender: .agent,
+                roomId: activeRoomId,
                 kind: .toolCall,
                 toolId: toolId,
                 toolName: "tool",
@@ -1445,7 +1480,7 @@ final class ChatViewModel {
             text.count
         )
 
-        let message = ChatMessage(msgId: id, text: text, sender: sender)
+        let message = ChatMessage(msgId: id, text: text, sender: sender, roomId: activeRoomId)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
@@ -1466,7 +1501,7 @@ final class ChatViewModel {
             imageData.count
         )
 
-        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender)
+        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: activeRoomId)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
@@ -1496,7 +1531,8 @@ final class ChatViewModel {
             audioMimeType: mimeType,
             audioDuration: Double(durationMs) / 1000,
             audioWaveform: waveform,
-            sender: sender
+            sender: sender,
+            roomId: activeRoomId
         )
         messages.append(message)
         modelContext?.insert(message)
@@ -1523,7 +1559,7 @@ final class ChatViewModel {
             // also be no-ops because the existing finalized row matches.
             AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
         } else {
-            let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending)
+            let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending, roomId: activeRoomId)
             messages.append(message)
             modelContext?.insert(message)
             currentStreamMessageId = message.id
@@ -1542,7 +1578,7 @@ final class ChatViewModel {
             existing.text = text
         } else {
             let streamId = currentStreamId
-            let message = ChatMessage(msgId: streamId, text: text, sender: sender, status: .sending)
+            let message = ChatMessage(msgId: streamId, text: text, sender: sender, status: .sending, roomId: activeRoomId)
             messages.append(message)
             modelContext?.insert(message)
             currentStreamMessageId = message.id
@@ -1569,7 +1605,7 @@ final class ChatViewModel {
             if let streamId, isDuplicateInnerId(streamId) {
                 AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
             } else {
-                let message = ChatMessage(msgId: streamId, text: text, sender: sender)
+                let message = ChatMessage(msgId: streamId, text: text, sender: sender, roomId: activeRoomId)
                 messages.append(message)
                 modelContext?.insert(message)
             }
@@ -1689,7 +1725,11 @@ final class ChatViewModel {
     }
 
     private func loadMessagesMergingTransientState() {
+        // Scope to the active room (v2 multi-session). Before a room is
+        // selected, `activeRoomId` is nil and only legacy nil-room rows match.
+        let rid = activeRoomId
         let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == rid },
             sortBy: [SortDescriptor(\.timestamp, order: .forward)]
         )
         let storedMessages = (try? modelContext?.fetch(descriptor)) ?? []
@@ -1707,109 +1747,6 @@ final class ChatViewModel {
         requestScrollToBottom()
     }
 
-    private func importPendingIncomingMessagesIfNeeded() {
-        guard modelContext != nil else { return }
-
-        // Drain any plugin acks that were received during background-wake.
-        // The background path can't touch SwiftData directly, so it parks the
-        // refs in PendingAcksStore. Apply them here so outbound rows flip
-        // from .sent to .delivered (✓ → ✓✓) on app launch.
-        let pendingAcks = PendingAcksStore.drain()
-        if !pendingAcks.isEmpty {
-            AppLog.log("📬 importing pending plugin acks count=%ld", pendingAcks.count)
-            for refs in pendingAcks {
-                handleInnerAck(refs: refs)
-            }
-        }
-
-        Task { @MainActor in
-            let pending = await PendingIncomingMessageStore.shared.drain()
-            guard !pending.isEmpty else { return }
-
-            AppLog.log("📬 importing pending incoming messages count=%ld", pending.count)
-
-            for pendingMessage in pending {
-                // Per §6.6.9 — dedupe by inner msg_id (stream_id for streamed
-                // text). Without this, if the live foreground receive path
-                // already finalized this stream, the import would create a
-                // duplicate bubble.
-                if isDuplicateInnerId(pendingMessage.messageId) {
-                    AppLog.log(
-                        "📬 imported pending skipping duplicate id=%@",
-                        pendingMessage.messageId
-                    )
-                    continue
-                }
-
-                switch pendingMessage.payload {
-                case .text(let text):
-                    let message = ChatMessage(
-                        msgId: pendingMessage.messageId,
-                        text: text,
-                        sender: .agent,
-                        timestamp: pendingMessage.receivedAt,
-                        status: .sent
-                    )
-                    messages.append(message)
-                    modelContext?.insert(message)
-                    AppLog.log(
-                        "📬 imported pending text id=%@ chars=%ld",
-                        pendingMessage.messageId,
-                        text.count
-                    )
-
-                case .image(let dataBase64):
-                    guard let imageData = Data(base64Encoded: dataBase64) else {
-                        AppLog.log("ERROR: Failed to decode pending image id=%@", pendingMessage.messageId)
-                        continue
-                    }
-                    let message = ChatMessage(
-                        msgId: pendingMessage.messageId,
-                        imageData: imageData,
-                        sender: .agent,
-                        timestamp: pendingMessage.receivedAt,
-                        status: .sent
-                    )
-                    messages.append(message)
-                    modelContext?.insert(message)
-                    AppLog.log(
-                        "📬 imported pending image id=%@ bytes=%ld",
-                        pendingMessage.messageId,
-                        imageData.count
-                    )
-
-                case .audio(let dataBase64, let mimeType, let durationMs, let waveform):
-                    guard let audioData = Data(base64Encoded: dataBase64) else {
-                        AppLog.log("ERROR: Failed to decode pending audio id=%@", pendingMessage.messageId)
-                        continue
-                    }
-                    let message = ChatMessage(
-                        msgId: pendingMessage.messageId,
-                        audioData: audioData,
-                        audioMimeType: mimeType,
-                        audioDuration: Double(durationMs) / 1000,
-                        audioWaveform: waveform,
-                        sender: .agent,
-                        timestamp: pendingMessage.receivedAt,
-                        status: .sent
-                    )
-                    messages.append(message)
-                    modelContext?.insert(message)
-                    AppLog.log(
-                        "📬 imported pending audio id=%@ bytes=%ld duration_ms=%ld",
-                        pendingMessage.messageId,
-                        audioData.count,
-                        durationMs
-                    )
-                }
-            }
-
-            messages.sort { $0.timestamp < $1.timestamp }
-            try? modelContext?.save()
-            clearBusy()
-            requestScrollToBottom()
-        }
-    }
 }
 
 private extension InnerMessage {

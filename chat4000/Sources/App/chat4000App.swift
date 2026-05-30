@@ -10,7 +10,6 @@ import UIKit
 
 enum AppScreen {
     case enterPairingCode
-    case pairing
     case connecting
     case chat
 }
@@ -25,11 +24,8 @@ struct chat4000App: App {
     #endif
 
     @State private var chatViewModel: ChatViewModel
-    @State private var pairingCoordinator = PairingCoordinator()
     @State private var currentScreen: AppScreen
-    @State private var groupConfig: GroupConfig?
     @State private var errorMessage: String?
-    @State private var returnToChatAfterPairing = false
     @State private var activeSessionStartedAt: Date?
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
@@ -39,19 +35,16 @@ struct chat4000App: App {
     #endif
 
     init() {
-        let savedConfig = KeychainService.load()
         let initialViewModel = ChatViewModel()
-        initialViewModel.config = savedConfig
 
         _chatViewModel = State(initialValue: initialViewModel)
-        _groupConfig = State(initialValue: savedConfig)
-        _currentScreen = State(initialValue: savedConfig == nil ? .enterPairingCode : .chat)
+        // v2: route on the persisted Matrix session, not a v1 group key.
+        _currentScreen = State(initialValue: initialViewModel.isPaired ? .chat : .enterPairingCode)
         _showLegalReconsentModal = State(initialValue: false)
         _currentTermsVersion = State(initialValue: nil)
 
-        PushNotificationManager.shared.backgroundWakeHandler = {
-            await BackgroundRelayWakeService.shared.handleSilentPush()
-        }
+        // TODO(v2): background silent-push wake should drain via a short-lived
+        // Matrix sync; the v1 relay-based wake service was removed.
         PushNotificationManager.shared.clearBadge()
 
         TelemetryManager.shared.configure(from: Self.loadDevConfig())
@@ -90,12 +83,24 @@ struct chat4000App: App {
             .onChange(of: chatViewModel.connectionState) { _, newState in
                 switch newState {
                 case .connected:
+                    errorMessage = nil
                     chatViewModel.refreshMessages()
                     withAnimation(.easeInOut(duration: 0.3)) {
                         currentScreen = .chat
                     }
+                case .failed(let message):
+                    // Pairing or restore failed — surface the error on the
+                    // entry screen.
+                    if currentScreen == .connecting {
+                        errorMessage = message
+                        Haptics.error()
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            currentScreen = .enterPairingCode
+                        }
+                    }
                 case .disconnected:
-                    if currentScreen == .chat, groupConfig == nil {
+                    // Signed out / torn down — return to the entry screen.
+                    if currentScreen == .chat {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             currentScreen = .enterPairingCode
                         }
@@ -110,71 +115,17 @@ struct chat4000App: App {
                     Haptics.prime()
                     activeSessionStartedAt = .now
                     chatViewModel.refreshMessages()
-                    if currentScreen == .chat, let groupConfig {
-                        chatViewModel.startConnection(config: groupConfig)
+                    if currentScreen == .chat, chatViewModel.isPaired {
+                        Task { await chatViewModel.matrixSession.connect() }
                     }
                     PushNotificationManager.shared.clearBadge()
                     TelemetryManager.shared.track(.appOpened)
                 case .background:
-                    if groupConfig != nil {
-                        AppLog.log("🔌 App entering background, disconnecting relay socket")
-                        chatViewModel.disconnectRelayForBackground()
-                    }
+                    // v2: leave the Matrix sync running; silent push + SDK
+                    // sync drive background delivery. No socket teardown.
                     finishActiveSessionIfNeeded()
                 default:
                     break
-                }
-            }
-            .onChange(of: chatViewModel.config) { _, newConfig in
-                if newConfig == nil {
-                    AppLog.log("🔗 App observed chatViewModel.config=nil on screen \(String(describing: currentScreen))")
-                    groupConfig = nil
-                    if currentScreen != .pairing {
-                        pairingCoordinator.reset()
-                    }
-                    returnToChatAfterPairing = false
-                    if currentScreen != .pairing {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            currentScreen = .enterPairingCode
-                        }
-                    }
-                }
-            }
-            .onChange(of: pairingCoordinator.completedConfig) { _, newConfig in
-                guard let newConfig else { return }
-                returnToChatAfterPairing = false
-                saveAndConnect(newConfig)
-            }
-            .onChange(of: pairingCoordinator.phase) { _, newPhase in
-                switch newPhase {
-                case .complete:
-                    if let flow = pairingCoordinator.flow {
-                        TelemetryManager.shared.track(
-                            .pairingCompleted,
-                            properties: ["flow": flow.rawValue]
-                        )
-                    }
-                case .failed(let reason):
-                    if let flow = pairingCoordinator.flow {
-                        TelemetryManager.shared.track(
-                            .pairingFailed,
-                            properties: [
-                                "flow": flow.rawValue,
-                                "reason": reason,
-                            ]
-                        )
-                    }
-                default:
-                    break
-                }
-
-                guard returnToChatAfterPairing else { return }
-                if case .complete = newPhase {
-                    pairingCoordinator.reset()
-                    returnToChatAfterPairing = false
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        currentScreen = .chat
-                    }
                 }
             }
             .onOpenURL { url in
@@ -222,69 +173,26 @@ struct chat4000App: App {
                 onSubmit: startJoinPairing
             )
 
-        case .pairing:
-            PairingProgressView(
-                coordinator: pairingCoordinator,
-                onCancel: cancelPairing
-            )
-
         case .connecting:
             ConnectingView(
                 connectionState: chatViewModel.connectionState,
                 onBack: {
                     chatViewModel.disconnect()
-                    groupConfig = nil
                     errorMessage = nil
                     withAnimation(.easeInOut(duration: 0.3)) {
                         currentScreen = .enterPairingCode
                     }
                 }
             )
-            .onAppear {
-                if let groupConfig {
-                    chatViewModel.startConnection(config: groupConfig)
-                }
-            }
+            // Pairing (Task in startJoinPairing) is already in flight; this
+            // screen just reflects connection state.
 
         case .chat:
-            ChatViewWrapper(
+            ChatShell(
                 viewModel: chatViewModel,
                 onAddDevice: startHostedPairing,
                 shouldConnect: true
             )
-        }
-    }
-
-    private func saveAndConnect(_ config: GroupConfig) {
-        guard config.isValid else {
-            errorMessage = "Enter a valid 32-byte group key"
-            Haptics.error()
-            return
-        }
-
-        guard let groupKey = config.groupKey else {
-            errorMessage = "Enter a valid 32-byte group key"
-            Haptics.error()
-            return
-        }
-
-        let scopedConfig = GroupConfig(groupKey: groupKey)
-
-        do {
-            try KeychainService.save(scopedConfig)
-        } catch {
-            errorMessage = "Failed to save group key"
-            Haptics.error()
-            return
-        }
-
-        groupConfig = scopedConfig
-        chatViewModel.config = scopedConfig
-        errorMessage = nil
-        Haptics.success()
-
-        withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen = .chat
         }
     }
 
@@ -329,91 +237,42 @@ struct chat4000App: App {
     }
     #endif
 
+    /// v2 pairing: the input is a provisioning pairing code (or a
+    /// `chat4000://pair?code=…` URI). Redeem → `m.login.token` → Matrix client.
+    /// Connection state drives routing (see `onChange(connectionState)`).
     private func startJoinPairing(_ input: String) {
-        AppLog.log("🔗 App startJoinPairing input=\(input) currentScreen=\(String(describing: currentScreen))")
-        if currentScreen == .pairing {
-            AppLog.log("🔗 Ignoring duplicate startJoinPairing while already pairing")
+        if currentScreen == .connecting {
+            AppLog.log("🔗 Ignoring duplicate pairing while already connecting")
             return
         }
 
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = RelayCrypto.normalizePairingCode(trimmed)
-        AppLog.log("🔗 App startJoinPairing trimmed=\(trimmed) normalized=\(normalized)")
-
-        if let invite = RelayCrypto.parsePairingURI(trimmed) {
-            AppLog.log("🔗 App startJoinPairing taking pairing-uri path")
-            TelemetryManager.shared.track(
-                .pairingCodeSubmitted,
-                properties: ["input_type": "uri"]
-            )
-            TelemetryManager.shared.track(
-                .pairingStarted,
-                properties: ["flow": PairingCoordinator.Flow.join.rawValue]
-            )
-            errorMessage = nil
-            pairingCoordinator.join(code: invite.code)
-            withAnimation(.easeInOut(duration: 0.3)) {
-                currentScreen = .pairing
-            }
+        guard !trimmed.isEmpty else {
+            errorMessage = "Enter a pairing code"
+            Haptics.error()
             return
         }
 
-        if normalized.count == 8, trimmed == normalized {
-            AppLog.log("🔗 App startJoinPairing taking pairing-code path")
-            TelemetryManager.shared.track(
-                .pairingCodeSubmitted,
-                properties: ["input_type": "code"]
-            )
-            TelemetryManager.shared.track(
-                .pairingStarted,
-                properties: ["flow": PairingCoordinator.Flow.join.rawValue]
-            )
-            errorMessage = nil
-            pairingCoordinator.join(code: normalized)
-            withAnimation(.easeInOut(duration: 0.3)) {
-                currentScreen = .pairing
-            }
-            return
-        }
+        // Accept either a bare code or a chat4000://pair?code=… URI.
+        let code = RelayCrypto.parsePairingURI(trimmed)?.code ?? trimmed
 
-        if let config = GroupConfig.parse(trimmed) {
-            AppLog.log("🔗 App startJoinPairing taking direct-config path")
-            TelemetryManager.shared.track(
-                .pairingCodeSubmitted,
-                properties: ["input_type": "direct_config"]
-            )
-            errorMessage = nil
-            saveAndConnect(config)
-            return
-        }
+        errorMessage = nil
+        TelemetryManager.shared.track(.pairingCodeSubmitted, properties: ["input_type": "code"])
+        TelemetryManager.shared.track(.pairingStarted, properties: ["flow": "matrix_join"])
 
-        AppLog.log("🔗 App startJoinPairing invalid input")
-        errorMessage = "Enter a valid pairing code or group key"
-        Haptics.error()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            currentScreen = .connecting
+        }
+        Task { await chatViewModel.pair(code: code) }
     }
 
+    /// v2 add-device uses the SDK's MSC4108 QR login (a logged-in device
+    /// provisions the new one). Not wired yet.
     private func startHostedPairing() {
-        guard let groupConfig else { return }
-        TelemetryManager.shared.track(.addDeviceFlowStarted)
-        TelemetryManager.shared.track(
-            .pairingStarted,
-            properties: ["flow": PairingCoordinator.Flow.hostedAddDevice.rawValue]
-        )
+        AppLog.log("🔗 Add-device (MSC4108 QR login) not implemented in v2 yet")
         errorMessage = nil
-        returnToChatAfterPairing = true
-        pairingCoordinator.startHosting(config: groupConfig)
-        withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen = .pairing
-        }
     }
 
-    private func cancelPairing() {
-        pairingCoordinator.reset()
-        errorMessage = nil
-        withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen = groupConfig == nil ? .enterPairingCode : .chat
-        }
-    }
 }
 
 struct UpgradeRequiredView: View {
@@ -558,22 +417,3 @@ private struct ModelContextBinder: View {
     }
 }
 
-struct ChatViewWrapper: View {
-    @Environment(\.modelContext) private var modelContext
-    @Bindable var viewModel: ChatViewModel
-    var onAddDevice: () -> Void
-    var shouldConnect: Bool
-
-    var body: some View {
-        ChatView(viewModel: viewModel, onAddDevice: onAddDevice)
-            .onAppear {
-                if shouldConnect, let config = viewModel.config {
-                    viewModel.setup(modelContext: modelContext, config: config)
-                }
-            }
-            .onChange(of: shouldConnect) { _, newValue in
-                guard newValue, let config = viewModel.config else { return }
-                viewModel.setup(modelContext: modelContext, config: config)
-            }
-    }
-}

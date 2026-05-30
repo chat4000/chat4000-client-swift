@@ -47,6 +47,11 @@ final class ChatMessage {
     var timestamp: Date
     var status: MessageStatus
 
+    /// v2: the Matrix room (session) this message belongs to. Optional/additive
+    /// so rows persisted before multi-session decode as nil (treated as the
+    /// active room on load). New rows always set this.
+    var roomId: String?
+
     // MARK: - Hermes tool-call fields
     //
     // All optional / nilable so they remain additive against persisted
@@ -107,6 +112,7 @@ final class ChatMessage {
         sender: MessageSender,
         timestamp: Date = .now,
         status: MessageStatus = .sent,
+        roomId: String? = nil,
         kind: MessageKind = .message,
         toolId: String? = nil,
         toolName: String? = nil,
@@ -130,6 +136,7 @@ final class ChatMessage {
         self.sender = sender
         self.timestamp = timestamp
         self.status = status
+        self.roomId = roomId
         self.kindRaw = kind.rawValue
         self.toolId = toolId
         self.toolName = toolName

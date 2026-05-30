@@ -1,5 +1,5 @@
 {
-  "originHash" : "01ba363182b0de8647527aa782fed679a168a3e93746fce1c152246f8e0497c1",
+  "originHash" : "3d7df528eee03aab87d6c9e0e632d092ed38835bf8051d0ab7cb9167a6620936",
   "pins" : [
     {
       "identity" : "intercom-ios",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "938bc138c28d11546b3962cc197a9a15acb930eb",
         "version" : "19.6.0"
+      }
+    },
+    {
+      "identity" : "matrix-rust-components-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/matrix-org/matrix-rust-components-swift",
+      "state" : {
+        "revision" : "02133b466cddbd5c911881acbb29cf14e5563344",
+        "version" : "26.5.13"
       }
     },
     {
