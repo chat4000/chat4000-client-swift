@@ -30,8 +30,7 @@
 		2247288E706BC0A2CE49AA35 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		254205589902EB00DB9B618A /* MatrixCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74805CCF8BC6DBBDD7FC666E /* MatrixCredentialStoreTests.swift */; };
 		267BBE8419C5B010B5B892E0 /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
-		2720FC65EA9DDAC856774B90 /* Sodium in Frameworks */ = {isa = PBXBuildFile; productRef = B43762E2F65F4E686A1DE3ED /* Sodium */; };
-		29583000ED3E1FF9BE5190DB /* MatrixRustSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 290941787B2B84BC9AE3D5CC /* MatrixRustSDK */; };
+		2720FC65EA9DDAC856774B90 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = 0F2511B4D08991E82A7177B4 /* Intercom */; };
 		29C741B737A196510499D4C0 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
 		2AAD36F244CA62DD1A701188 /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */; };
 		2F4D4A7B682E1DF720C4E51D /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
@@ -50,7 +49,7 @@
 		499A7F16C1608A8380374249 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
 		4AE8AC90DF5638962D2C19D9 /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		4FF28F296D92FD5D9FEEC01A /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */; };
-		5090338F809B82F32B646A93 /* Sodium in Frameworks */ = {isa = PBXBuildFile; productRef = F387CF724D0C7E35429BC1F7 /* Sodium */; };
+		5090338F809B82F32B646A93 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 199DD1E568D2E07267FC264D /* MatrixSDKCrypto */; };
 		517FEC29AAE2F9F0E60A2785 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
 		52A20FC77D9E6078C219A730 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		538D2E7BACB9AC0B3C7BF504 /* ToolCallBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */; };
@@ -68,12 +67,13 @@
 		73F5D0F1CB8EFB33173C2392 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
 		74FF4074442D490556957AAE /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */; };
 		761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
-		7778A07554E94D197647FC00 /* MatrixRustSDK in Frameworks */ = {isa = PBXBuildFile; productRef = A75DA794B252828D781C52AA /* MatrixRustSDK */; };
 		79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
 		7A1D32E7E45FA056F6F7A094 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
 		802911DBE04560F5A3C51867 /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		80AA850977DA8EA94854B83D /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 35A4ED5BD998D05E585717A2 /* PostHog */; };
+		8122D2340D8232055D544F33 /* SyncModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */; };
 		81C4D86A18C2D7868987B5CA /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
+		83A2F408D1CDD530D5D00040 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */; };
 		84ED60531807CBAF0A6653CF /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		851A2D6926F3E4E057C96E21 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B050664DE997644E80B7EBD8 /* GatewayClient.swift */; };
 		85871F19E67D9C1984BED023 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
@@ -83,15 +83,16 @@
 		8736C6B4AD69A58019841C2E /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
 		881EADD1FE460FF5CB568D96 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		88703D51566895689C88B250 /* ToolCallBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */; };
+		8997152C1D1C3F46D97009F6 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */; };
 		8AB0F868AB5D33C12F071EA0 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 22A6C684720BC98F432DB9E2 /* Sentry */; };
 		8ACDD02C4B7F64F036A9424F /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */; };
 		8B1D8FECC36DB6B1378123F4 /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
 		8CDE8E96667952C25B60E089 /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C08DE1E100F336266630F49 /* VoiceNotes.swift */; };
 		8EAA0DB6BE568DE1EFD8D966 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF80C3D35458420BB02536E /* PushNotificationService.swift */; };
 		901B4441638C91545DFBF037 /* VersionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D22FFACA5DC05AF48ADCA48 /* VersionPolicy.swift */; };
+		951BDD41D642B4F282A7394A /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
 		97641E21234E8E7EF2BCD7DF /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC626D09942862C10A3DE4B /* SlidingSync.swift */; };
 		99E8BC0DAC306E76C0685513 /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
-		99FD60857AB51B9036C193B5 /* MatrixRustSDK in Frameworks */ = {isa = PBXBuildFile; productRef = E96238CB14671C4A64B5E65A /* MatrixRustSDK */; };
 		9BB49FF0EC2415E7E31D445B /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		9CBC2908C31E7A5261AC2C4A /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
 		9CFA613F3EDAC6BDDE2E9A9B /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D577136CE593FD82EF78E86F /* AppLog.swift */; };
@@ -113,19 +114,19 @@
 		B32DEB39084257E9A8EEA90F /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		B3439458F3DD828A0C77B797 /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
 		B4D78C33F0CA8FAD151AF058 /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */; };
-		B5A3069D49E9CBCAF3F8497F /* Sodium in Frameworks */ = {isa = PBXBuildFile; productRef = AFD0248916A9679F41C4A318 /* Sodium */; };
+		B5A3069D49E9CBCAF3F8497F /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = AA640C6F4DF4F7CCFC12E6B8 /* Intercom */; };
 		B72E789C360692F416ABFCAE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		B978F05F8D48E304A6AC6DAF /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		B9F3980B184DDF86102D28A1 /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C463E211CCE7A8B204A526 /* MessageTransport.swift */; };
 		BBFCF7DD06B72A18B1DBC63E /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
-		BD79CE5F2BAA32E46AB29BE4 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = AA640C6F4DF4F7CCFC12E6B8 /* Intercom */; };
+		BD79CE5F2BAA32E46AB29BE4 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 00E91CF623C55BA12FE6E91D /* MatrixSDKCrypto */; };
 		BDB305F544DA4B3C01B8B3D3 /* MatrixTimelineMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7579907A305146E2DEA5C23F /* MatrixTimelineMapper.swift */; };
 		BF513B9874C522794D7B414E /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
 		C02D7B2B31F4B312D0DB2014 /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC626D09942862C10A3DE4B /* SlidingSync.swift */; };
 		C0A642664DD26D34F0EF7473 /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
 		C265CC61705A11DF0DF9B14B /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
 		C5D9C9266871FE067F588E12 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
-		C6BFD49641FDAA970C89B4F6 /* MatrixRustSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 89D3741923A54935B9C8C354 /* MatrixRustSDK */; };
+		C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
 		CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		CBD9415E86196C507B48311C /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
@@ -133,6 +134,7 @@
 		CFB9A345D88CDCEA35C22EF2 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */; };
 		D02C328A2EDEFFB92700EB9E /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
 		D0C76657330EBA5D20213B2C /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
+		D1123A5FFD13BDE42BCFDD0B /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
 		D47B5B456C4F439AC588E559 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		D4FCBCFFBE18E3ABF9590132 /* MatrixPairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */; };
 		D6725C71873E18476DE50DFF /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
@@ -142,6 +144,7 @@
 		D844D398F476545D3D5531A7 /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */; };
 		D885756211A7C2C6BA821541 /* MatrixTimelineMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11EEBAD5675C62C828868186 /* MatrixTimelineMapperTests.swift */; };
 		DA81A86F313D1C4ED4A16324 /* MatrixPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E310131C1553FBB80D41A92D /* MatrixPairing.swift */; };
+		DB36633D34F589487D8ED6D1 /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
 		DB7C6CCE509495B05D647B7E /* ChatViewModelRoomScopingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDCE40544DE6B79EB1ED760B /* ChatViewModelRoomScopingTests.swift */; };
 		DCA0A87EFF5DEBD7471790AE /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */; };
 		DE1533CBEAC0FDC85942DCA5 /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
@@ -154,9 +157,10 @@
 		E3B1CDFE6CC7AFB2E4EACBEE /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B050664DE997644E80B7EBD8 /* GatewayClient.swift */; };
 		E42F63D988F87F7CDD8C3356 /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		E4C3833143DDBF54829E9481 /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
-		E4D700BA3C2B3AE70B858BC3 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = 0F2511B4D08991E82A7177B4 /* Intercom */; };
+		E4D700BA3C2B3AE70B858BC3 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 460A9CDE00F06A4D8ABF23E8 /* MatrixSDKCrypto */; };
 		E8436C5B504D38765372E21B /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
 		E914934D11E28D9A4A88EAD6 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
+		EB3D7D4904DAF37DC5187C36 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */; };
 		EEB2DAB553DDB617D1A33D1A /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
 		F22B4670321D98EE3CD6DB28 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
 		F26811CC469379438C76C3B3 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
@@ -185,6 +189,7 @@
 		180349B31809B66A001D8B94 /* DiagnosticReportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportService.swift; sourceTree = "<group>"; };
 		192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FounderChatPromptModal.swift; sourceTree = "<group>"; };
 		1C08DE1E100F336266630F49 /* VoiceNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNotes.swift; sourceTree = "<group>"; };
+		1C266381533F0F1DA7D96666 /* MatrixSDKCrypto */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MatrixSDKCrypto; path = Vendor/MatrixSDKCrypto; sourceTree = SOURCE_ROOT; };
 		1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryManager.swift; sourceTree = "<group>"; };
 		1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalConsent.swift; sourceTree = "<group>"; };
 		271334475620EB7CEA0C3039 /* MatrixMessageTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMessageTransport.swift; sourceTree = "<group>"; };
@@ -214,12 +219,14 @@
 		A816A1C283669BC3405C6770 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		ABF80C3D35458420BB02536E /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		AC864A0C51C9B9647423BC9F /* IntercomService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntercomService.swift; sourceTree = "<group>"; };
+		AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModel.swift; sourceTree = "<group>"; };
 		AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixPairingTests.swift; sourceTree = "<group>"; };
 		B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpgradeViews.swift; sourceTree = "<group>"; };
 		B050664DE997644E80B7EBD8 /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		B2921479514ABE106F4A0EE2 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		B9C463E211CCE7A8B204A526 /* MessageTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTransport.swift; sourceTree = "<group>"; };
 		BCC626D09942862C10A3DE4B /* SlidingSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlidingSync.swift; sourceTree = "<group>"; };
+		BE09C299166305E96D81033B /* CryptoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoEngine.swift; sourceTree = "<group>"; };
 		BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat4000Shortcuts.swift; sourceTree = "<group>"; };
 		C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = chat4000Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CB8627734E252FE4E0D03E22 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
@@ -231,6 +238,7 @@
 		EDCE40544DE6B79EB1ED760B /* ChatViewModelRoomScopingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModelRoomScopingTests.swift; sourceTree = "<group>"; };
 		F20986EDB38AB39E9B87CF73 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModels.swift; sourceTree = "<group>"; };
+		F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -240,8 +248,7 @@
 			files = (
 				E1E75A684462EE02BB6849C7 /* Sentry in Frameworks */,
 				1A0D38BF09814FE22EB46221 /* PostHog in Frameworks */,
-				5090338F809B82F32B646A93 /* Sodium in Frameworks */,
-				99FD60857AB51B9036C193B5 /* MatrixRustSDK in Frameworks */,
+				5090338F809B82F32B646A93 /* MatrixSDKCrypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -251,9 +258,8 @@
 			files = (
 				8AB0F868AB5D33C12F071EA0 /* Sentry in Frameworks */,
 				80AA850977DA8EA94854B83D /* PostHog in Frameworks */,
-				B5A3069D49E9CBCAF3F8497F /* Sodium in Frameworks */,
-				BD79CE5F2BAA32E46AB29BE4 /* Intercom in Frameworks */,
-				29583000ED3E1FF9BE5190DB /* MatrixRustSDK in Frameworks */,
+				B5A3069D49E9CBCAF3F8497F /* Intercom in Frameworks */,
+				BD79CE5F2BAA32E46AB29BE4 /* MatrixSDKCrypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -263,9 +269,8 @@
 			files = (
 				0775F69200598C722BD4FA4A /* Sentry in Frameworks */,
 				02794D67F6CA9B2669FC742E /* PostHog in Frameworks */,
-				2720FC65EA9DDAC856774B90 /* Sodium in Frameworks */,
-				E4D700BA3C2B3AE70B858BC3 /* Intercom in Frameworks */,
-				7778A07554E94D197647FC00 /* MatrixRustSDK in Frameworks */,
+				2720FC65EA9DDAC856774B90 /* Intercom in Frameworks */,
+				E4D700BA3C2B3AE70B858BC3 /* MatrixSDKCrypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -273,7 +278,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C6BFD49641FDAA970C89B4F6 /* MatrixRustSDK in Frameworks */,
+				C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -287,6 +292,7 @@
 				B9C463E211CCE7A8B204A526 /* MessageTransport.swift */,
 				F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */,
 				BCC626D09942862C10A3DE4B /* SlidingSync.swift */,
+				AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */,
 			);
 			path = Gateway;
 			sourceTree = "<group>";
@@ -330,6 +336,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		784E8F4F0AF893A5BCD43FC2 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				1C266381533F0F1DA7D96666 /* MatrixSDKCrypto */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
 		7E23D8E4DE1540CF4C953E17 /* App */ = {
 			isa = PBXGroup;
 			children = (
@@ -352,6 +366,7 @@
 		989CCA4B7E50E5FA775102FB = {
 			isa = PBXGroup;
 			children = (
+				784E8F4F0AF893A5BCD43FC2 /* Packages */,
 				5B741E0F226F4AE2279ACCB6 /* Resources */,
 				CFB5EE924E19E1329DA7CAFF /* Sources */,
 				EC0F7BC08D3CACB0FF9992D4 /* Tests */,
@@ -374,6 +389,7 @@
 		A265DDA4B8E18FA5BC014A6B /* Matrix */ = {
 			isa = PBXGroup;
 			children = (
+				BE09C299166305E96D81033B /* CryptoEngine.swift */,
 				32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */,
 				853062E21AF8E7B8FDDD38D4 /* MatrixEnvironment.swift */,
 				271334475620EB7CEA0C3039 /* MatrixMessageTransport.swift */,
@@ -424,6 +440,7 @@
 				74805CCF8BC6DBBDD7FC666E /* MatrixCredentialStoreTests.swift */,
 				AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */,
 				11EEBAD5675C62C828868186 /* MatrixTimelineMapperTests.swift */,
+				F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -448,9 +465,8 @@
 			packageProductDependencies = (
 				22A6C684720BC98F432DB9E2 /* Sentry */,
 				35A4ED5BD998D05E585717A2 /* PostHog */,
-				AFD0248916A9679F41C4A318 /* Sodium */,
 				AA640C6F4DF4F7CCFC12E6B8 /* Intercom */,
-				290941787B2B84BC9AE3D5CC /* MatrixRustSDK */,
+				00E91CF623C55BA12FE6E91D /* MatrixSDKCrypto */,
 			);
 			productName = chat4000iphonedev;
 			productReference = 173C0E4A4F3F06EDCF887C4B /* chat4000iphonedev.app */;
@@ -472,8 +488,7 @@
 			packageProductDependencies = (
 				4CFD4AB9E3DE7ECDAA1A90DE /* Sentry */,
 				67F38D3ABCD80A814D60B2EF /* PostHog */,
-				F387CF724D0C7E35429BC1F7 /* Sodium */,
-				E96238CB14671C4A64B5E65A /* MatrixRustSDK */,
+				199DD1E568D2E07267FC264D /* MatrixSDKCrypto */,
 			);
 			productName = chat4000mac;
 			productReference = 37FDEE452BAC9D3CA968AC4E /* chat4000mac.app */;
@@ -493,7 +508,7 @@
 			);
 			name = chat4000Tests;
 			packageProductDependencies = (
-				89D3741923A54935B9C8C354 /* MatrixRustSDK */,
+				316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */,
 			);
 			productName = chat4000Tests;
 			productReference = C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */;
@@ -516,9 +531,8 @@
 			packageProductDependencies = (
 				68D83A1025C08CB45A6EFF30 /* Sentry */,
 				27DD8B1B5470369FA558FD3B /* PostHog */,
-				B43762E2F65F4E686A1DE3ED /* Sodium */,
 				0F2511B4D08991E82A7177B4 /* Intercom */,
-				A75DA794B252828D781C52AA /* MatrixRustSDK */,
+				460A9CDE00F06A4D8ABF23E8 /* MatrixSDKCrypto */,
 			);
 			productName = chat4000iphoneappstore;
 			productReference = 0A112720006071299AA14823 /* chat4000iphoneappstore.app */;
@@ -562,10 +576,9 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				51D2BA239BCAAC8B96EF092D /* XCRemoteSwiftPackageReference "intercom-ios" */,
-				38D00EC864D27465D131788D /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */,
 				470AC38DD02E6BEBD00C54B6 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				BD038A46DC6A65B5312F82EA /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
-				F9F77751E99171799D3921C3 /* XCRemoteSwiftPackageReference "swift-sodium" */,
+				9B677A4439616EF3D960455D /* XCLocalSwiftPackageReference "Vendor/MatrixSDKCrypto" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5C87E010D131127349B69FD9 /* Products */;
@@ -664,6 +677,7 @@
 				8736C6B4AD69A58019841C2E /* ChatView.swift in Sources */,
 				79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */,
 				061DD07107510A886DFB24F6 /* ConnectionState.swift in Sources */,
+				D1123A5FFD13BDE42BCFDD0B /* CryptoEngine.swift in Sources */,
 				A2E10BB4BC56CC9C20CA478B /* DiagnosticReportService.swift in Sources */,
 				E8436C5B504D38765372E21B /* FounderChatPromptModal.swift in Sources */,
 				E3B1CDFE6CC7AFB2E4EACBEE /* GatewayClient.swift in Sources */,
@@ -689,6 +703,7 @@
 				BF513B9874C522794D7B414E /* SettingsSheet.swift in Sources */,
 				3F526B0BF134FCC64086E91A /* SetupView.swift in Sources */,
 				AE9077B6572E9A1FAF84CC92 /* SlidingSync.swift in Sources */,
+				8997152C1D1C3F46D97009F6 /* SyncModel.swift in Sources */,
 				9BB49FF0EC2415E7E31D445B /* TalkToTeamButton.swift in Sources */,
 				13D7775D536B682D6C594A12 /* TelemetryManager.swift in Sources */,
 				B17C5F03F9550287E214BE74 /* TelemetryPreferences.swift in Sources */,
@@ -715,6 +730,7 @@
 				17FF7D222DEC65AB68EE2188 /* ChatView.swift in Sources */,
 				E0CDCB82C7CE9FAA666FC30F /* ConnectingView.swift in Sources */,
 				8ACDD02C4B7F64F036A9424F /* ConnectionState.swift in Sources */,
+				951BDD41D642B4F282A7394A /* CryptoEngine.swift in Sources */,
 				733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */,
 				A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */,
 				425F525EF0BEA5A6001EB4F8 /* GatewayClient.swift in Sources */,
@@ -740,6 +756,7 @@
 				B0BE4C42C5F53E1A1B1AE53C /* SettingsSheet.swift in Sources */,
 				85871F19E67D9C1984BED023 /* SetupView.swift in Sources */,
 				97641E21234E8E7EF2BCD7DF /* SlidingSync.swift in Sources */,
+				EB3D7D4904DAF37DC5187C36 /* SyncModel.swift in Sources */,
 				267BBE8419C5B010B5B892E0 /* TalkToTeamButton.swift in Sources */,
 				6D42E3F66D3E40C67839BDE2 /* TelemetryManager.swift in Sources */,
 				1E339EE4124888C06623B7EA /* TelemetryPreferences.swift in Sources */,
@@ -766,6 +783,7 @@
 				037D7F783761A291BCD4C3EE /* ChatView.swift in Sources */,
 				BBFCF7DD06B72A18B1DBC63E /* ConnectingView.swift in Sources */,
 				60342C78A130F40DD1726710 /* ConnectionState.swift in Sources */,
+				DB36633D34F589487D8ED6D1 /* CryptoEngine.swift in Sources */,
 				37AEB826FD4E4255BEF0A8CE /* DiagnosticReportService.swift in Sources */,
 				452474235E7C879E9686978B /* FounderChatPromptModal.swift in Sources */,
 				851A2D6926F3E4E057C96E21 /* GatewayClient.swift in Sources */,
@@ -791,6 +809,7 @@
 				B16AEEC41FE3E265CAEB1488 /* SettingsSheet.swift in Sources */,
 				FCFE7A586201F420E9AF6108 /* SetupView.swift in Sources */,
 				C02D7B2B31F4B312D0DB2014 /* SlidingSync.swift in Sources */,
+				83A2F408D1CDD530D5D00040 /* SyncModel.swift in Sources */,
 				802911DBE04560F5A3C51867 /* TalkToTeamButton.swift in Sources */,
 				29C741B737A196510499D4C0 /* TelemetryManager.swift in Sources */,
 				8B1D8FECC36DB6B1378123F4 /* TelemetryPreferences.swift in Sources */,
@@ -813,6 +832,7 @@
 				254205589902EB00DB9B618A /* MatrixCredentialStoreTests.swift in Sources */,
 				D4FCBCFFBE18E3ABF9590132 /* MatrixPairingTests.swift in Sources */,
 				D885756211A7C2C6BA821541 /* MatrixTimelineMapperTests.swift in Sources */,
+				8122D2340D8232055D544F33 /* SyncModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1183,15 +1203,14 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		38D00EC864D27465D131788D /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/matrix-org/matrix-rust-components-swift";
-			requirement = {
-				kind = exactVersion;
-				version = 26.05.13;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		9B677A4439616EF3D960455D /* XCLocalSwiftPackageReference "Vendor/MatrixSDKCrypto" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/MatrixSDKCrypto;
 		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
 		470AC38DD02E6BEBD00C54B6 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
@@ -1216,21 +1235,21 @@
 				minimumVersion = 9.10.0;
 			};
 		};
-		F9F77751E99171799D3921C3 /* XCRemoteSwiftPackageReference "swift-sodium" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jedisct1/swift-sodium.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.1;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		00E91CF623C55BA12FE6E91D /* MatrixSDKCrypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MatrixSDKCrypto;
+		};
 		0F2511B4D08991E82A7177B4 /* Intercom */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 51D2BA239BCAAC8B96EF092D /* XCRemoteSwiftPackageReference "intercom-ios" */;
 			productName = Intercom;
+		};
+		199DD1E568D2E07267FC264D /* MatrixSDKCrypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MatrixSDKCrypto;
 		};
 		22A6C684720BC98F432DB9E2 /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1242,15 +1261,18 @@
 			package = 470AC38DD02E6BEBD00C54B6 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 			productName = PostHog;
 		};
-		290941787B2B84BC9AE3D5CC /* MatrixRustSDK */ = {
+		316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 38D00EC864D27465D131788D /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */;
-			productName = MatrixRustSDK;
+			productName = MatrixSDKCrypto;
 		};
 		35A4ED5BD998D05E585717A2 /* PostHog */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 470AC38DD02E6BEBD00C54B6 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 			productName = PostHog;
+		};
+		460A9CDE00F06A4D8ABF23E8 /* MatrixSDKCrypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MatrixSDKCrypto;
 		};
 		4CFD4AB9E3DE7ECDAA1A90DE /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1267,40 +1289,10 @@
 			package = BD038A46DC6A65B5312F82EA /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
 		};
-		89D3741923A54935B9C8C354 /* MatrixRustSDK */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 38D00EC864D27465D131788D /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */;
-			productName = MatrixRustSDK;
-		};
-		A75DA794B252828D781C52AA /* MatrixRustSDK */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 38D00EC864D27465D131788D /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */;
-			productName = MatrixRustSDK;
-		};
 		AA640C6F4DF4F7CCFC12E6B8 /* Intercom */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 51D2BA239BCAAC8B96EF092D /* XCRemoteSwiftPackageReference "intercom-ios" */;
 			productName = Intercom;
-		};
-		AFD0248916A9679F41C4A318 /* Sodium */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9F77751E99171799D3921C3 /* XCRemoteSwiftPackageReference "swift-sodium" */;
-			productName = Sodium;
-		};
-		B43762E2F65F4E686A1DE3ED /* Sodium */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9F77751E99171799D3921C3 /* XCRemoteSwiftPackageReference "swift-sodium" */;
-			productName = Sodium;
-		};
-		E96238CB14671C4A64B5E65A /* MatrixRustSDK */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 38D00EC864D27465D131788D /* XCRemoteSwiftPackageReference "matrix-rust-components-swift" */;
-			productName = MatrixRustSDK;
-		};
-		F387CF724D0C7E35429BC1F7 /* Sodium */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9F77751E99171799D3921C3 /* XCRemoteSwiftPackageReference "swift-sodium" */;
-			productName = Sodium;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

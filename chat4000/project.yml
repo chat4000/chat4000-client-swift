@@ -14,16 +14,17 @@ packages:
   PostHog:
     url: https://github.com/PostHog/posthog-ios.git
     from: "3.0.0"
-  swift-sodium:
-    url: https://github.com/jedisct1/swift-sodium.git
-    from: "0.9.1"
   Intercom:
     url: https://github.com/intercom/intercom-ios.git
     from: "19.0.0"
-  MatrixRustSDK:
-    # Official multi-platform build (iOS + macOS). The element-hq fork is iOS-only.
-    url: https://github.com/matrix-org/matrix-rust-components-swift
-    exactVersion: "26.05.13"
+  MatrixSDKCrypto:
+    # Local vendored package: standalone Olm/Megolm crypto FFI
+    # (matrix-sdk-crypto-ffi). The full MatrixRustSDK was removed — the
+    # homeserver has no public hostname (protocol D.3), so the SDK's HTTP mode
+    # can't reach it; v2 talks the gateway WS frame protocol directly
+    # (GatewayClient) and drives this crypto-only lib (CryptoEngine). The 505MB
+    # xcframework is gitignored + rebuilt locally (see the crypto build steps).
+    path: Vendor/MatrixSDKCrypto
 
 settings:
   base:
@@ -66,10 +67,8 @@ targetTemplates:
     dependencies:
       - package: Sentry
       - package: PostHog
-      - package: swift-sodium
-        product: Sodium
       - package: Intercom
-      - package: MatrixRustSDK
+      - package: MatrixSDKCrypto
     postBuildScripts:
       - name: Upload dSYM to Sentry
         basedOnDependencyAnalysis: false
@@ -134,9 +133,7 @@ targets:
     dependencies:
       - package: Sentry
       - package: PostHog
-      - package: swift-sodium
-        product: Sodium
-      - package: MatrixRustSDK
+      - package: MatrixSDKCrypto
 
   chat4000Tests:
     type: bundle.unit-test
@@ -148,4 +145,4 @@ targets:
         GENERATE_INFOPLIST_FILE: true
     dependencies:
       - target: chat4000iphoneappstore
-      - package: MatrixRustSDK
+      - package: MatrixSDKCrypto

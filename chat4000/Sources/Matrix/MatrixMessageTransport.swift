@@ -1,18 +1,21 @@
 import Foundation
-import MatrixRustSDK
 
-/// v2 `MessageTransport` backed by `MatrixSession`. Same façade as the v1
-/// `RelayMessageTransport`, so `ChatViewModel` and the UI are unchanged.
+/// v2 `MessageTransport` backed by `MatrixSession` (gateway + standalone
+/// crypto). Same façade as before, so `ChatViewModel` and the UI are unchanged.
 ///
-/// `MatrixSession` owns the room list + the active room; this transport just
-/// **binds the active room's `Timeline`** and translates its diffs into the
-/// app's internal `InnerMessage` DTO (history → finalized text; live agent edits
-/// → the `textDelta`/`textEnd` streaming frames ChatViewModel already handles;
-/// our own messages tagged `role == .app` so self-echo suppression drops them).
-///
-/// NOTE (multi-room): `ChatViewModel`/`ChatMessage` are not yet room-scoped, so
-/// switching rooms re-emits the new room's timeline into the same message list.
-/// Per-room scoping (a `roomId` on `ChatMessage`) is the next step.
+/// `MatrixSession` owns sync + decryption and hands this transport the active
+/// room's decrypted events (`onRoomEvent`) and status (`onActiveRoomStatus`).
+/// This type maps them onto the app's internal `InnerMessage` DTO using the
+/// finalized protocol turn model (protocol E):
+///   • a turn is one anchor message edited via `m.replace`; we collapse the
+///     anchor + its edits onto one stream id and let the pure
+///     `MatrixTimelineMapper` emit `textDelta`/`textEnd` (streaming feel);
+///   • `chat4000.tool` events (+ their `m.replace` completion edit) → the
+///     `toolStart`/`toolEnd` bubbles ChatViewModel already renders;
+///   • the cleartext `chat4000.status` state → a `status` inner message.
+/// `m.relates_to` and the body live where protocol E puts them: the relation on
+/// the cleartext envelope (the `outer` event), the text inside the decrypted
+/// content (`m.new_content.body` for an edit).
 @MainActor
 @Observable
 final class MatrixMessageTransport: MessageTransport {
@@ -26,29 +29,27 @@ final class MatrixMessageTransport: MessageTransport {
     var state: ConnectionState { session.connectionState }
     var currentGroupId: String? { session.userId }
 
-    @ObservationIgnored private var timeline: Timeline?
-    @ObservationIgnored private var timelineHandle: TaskHandle?
-    @ObservationIgnored private var boundRoomId: String?
-    /// Newest event id in the bound room (for read receipts).
-    @ObservationIgnored private var lastEventId: String?
-
-    // Timeline → InnerMessage state (reset on every room rebind). The decision
-    // logic lives in the pure, unit-tested `MatrixTimelineMapper`.
+    // Per-room mapping state (reset on every room switch).
     @ObservationIgnored private var mapper = MatrixTimelineMapper()
-    @ObservationIgnored private var initialLoaded = false
     @ObservationIgnored private var finalizeTask: Task<Void, Never>?
-    // Tool sections already surfaced (dedup across the message's streaming edits).
     @ObservationIgnored private var emittedToolStarts: Set<String> = []
     @ObservationIgnored private var emittedToolEnds: Set<String> = []
+    /// Newest event id seen in the active room (for read receipts).
+    @ObservationIgnored private var lastEventId: String?
 
     init(session: MatrixSession = MatrixSession()) {
         self.session = session
         session.onConnectionStateChange = { [weak self] state in
             self?.onConnectionState?(state)
         }
-        session.onActiveRoomChange = { [weak self] roomId in
-            guard let roomId else { return }
-            Task { @MainActor in await self?.bindTimeline(roomId) }
+        session.onActiveRoomChange = { [weak self] _ in
+            self?.resetMappingState()
+        }
+        session.onRoomEvent = { [weak self] _, event, live in
+            self?.ingest(event, live: live)
+        }
+        session.onActiveRoomStatus = { [weak self] state in
+            self?.emitStatus(state)
         }
     }
 
@@ -60,11 +61,7 @@ final class MatrixMessageTransport: MessageTransport {
 
     func disconnect() {
         finalizeTask?.cancel()
-        timelineHandle?.cancel()
-        timelineHandle = nil
-        timeline = nil
-        boundRoomId = nil
-        resetTimelineState()
+        resetMappingState()
         Task { await session.disconnect() }
     }
 
@@ -73,17 +70,15 @@ final class MatrixMessageTransport: MessageTransport {
         let localId = UUID().uuidString
         switch msg {
         case .text(let text):
-            guard let timeline else {
-                AppLog.log("⚠️ Matrix send dropped — no bound room yet")
+            guard let roomId = session.activeRoomId else {
+                AppLog.log("⚠️ Matrix send dropped — no active room yet")
                 return localId
             }
-            let content = messageEventContentFromMarkdown(md: text)
-            Task { _ = try? await timeline.send(msg: content) }
-
+            Task { await session.sendText(text, roomId: roomId) }
         case .image, .audio:
-            // TODO(v2): Matrix media upload.
+            // TODO(v2): authenticated media over HTTP (protocol D.3) — encrypt
+            // blob, upload to the gateway media path, send m.image/m.audio.
             AppLog.log("⚠️ Matrix media send not implemented yet")
-
         case .textDelta, .textEnd, .status, .ack:
             break // inbound-only in v2
         }
@@ -91,134 +86,95 @@ final class MatrixMessageTransport: MessageTransport {
     }
 
     func markRead() {
-        guard let timeline, let eventId = lastEventId else { return }
-        Task { try? await timeline.sendReadReceipt(receiptType: .readPrivate, eventId: eventId) }
+        guard let roomId = session.activeRoomId, let eventId = lastEventId else { return }
+        Task { await session.sendReadReceipt(roomId: roomId, eventId: eventId) }
     }
 
-    // MARK: - Timeline binding (follows MatrixSession.activeRoomId)
+    // MARK: - Event → InnerMessage mapping
 
-    private func bindTimeline(_ roomId: String) async {
-        guard boundRoomId != roomId, let rls = session.roomListService else { return }
-        // Tear down the previous room's listener + per-room mapping state.
-        finalizeTask?.cancel()
-        timelineHandle?.cancel()
-        timelineHandle = nil
-        timeline = nil
-        resetTimelineState()
+    private func ingest(_ event: DecryptedRoomEvent, live: Bool) {
+        if let eid = event.outer.eventId { lastEventId = eid }
+        guard let clear = event.clear, let clearObj = json(clear) else { return }
+        let content = clearObj["content"] as? [String: Any] ?? [:]
+        let ts = event.outer.originServerTs ?? 0
+        let relation = relatesTo(event.outer)
 
-        do {
-            let room = try rls.room(roomId: roomId)
-            let timeline = try await room.timeline()
-            self.timeline = timeline
-            self.boundRoomId = roomId
-            let observer = TimelineObserver { [weak self] diffs in
-                Task { @MainActor in self?.handleDiffs(diffs) }
-            }
-            self.timelineHandle = await timeline.addListener(listener: observer)
-            AppLog.log("✅ Matrix bound to room \(roomId)")
-        } catch {
-            AppLog.log("❌ Matrix timeline bind failed for \(roomId): \(error)")
+        switch content["msgtype"] as? String {
+        case "m.text", "m.notice", "m.emote":
+            handleText(content: content, relation: relation, outer: event.outer, isOwn: event.isOwn, live: live, ts: ts)
+        case "chat4000.tool":
+            handleTool(content: content, sender: event.outer.sender, ts: ts)
+        default:
+            break
         }
     }
 
-    // MARK: - Timeline diff → InnerMessage (decisions in MatrixTimelineMapper)
-
-    private func handleDiffs(_ diffs: [TimelineDiff]) {
-        for diff in diffs {
-            switch diff {
-            case .append(let values): values.forEach { feed($0, live: initialLoaded) }
-            case .reset(let values): values.forEach { feed($0, live: false) }
-            case .pushFront(let value): feed(value, live: false)
-            case .pushBack(let value): feed(value, live: true)
-            case .insert(_, let value): feed(value, live: true)
-            case .set(_, let value): feed(value, live: true)
-            case .clear: mapper.reset()
-            case .popFront, .popBack, .remove, .truncate: break
-            }
+    private func handleText(
+        content: [String: Any],
+        relation: (relType: String, eventId: String)?,
+        outer: SyncEvent,
+        isOwn: Bool,
+        live: Bool,
+        ts: Int64
+    ) {
+        let isEdit = relation?.relType == "m.replace"
+        let body: String
+        if isEdit, let newContent = content["m.new_content"] as? [String: Any],
+           let edited = newContent["body"] as? String {
+            body = edited
+        } else {
+            body = content["body"] as? String ?? ""
         }
-        initialLoaded = true
+        guard !body.isEmpty else { return }
+
+        // Collapse the anchor + its m.replace edits onto one stream id (the
+        // anchor's event id) so the mapper sees a single growing message.
+        let streamKey = (isEdit ? relation?.eventId : outer.eventId) ?? outer.eventId ?? UUID().uuidString
+        let emits = mapper.ingest(eventId: streamKey, body: body, senderId: outer.sender ?? "", isOwn: isOwn, live: live)
+        for emit in emits { applyEmit(emit, ts: ts) }
+        if mapper.activeStreamId != nil { scheduleFinalize(ts: ts) }
     }
 
-    private func feed(_ item: TimelineItem, live: Bool) {
-        guard let event = item.asEvent() else { return }
-        guard case let .eventId(eid) = event.eventOrTransactionId else { return }
-        lastEventId = eid
-        let tsMs = Int64(event.timestamp)
+    private func handleTool(content: [String: Any], sender: String?, ts: Int64) {
+        // The completion arrives as an m.replace edit carrying the updated tool
+        // object under `m.new_content`; prefer that, fall back to the direct one.
+        let toolObj = (content["m.new_content"] as? [String: Any])?["chat4000.tool"] as? [String: Any]
+            ?? content["chat4000.tool"] as? [String: Any]
+        guard let tool = toolObj else { return }
 
-        // Tool/thinking "sections" ride inside the agent's message; surface them
-        // as the existing tool-call bubbles + thinking spinner.
-        if !event.isOwn { emitSections(from: event, ts: tsMs) }
+        let toolId = tool["tool_id"] as? String ?? UUID().uuidString
+        let from = MatrixTimelineMapper.sender(matrixUserId: sender ?? "", isOwn: false)
 
-        guard let body = Self.textBody(of: event.content), !body.isEmpty else { return }
-        let emits = mapper.ingest(
-            eventId: eid, body: body, senderId: event.sender, isOwn: event.isOwn, live: live
-        )
-        for emit in emits { applyEmit(emit, ts: tsMs) }
-        if mapper.activeStreamId != nil { scheduleFinalize(ts: tsMs) }
-    }
+        if emittedToolStarts.insert(toolId).inserted {
+            onReceive?(InnerMessage(
+                t: .toolStart, id: UUID().uuidString, from: from,
+                body: .toolStart(.init(
+                    toolId: toolId,
+                    name: tool["name"] as? String ?? "tool",
+                    args: tool["args"] as? String ?? "",
+                    icon: tool["icon"] as? String)), ts: ts))
+        }
 
-    /// Parse `chat4000.sections` from the raw event JSON (the SDK drops custom
-    /// fields) and emit the matching tool/thinking `InnerMessage`s. Schema:
-    /// `chat4000.sections: [ {type:"thinking"} |
-    ///   {type:"tool", id, name, args, result, status:"running"|"done"|"failed",
-    ///    icon, duration_ms} ]`.
-    private func emitSections(from event: EventTimelineItem, ts: Int64) {
-        guard let json = event.lazyProvider.latestJson(),
-              let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = obj["content"] as? [String: Any],
-              let sections = content["chat4000.sections"] as? [[String: Any]] else { return }
-        let sender = MatrixTimelineMapper.sender(matrixUserId: event.sender, isOwn: false)
-
-        for section in sections {
-            switch section["type"] as? String {
-            case "thinking":
-                onReceive?(InnerMessage(t: .status, id: UUID().uuidString, from: sender,
-                                        body: .status(.init(status: "thinking")), ts: ts))
-            case "tool":
-                let toolId = section["id"] as? String ?? UUID().uuidString
-                if emittedToolStarts.insert(toolId).inserted {
-                    onReceive?(InnerMessage(t: .toolStart, id: UUID().uuidString, from: sender,
-                        body: .toolStart(.init(
-                            toolId: toolId,
-                            name: section["name"] as? String ?? "tool",
-                            args: section["args"] as? String ?? "",
-                            icon: section["icon"] as? String)), ts: ts))
-                }
-                let status = section["status"] as? String ?? "running"
-                if status != "running", emittedToolEnds.insert(toolId).inserted {
-                    onReceive?(InnerMessage(t: .toolEnd, id: UUID().uuidString, from: sender,
-                        body: .toolEnd(.init(
-                            toolId: toolId,
-                            status: status == "failed" ? .failed : .done,
-                            result: section["result"] as? String ?? "",
-                            durationMs: section["duration_ms"] as? Int ?? 0)), ts: ts))
-                }
-            default:
-                break
-            }
+        let status = tool["status"] as? String ?? "running"
+        if status != "running", emittedToolEnds.insert(toolId).inserted {
+            onReceive?(InnerMessage(
+                t: .toolEnd, id: UUID().uuidString, from: from,
+                body: .toolEnd(.init(
+                    toolId: toolId,
+                    status: status == "failed" ? .failed : .done,
+                    result: tool["result"] as? String ?? "",
+                    durationMs: intValue(tool["duration_ms"]) ?? 0)), ts: ts))
         }
     }
 
-    /// Matrix has no explicit "stream finished" beyond the MSC4357 live marker,
-    /// so settle the active stream after a quiet period.
-    private func scheduleFinalize(ts: Int64) {
-        finalizeTask?.cancel()
-        finalizeTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(800))
-            guard let self, !Task.isCancelled else { return }
-            if let emit = self.mapper.finalizeActiveStream() { self.applyEmit(emit, ts: ts) }
-        }
-    }
-
-    private func resetTimelineState() {
-        mapper.reset()
-        initialLoaded = false
-        lastEventId = nil
-        emittedToolStarts.removeAll()
-        emittedToolEnds.removeAll()
-        finalizeTask?.cancel()
-        finalizeTask = nil
+    /// Map a `chat4000.status` state value to a status inner message. The
+    /// protocol's `working` collapses to the app's "thinking" busy phase.
+    private func emitStatus(_ state: String) {
+        let mapped = (state == "working") ? "thinking" : state
+        onReceive?(InnerMessage(
+            t: .status, id: UUID().uuidString,
+            from: SenderInfo(role: .plugin, deviceId: "", deviceName: ""),
+            body: .status(.init(status: mapped)), ts: 0))
     }
 
     private func applyEmit(_ emit: MatrixTimelineMapper.Emit, ts: Int64) {
@@ -241,21 +197,50 @@ final class MatrixMessageTransport: MessageTransport {
         }
     }
 
-    /// Plain-text body from a timeline item's content, if text-like; else nil.
-    private static func textBody(of content: TimelineItemContent) -> String? {
-        guard case let .msgLike(msgLike) = content else { return nil }
-        guard case let .message(message) = msgLike.kind else { return nil }
-        switch message.msgType {
-        case .text(let c): return c.body
-        case .notice(let c): return c.body
-        case .emote(let c): return c.body
-        default: return message.body
+    /// Matrix has no explicit "stream finished" signal beyond the final edit, so
+    /// settle the active stream after a quiet period.
+    private func scheduleFinalize(ts: Int64) {
+        finalizeTask?.cancel()
+        finalizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard let self, !Task.isCancelled else { return }
+            if let emit = self.mapper.finalizeActiveStream() { self.applyEmit(emit, ts: ts) }
         }
     }
-}
 
-private final class TimelineObserver: TimelineListener, @unchecked Sendable {
-    private let handler: @Sendable ([TimelineDiff]) -> Void
-    init(_ handler: @escaping @Sendable ([TimelineDiff]) -> Void) { self.handler = handler }
-    func onUpdate(diff: [TimelineDiff]) { handler(diff) }
+    private func resetMappingState() {
+        mapper.reset()
+        emittedToolStarts.removeAll()
+        emittedToolEnds.removeAll()
+        lastEventId = nil
+        finalizeTask?.cancel()
+        finalizeTask = nil
+    }
+
+    // MARK: - JSON helpers
+
+    private func json(_ string: String) -> [String: Any]? {
+        guard let data = string.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// Read `m.relates_to` from the cleartext envelope (the outer event).
+    private func relatesTo(_ outer: SyncEvent) -> (relType: String, eventId: String)? {
+        guard let obj = json(outer.rawJSON),
+              let content = obj["content"] as? [String: Any],
+              let relates = content["m.relates_to"] as? [String: Any],
+              let relType = relates["rel_type"] as? String,
+              let eventId = relates["event_id"] as? String
+        else { return nil }
+        return (relType, eventId)
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        switch value {
+        case let i as Int: return i
+        case let n as NSNumber: return n.intValue
+        case let d as Double: return Int(d)
+        default: return nil
+        }
+    }
 }

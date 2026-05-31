@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Frame shapes mirror `chat4000-matrix-ws-proxy/src/protocol.rs`.
 @MainActor
-final class GatewayClient {
+final class GatewayClient: GatewayRequesting {
     struct Identity {
         let appId: String
         let clientVersion: String
@@ -43,6 +43,9 @@ final class GatewayClient {
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
+    /// Set by `disconnect()` so the receive loop's resulting error does not fire
+    /// `onClosed` (which would trigger a spurious reconnect on a clean close).
+    private var isClosing = false
 
     /// Pending `req` continuations keyed by frame id. Body is raw JSON `Data`
     /// (Sendable) — callers parse it; `[String: Any]` can't cross a continuation.
@@ -59,6 +62,10 @@ final class GatewayClient {
     var onSync: (([String: Any]) -> Void)?
     /// Gateway asked for a fresh token (upstream 401). Caller supplies one via `reauth(token:)`.
     var onReauthNeeded: (() -> Void)?
+    /// The socket closed / errored (receive loop ended). The owner
+    /// (`MatrixSession`) drives reconnect/backoff. Not fired on a clean
+    /// `disconnect()`.
+    var onClosed: (() -> Void)?
 
     init(url: URL, accessToken: String, identity: Identity) {
         self.url = url
@@ -85,6 +92,7 @@ final class GatewayClient {
     }
 
     func disconnect() {
+        isClosing = true
         receiveLoop?.cancel()
         receiveLoop = nil
         socket?.cancel(with: .normalClosure, reason: nil)
@@ -209,6 +217,9 @@ final class GatewayClient {
         AppLog.log("⚙️ gateway socket closed: \(error)")
         failAllPending(error)
         // Reconnect/backoff is the caller's concern (MatrixSession owns retry).
+        // Suppressed on a clean `disconnect()`.
+        guard !isClosing else { return }
+        onClosed?()
     }
 
     private func failAllPending(_ error: Error) {

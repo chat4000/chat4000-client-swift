@@ -1,59 +1,58 @@
 import Foundation
 import Testing
-import MatrixRustSDK
 @testable import chat4000
 
 struct MatrixCredentialStoreTests {
-    private func makeSession(
+    private func makeStored(
         token: String = "tok",
-        refresh: String? = "ref",
         user: String = "@u:x",
         device: String = "DEV"
-    ) -> Session {
-        Session(
+    ) -> MatrixCredentialStore.Stored {
+        MatrixCredentialStore.Stored(
             accessToken: token,
-            refreshToken: refresh,
             userId: user,
             deviceId: device,
-            homeserverUrl: "https://matrix.example",
-            oauthData: nil,
-            slidingSyncVersion: .native
+            gatewayURL: "wss://gateway.example/ws",
+            storePassphrase: "pass123"
         )
     }
 
     /// Worth 8 — corrupt persistence = user silently logged out on relaunch.
     @Test
     func storedCodableRoundtripPreservesFields() throws {
-        let stored = MatrixCredentialStore.Stored(session: makeSession(), storePassphrase: "pass123")
+        let stored = makeStored()
         let data = try JSONEncoder().encode(stored)
         let back = try JSONDecoder().decode(MatrixCredentialStore.Stored.self, from: data)
 
         #expect(back.accessToken == "tok")
-        #expect(back.refreshToken == "ref")
         #expect(back.userId == "@u:x")
         #expect(back.deviceId == "DEV")
-        #expect(back.homeserverUrl == "https://matrix.example")
+        #expect(back.gatewayURL == "wss://gateway.example/ws")
         #expect(back.storePassphrase == "pass123")
-        // Conversion back to an SDK Session must use native sliding sync.
-        #expect(back.session.slidingSyncVersion == .native)
     }
 
-    /// Worth 8 — security-critical: a token refresh must keep the store
-    /// passphrase and not drop the rotated token.
+    /// Worth 8 — save → load must preserve credentials across a relaunch, and
+    /// delete must actually clear them (a stale token = a broken session).
     @Test
-    func delegateRefreshKeepsPassphraseAndUpdatesTokens() throws {
-        let seed = MatrixCredentialStore.Stored(
-            session: makeSession(token: "old", refresh: "oldref"),
-            storePassphrase: "keepme"
-        )
-        try MatrixCredentialStore.save(seed)
+    func saveLoadDeleteRoundtrip() throws {
+        try MatrixCredentialStore.save(makeStored(token: "saved"))
         defer { MatrixCredentialStore.delete() }
 
-        MatrixSessionDelegate().saveSessionInKeychain(session: makeSession(token: "new", refresh: "newref"))
-
         let loaded = try #require(MatrixCredentialStore.load())
-        #expect(loaded.accessToken == "new")
-        #expect(loaded.refreshToken == "newref")
-        #expect(loaded.storePassphrase == "keepme")
+        #expect(loaded.accessToken == "saved")
+        #expect(loaded.gatewayURL == "wss://gateway.example/ws")
+
+        MatrixCredentialStore.delete()
+        #expect(MatrixCredentialStore.load() == nil)
+    }
+
+    /// Worth 5 — the store passphrase must be fresh, base64, and 32 bytes; a
+    /// weak/empty passphrase silently disables crypto-store encryption at rest.
+    @Test
+    func newStorePassphraseIs32RandomBytes() {
+        let a = MatrixCredentialStore.newStorePassphrase()
+        let b = MatrixCredentialStore.newStorePassphrase()
+        #expect(a != b)
+        #expect(Data(base64Encoded: a)?.count == 32)
     }
 }

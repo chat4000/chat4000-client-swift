@@ -1,15 +1,7 @@
 import Foundation
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STAGED — pre-integration (v2 gateway/Option-2 swap, B2).
-//
-// This file is intentionally OUTSIDE `chat4000/Sources/` so XcodeGen does not
-// glob it into the app target yet (the app still links MatrixRustSDK; the
-// gateway transport isn't wired until the atomic swap, B3). It compiles
-// standalone (pure Foundation, no SDK/crypto dep) and is verified in a scratch
-// SPM package. On B3 it moves to `Sources/Gateway/SyncModel.swift`.
-//
-// Purpose: parse the gateway `sync` frame (protocol D.1 + simplified-MSC3575
+// Parse the gateway `sync` frame (protocol D.1 + simplified-MSC3575
 // sliding sync) into typed, Sendable values that two consumers need:
 //   1. CryptoEngine — the e2ee inputs for `OlmMachine.receiveSyncChanges`
 //      (to-device events, device-list changes, one-time-key counts, unused
@@ -67,6 +59,12 @@ struct SyncRoom: Sendable, Identifiable, Equatable {
     var isSpace: Bool
     /// True when `m.room.encryption` is present (drives `setRoomAlgorithm`).
     var isEncrypted: Bool
+    /// Joined member MXIDs from `m.room.member` state — the recipient set for
+    /// sharing the megolm room key (CryptoEngine.shareRoomKey) and tracking.
+    var members: [String]
+    /// Latest `chat4000.status` state value (`thinking`/`working`/`typing`/
+    /// `idle`, protocol E), if present.
+    var statusState: String?
     /// Sliding-sync unread/notification count, best-effort (0 when absent).
     var notificationCount: Int
     /// Timeline events in arrival order (each kept as raw JSON, see `SyncEvent`).
@@ -126,11 +124,15 @@ enum SyncModel {
         var isSpace = false
         var isEncrypted = false
         var stateName: String?
+        var statusState: String?
+        var members: [String] = []
 
         for event in requiredState {
             switch event.type {
             case "chat4000.room_kind":
                 roomKind = stringField(event.rawJSON, path: ["content", "kind"])
+            case "chat4000.status":
+                statusState = stringField(event.rawJSON, path: ["content", "state"])
             case "m.room.encryption":
                 isEncrypted = true
             case "m.room.create":
@@ -139,6 +141,12 @@ enum SyncModel {
                 }
             case "m.room.name":
                 stateName = stringField(event.rawJSON, path: ["content", "name"])
+            case "m.room.member":
+                // state_key is the member's MXID; include only joined members.
+                if stringField(event.rawJSON, path: ["content", "membership"]) == "join",
+                   let mxid = event.stateKey, !mxid.isEmpty {
+                    members.append(mxid)
+                }
             default:
                 break
             }
@@ -150,6 +158,8 @@ enum SyncModel {
             roomKind: roomKind,
             isSpace: isSpace,
             isEncrypted: isEncrypted,
+            members: members,
+            statusState: statusState,
             notificationCount: intField(room["notification_count"]) ?? 0,
             timeline: timeline,
             requiredState: requiredState

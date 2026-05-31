@@ -20,10 +20,16 @@ enum SlidingSync {
                 "all": [
                     "ranges": [[0, 199]],
                     "required_state": [
+                        ["m.room.create", ""],
                         ["m.room.name", ""],
                         ["m.room.encryption", ""],
-                        ["m.room.member", "$ME"],
+                        // All members: we need the full recipient set to share
+                        // the megolm room key (CryptoEngine.shareRoomKey), and
+                        // to track users for key queries. Session rooms are
+                        // small (user + plugin), so the wildcard is cheap.
+                        ["m.room.member", "*"],
                         ["chat4000.room_kind", ""],
+                        ["chat4000.status", ""],
                         ["m.space.child", "*"],
                         ["m.space.parent", "*"],
                     ],

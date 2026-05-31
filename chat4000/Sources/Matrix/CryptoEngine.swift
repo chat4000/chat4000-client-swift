@@ -2,16 +2,7 @@ import Foundation
 import MatrixSDKCrypto
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STAGED — pre-integration (v2 gateway/Option-2 swap, B1).
-//
-// Outside `chat4000/Sources/` on purpose (see SyncModel.swift header): the app
-// still links the full MatrixRustSDK, which can't coexist with this crypto-only
-// lib. Compiled standalone against the vendored `MatrixSDKCrypto` package in a
-// scratch SPM target. On the atomic swap (B3) this moves to
-// `Sources/Matrix/CryptoEngine.swift` and `GatewayClient` is declared to
-// conform to `GatewayRequesting`.
-//
-// Purpose: own the standalone Olm/Megolm machine and translate its crypto
+// Own the standalone Olm/Megolm machine and translate its crypto
 // protocol into homeserver C-S calls sent over the gateway. We do NOT implement
 // crypto — `OlmMachine` (the audited matrix-sdk-crypto FFI) does; this drives it:
 //   • feed sync to-device/key-state in, drain its outgoing requests out

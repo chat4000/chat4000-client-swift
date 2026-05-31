@@ -16,7 +16,7 @@ struct MatrixPairingTests {
         }
         """.utf8)
 
-        let r = try JSONDecoder().decode(MatrixPairing.RedeemResponse.self, from: json)
+        let r = try JSONDecoder().decode(MatrixPairing.Credentials.self, from: json)
 
         #expect(r.gatewayUrl == "wss://gateway.stgcht4.duckdns.org/ws")
         #expect(r.userId == "@u_abc:stgcht4.duckdns.org")
