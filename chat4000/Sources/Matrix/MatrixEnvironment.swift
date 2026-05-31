@@ -17,6 +17,12 @@ struct MatrixEnvironment {
     /// Registrar service base URL — accounts + device onboarding (`/pair/*`).
     let registrarBaseURL: String
 
+    /// Where the homeserver POSTs pushes — the notification service, reachable
+    /// by the homeserver on its internal compose network. The gateway normally
+    /// injects this into the pusher; SDK-direct, the client sets it. Same value
+    /// per env (each homeserver reaches its own notification service by name).
+    let notificationPushURL = "http://notification:8070/_matrix/push/v1/notify"
+
     /// Whether this build targets Stage vs Production. Matches `TelemetryManager`'s dev tag.
     static var isStage: Bool {
         #if DEBUG

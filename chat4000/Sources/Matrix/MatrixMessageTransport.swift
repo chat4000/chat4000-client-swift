@@ -35,6 +35,9 @@ final class MatrixMessageTransport: MessageTransport {
     @ObservationIgnored private var mapper = MatrixTimelineMapper()
     @ObservationIgnored private var initialLoaded = false
     @ObservationIgnored private var finalizeTask: Task<Void, Never>?
+    // Tool sections already surfaced (dedup across the message's streaming edits).
+    @ObservationIgnored private var emittedToolStarts: Set<String> = []
+    @ObservationIgnored private var emittedToolEnds: Set<String> = []
 
     init(session: MatrixSession = MatrixSession()) {
         self.session = session
@@ -132,14 +135,61 @@ final class MatrixMessageTransport: MessageTransport {
     private func feed(_ item: TimelineItem, live: Bool) {
         guard let event = item.asEvent() else { return }
         guard case let .eventId(eid) = event.eventOrTransactionId else { return }
-        guard let body = Self.textBody(of: event.content), !body.isEmpty else { return }
-
         let tsMs = Int64(event.timestamp)
+
+        // Tool/thinking "sections" ride inside the agent's message; surface them
+        // as the existing tool-call bubbles + thinking spinner.
+        if !event.isOwn { emitSections(from: event, ts: tsMs) }
+
+        guard let body = Self.textBody(of: event.content), !body.isEmpty else { return }
         let emits = mapper.ingest(
             eventId: eid, body: body, senderId: event.sender, isOwn: event.isOwn, live: live
         )
         for emit in emits { applyEmit(emit, ts: tsMs) }
         if mapper.activeStreamId != nil { scheduleFinalize(ts: tsMs) }
+    }
+
+    /// Parse `chat4000.sections` from the raw event JSON (the SDK drops custom
+    /// fields) and emit the matching tool/thinking `InnerMessage`s. Schema:
+    /// `chat4000.sections: [ {type:"thinking"} |
+    ///   {type:"tool", id, name, args, result, status:"running"|"done"|"failed",
+    ///    icon, duration_ms} ]`.
+    private func emitSections(from event: EventTimelineItem, ts: Int64) {
+        guard let json = event.lazyProvider.latestJson(),
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = obj["content"] as? [String: Any],
+              let sections = content["chat4000.sections"] as? [[String: Any]] else { return }
+        let sender = MatrixTimelineMapper.sender(matrixUserId: event.sender, isOwn: false)
+
+        for section in sections {
+            switch section["type"] as? String {
+            case "thinking":
+                onReceive?(InnerMessage(t: .status, id: UUID().uuidString, from: sender,
+                                        body: .status(.init(status: "thinking")), ts: ts))
+            case "tool":
+                let toolId = section["id"] as? String ?? UUID().uuidString
+                if emittedToolStarts.insert(toolId).inserted {
+                    onReceive?(InnerMessage(t: .toolStart, id: UUID().uuidString, from: sender,
+                        body: .toolStart(.init(
+                            toolId: toolId,
+                            name: section["name"] as? String ?? "tool",
+                            args: section["args"] as? String ?? "",
+                            icon: section["icon"] as? String)), ts: ts))
+                }
+                let status = section["status"] as? String ?? "running"
+                if status != "running", emittedToolEnds.insert(toolId).inserted {
+                    onReceive?(InnerMessage(t: .toolEnd, id: UUID().uuidString, from: sender,
+                        body: .toolEnd(.init(
+                            toolId: toolId,
+                            status: status == "failed" ? .failed : .done,
+                            result: section["result"] as? String ?? "",
+                            durationMs: section["duration_ms"] as? Int ?? 0)), ts: ts))
+                }
+            default:
+                break
+            }
+        }
     }
 
     /// Matrix has no explicit "stream finished" beyond the MSC4357 live marker,
@@ -156,6 +206,8 @@ final class MatrixMessageTransport: MessageTransport {
     private func resetTimelineState() {
         mapper.reset()
         initialLoaded = false
+        emittedToolStarts.removeAll()
+        emittedToolEnds.removeAll()
         finalizeTask?.cancel()
         finalizeTask = nil
     }

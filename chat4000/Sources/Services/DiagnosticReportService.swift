@@ -310,8 +310,6 @@ final class DiagnosticReportService {
     private static func safeUserDefaults() -> [String: Any] {
         let knownKeys = [
             "chat4000.actionButtonMode",
-            "chat4000.lastSeenPluginVersion",
-            "chat4000.lastSeenPluginBundleId",
             "chat4000.telemetryCollectionEnabled",
             "chat4000.legalConsentAcceptedVersion",
         ]

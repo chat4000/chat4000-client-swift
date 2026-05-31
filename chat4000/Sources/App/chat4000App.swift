@@ -29,7 +29,6 @@ struct chat4000App: App {
     @State private var activeSessionStartedAt: Date?
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
-    @State private var versionPolicy = VersionPolicyManager.shared
     #if os(iOS)
     @State private var telemetryFlushBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -61,13 +60,7 @@ struct chat4000App: App {
     }
     var body: some Scene {
         WindowGroup {
-            Group {
-                if case .hardBlock(let minVersion, let latestVersion) = versionPolicy.action {
-                    UpgradeRequiredView(minVersion: minVersion, latestVersion: latestVersion)
-                } else {
-                    primaryContent
-                }
-            }
+            primaryContent
             .background(ModelContextBinder(viewModel: chatViewModel))
             .task {
                 chatViewModel.onTermsVersionUpdate = { currentTermsVersion in
@@ -253,8 +246,9 @@ struct chat4000App: App {
             return
         }
 
-        // Accept either a bare code or a chat4000://pair?code=… URI.
-        let code = RelayCrypto.parsePairingURI(trimmed)?.code ?? trimmed
+        // v2 codes are 6 digits; extract them (the input may be a bare code or
+        // a chat4000://pair?code=NNNNNN URI).
+        let code = String(trimmed.filter(\.isNumber).prefix(6))
 
         errorMessage = nil
         TelemetryManager.shared.track(.pairingCodeSubmitted, properties: ["input_type": "code"])
@@ -273,136 +267,6 @@ struct chat4000App: App {
         errorMessage = nil
     }
 
-}
-
-struct UpgradeRequiredView: View {
-    let minVersion: String
-    let latestVersion: String?
-
-    var body: some View {
-        ZStack {
-            AppColors.background
-                .ignoresSafeArea()
-
-            VStack(spacing: 18) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.white)
-
-                Text("Update Required")
-                    .font(AppFonts.title)
-                    .foregroundStyle(AppColors.textPrimary)
-
-                Text(message)
-                    .font(AppFonts.subtitle)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-
-                Text(versionLine)
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textTimestamp)
-            }
-            .padding(24)
-        }
-    }
-
-    private var message: String {
-        "This version of chat4000 is no longer supported. Please update from the App Store to continue using chat4000."
-    }
-
-    private var versionLine: String {
-        if let latestVersion {
-            return "Minimum \(minVersion) · Latest \(latestVersion)"
-        }
-        return "Minimum \(minVersion)"
-    }
-}
-
-struct UpgradeRecommendedBanner: View {
-    let recommendedVersion: String
-    var onDismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.up.circle")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(AppColors.textPrimary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Update available")
-                    .font(AppFonts.label)
-                    .foregroundStyle(AppColors.textPrimary)
-                Text("Recommended version \(recommendedVersion)")
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-            }
-
-            Spacer(minLength: 0)
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(AppColors.cardBackground)
-        .overlay(
-            Rectangle()
-                .fill(AppColors.inputBorder)
-                .frame(height: 1),
-            alignment: .bottom
-        )
-    }
-}
-
-/// Per protocol §6.3 plugin_version_policy — soft nag banner shown when the
-/// plugin running on the user's paired computer is below the recommended
-/// version. Same visual treatment as `UpgradeRecommendedBanner` but with
-/// copy that points at OpenClaw rather than the app itself.
-struct PluginUpgradeRecommendedBanner: View {
-    let recommendedVersion: String
-    var onDismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "desktopcomputer.and.arrow.down")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(AppColors.textPrimary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Plugin update available")
-                    .font(AppFonts.label)
-                    .foregroundStyle(AppColors.textPrimary)
-                Text("Update OpenClaw on your paired computer to \(recommendedVersion) or newer")
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-            }
-
-            Spacer(minLength: 0)
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(AppColors.cardBackground)
-        .overlay(
-            Rectangle()
-                .fill(AppColors.inputBorder)
-                .frame(height: 1),
-            alignment: .bottom
-        )
-    }
 }
 
 private struct ModelContextBinder: View {

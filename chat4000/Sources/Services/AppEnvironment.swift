@@ -35,3 +35,15 @@ struct AppEnvironment {
         return "\(prefix)-\(suffix)"
     }
 }
+
+/// App version + bundle-id helper (was previously bundled with the v1 relay
+/// registration code, which is now removed).
+enum AppRegistrationIdentity {
+    static var currentAppVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+    }
+
+    static var currentAppId: String {
+        Bundle.main.bundleIdentifier ?? ""
+    }
+}

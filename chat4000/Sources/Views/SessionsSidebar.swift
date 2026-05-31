@@ -98,6 +98,9 @@ struct SessionsSidebar: View {
     var onSelect: (String) -> Void
     var onNewChat: () -> Void
 
+    @State private var renameTarget: MatrixSession.RoomSummary?
+    @State private var renameText = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -150,6 +153,20 @@ struct SessionsSidebar: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(AppColors.cardBackground)
+        .alert("Rename session", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Rename") {
+                if let target = renameTarget,
+                   !renameText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    session.renameSession(roomId: target.id, title: renameText)
+                }
+                renameTarget = nil
+            }
+        }
     }
 
     private func roomRow(_ room: MatrixSession.RoomSummary) -> some View {
@@ -175,6 +192,15 @@ struct SessionsSidebar: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
+        .contextMenu {
+            Button {
+                renameText = room.name
+                renameTarget = room
+            } label: { Label("Rename", systemImage: "pencil") }
+            Button(role: .destructive) {
+                session.archiveSession(roomId: room.id)
+            } label: { Label("Archive", systemImage: "archivebox") }
+        }
     }
 
     /// Best-effort label. TODO(v2): resolve real room display names.

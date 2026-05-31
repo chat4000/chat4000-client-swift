@@ -29,12 +29,12 @@ struct EnterPairingCodeView: View {
     var errorMessage: String?
     var onSubmit: (String) -> Void
 
-    private var normalizedCode: String {
-        RelayCrypto.normalizePairingCode(codeText)
-    }
+    /// v2 pairing codes are exactly 6 digits (OTP-style, protocol §3).
+    private static let codeLength = 6
 
-    private var trimmedInput: String {
-        codeText.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Digits-only, capped at the code length — what the boxes show and we submit.
+    private var sanitizedCode: String {
+        String(codeText.filter(\.isNumber).prefix(Self.codeLength))
     }
 
     private var requiresConsent: Bool {
@@ -42,19 +42,14 @@ struct EnterPairingCodeView: View {
     }
 
     private var canSubmit: Bool {
-        !trimmedInput.isEmpty && (!requiresConsent || agreeChecked)
+        sanitizedCode.count == Self.codeLength && (!requiresConsent || agreeChecked)
     }
 
     private func submitInput(_ rawInput: String) {
-        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let code = String(rawInput.filter(\.isNumber).prefix(Self.codeLength))
+        guard code.count == Self.codeLength, code != lastSubmittedCode else { return }
 
-        let normalized = RelayCrypto.normalizePairingCode(trimmed)
-        let submissionKey = normalized.count == 8 ? normalized : trimmed
-        AppLog.log("🔗 UI submitInput raw=\(trimmed) normalized=\(normalized) submissionKey=\(submissionKey) lastSubmitted=\(lastSubmittedCode)")
-        guard submissionKey != lastSubmittedCode else { return }
-
-        lastSubmittedCode = submissionKey
+        lastSubmittedCode = code
         focused = false
         if requiresConsent {
             LegalConsent.acceptPendingRelayVersion()
@@ -63,7 +58,7 @@ struct EnterPairingCodeView: View {
                 properties: ["version": "pending_relay_version"]
             )
         }
-        onSubmit(trimmed)
+        onSubmit(code)
     }
 
     var body: some View {
@@ -127,37 +122,15 @@ struct EnterPairingCodeView: View {
         .sheet(isPresented: $showScanner) {
             QRScannerView(
                 onScanned: { scannedText in
-                    let trimmed = scannedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let invite = RelayCrypto.parsePairingURI(trimmed)
-                    let normalized = RelayCrypto.normalizePairingCode(trimmed)
-                    AppLog.log("🔗 UI scanner scanned raw_prefix=\(trimmed.prefix(40)) normalized=\(normalized) is_uri=\(invite != nil) requires_consent=\(requiresConsent)")
-
-                    // Prefer the 8-char code extracted from a URI invite so
-                    // the input boxes show the code cleanly. Fall back to
-                    // a directly-typed 8-char code, then to whatever was
-                    // scanned. This is what the user sees after the
-                    // scanner dismisses — the boxes need to render a
-                    // valid 8-char code for the user to know the scan
-                    // worked.
-                    let resolvedCode: String
-                    if let invite {
-                        resolvedCode = invite.code
-                    } else if normalized.count == 8 {
-                        resolvedCode = normalized
-                    } else {
-                        resolvedCode = trimmed
-                    }
-                    codeText = resolvedCode
+                    // Accept a QR encoding the 6-digit code (optionally as a
+                    // chat4000://pair?code=NNNNNN URI) — just extract the digits.
+                    let code = String(scannedText.filter(\.isNumber).prefix(Self.codeLength))
+                    codeText = code
                     showScanner = false
-
                     if requiresConsent {
-                        AppLog.log("🔗 UI scanner: terms not accepted, holding without submit (code=\(resolvedCode))")
                         focused = true
                     } else {
-                        AppLog.log("🔗 UI scanner: submitting scanned input (code=\(resolvedCode))")
-                        // Submit the resolved 8-char code (not the raw URI)
-                        // so the downstream flow sees the canonical form.
-                        submitInput(resolvedCode)
+                        submitInput(code)
                     }
                 },
                 onBack: {
@@ -214,38 +187,25 @@ extension EnterPairingCodeView {
                         .opacity(0.001)
                         .textContentType(.oneTimeCode)
                         #if os(iOS)
-                        .keyboardType(.asciiCapable)
-                        .textInputAutocapitalization(.characters)
+                        .keyboardType(.numberPad)
                         #endif
                         .autocorrectionDisabled()
                         .onSubmit {
                             guard canSubmit else { return }
-                            AppLog.log("🔗 UI TextField onSubmit trimmedInput=\(trimmedInput)")
-                            submitInput(trimmedInput)
+                            submitInput(codeText)
                         }
                         .onChange(of: codeText) { _, newValue in
-                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if trimmed.isEmpty {
-                                AppLog.log("🔗 UI codeText cleared")
-                                codeText = ""
-                                lastSubmittedCode = ""
-                                return
-                            }
-
-                            let filtered = trimmed.uppercased().filter {
-                                RelayCrypto.pairingCodeAlphabet.contains($0)
-                            }
-                            let nextCode = String(filtered.prefix(8))
-                            AppLog.log("🔗 UI codeText onChange raw=\(newValue) filtered=\(filtered) nextCode=\(nextCode)")
-                            codeText = nextCode
-
-                            if !requiresConsent, nextCode.count == 8, nextCode != lastSubmittedCode {
-                                AppLog.log("🔗 UI codeText reached 8 chars, auto-submitting \(nextCode)")
-                                submitInput(nextCode)
+                            // Keep digits only, capped at the 6-digit code length.
+                            let digits = String(newValue.filter(\.isNumber).prefix(Self.codeLength))
+                            if digits != newValue { codeText = digits }
+                            if digits.isEmpty { lastSubmittedCode = "" }
+                            // Auto-submit once 6 digits are entered (OTP-style).
+                            if !requiresConsent, digits.count == Self.codeLength, digits != lastSubmittedCode {
+                                submitInput(digits)
                             }
                         }
 
-                    PairingCodeBoxes(code: normalizedCode)
+                    PairingCodeBoxes(code: sanitizedCode)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { focused = true }
@@ -277,7 +237,7 @@ extension EnterPairingCodeView {
             }
 
             Button {
-                submitInput(trimmedInput)
+                submitInput(codeText)
             } label: {
                 Text("Pair")
                     .font(AppFonts.button)
@@ -525,17 +485,19 @@ extension EnterPairingCodeView {
 struct PairingCodeBoxes: View {
     let code: String
 
+    private static let count = 6
+
     private var characters: [String] {
         let values = Array(code).map(String.init)
-        return (0..<8).map { index in
+        return (0..<Self.count).map { index in
             index < values.count ? values[index] : ""
         }
     }
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(0..<8, id: \.self) { index in
-                if index == 4 {
+            ForEach(0..<Self.count, id: \.self) { index in
+                if index == Self.count / 2 {
                     Rectangle()
                         .fill(AppColors.textTimestamp)
                         .frame(width: 14, height: 2)

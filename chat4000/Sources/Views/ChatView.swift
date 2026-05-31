@@ -36,8 +36,6 @@ struct ChatView: View {
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
     @State private var pendingScrollTask: Task<Void, Never>?
-    @State private var versionPolicy = VersionPolicyManager.shared
-    @State private var pluginVersionPolicy = PluginVersionPolicyManager.shared
     private let macComposerMaxHeight: CGFloat = 210
 
     var body: some View {
@@ -47,24 +45,6 @@ struct ChatView: View {
 
             VStack(spacing: 0) {
                 navBar
-
-                if versionPolicy.showNag,
-                   case .softNag(let recommended, _) = versionPolicy.action {
-                    UpgradeRecommendedBanner(recommendedVersion: recommended) {
-                        versionPolicy.dismissNag()
-                    }
-                }
-
-                // Per protocol §6.3 plugin_version_policy — soft nag for the
-                // plugin running on the user's paired computer when its
-                // observed version is below recommended_version. Hard-block
-                // case is rendered separately (it gates messaging entirely).
-                if pluginVersionPolicy.showNag,
-                   case .softNag(let recommended, _) = pluginVersionPolicy.action {
-                    PluginUpgradeRecommendedBanner(recommendedVersion: recommended) {
-                        pluginVersionPolicy.dismissNag()
-                    }
-                }
 
                 // Messages and busy indicators live inside the scroll view so
                 // they flow with content and don't resize the scroll area when
@@ -103,21 +83,18 @@ struct ChatView: View {
                     errorBanner(voiceErrorMessage)
                 }
 
-                if let pluginUpdateWarning = viewModel.pluginUpdateWarning {
-                    errorBanner(pluginUpdateWarning)
-                }
-
                 inputBar
             }
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet(
-                config: viewModel.config,
-                pluginVersion: viewModel.lastSeenPluginVersion,
-                pluginBundleId: viewModel.lastSeenPluginBundleId,
+                userId: viewModel.matrixSession.userId,
+                pluginVersion: nil,
+                pluginBundleId: nil,
                 onAddDevice: onAddDevice,
                 onDisconnect: viewModel.disconnect,
-                onClearHistory: viewModel.clearHistory
+                onClearHistory: viewModel.clearHistory,
+                onUpdatePlugin: { viewModel.matrixSession.applyPluginUpdate() }
             )
             #if os(macOS)
             .presentationDetents([.height(700)])
@@ -916,40 +893,11 @@ private struct MacComposerTextView: NSViewRepresentable {
 @MainActor
 @Observable
 final class ChatViewModel {
-    private enum PluginMetadataStore {
-        private static let versionPrefix = "chat4000.plugin-version"
-        private static let bundlePrefix = "chat4000.plugin-bundle-id"
-
-        static func load(groupId: String) -> (version: String?, bundleId: String?) {
-            let defaults = UserDefaults.standard
-            return (
-                defaults.string(forKey: "\(versionPrefix).\(groupId)"),
-                defaults.string(forKey: "\(bundlePrefix).\(groupId)")
-            )
-        }
-
-        static func save(version: String?, bundleId: String?, groupId: String) {
-            let defaults = UserDefaults.standard
-
-            if let version, !version.isEmpty {
-                defaults.set(version, forKey: "\(versionPrefix).\(groupId)")
-            }
-
-            if let bundleId, !bundleId.isEmpty {
-                defaults.set(bundleId, forKey: "\(bundlePrefix).\(groupId)")
-            }
-        }
-    }
-
     var messages: [ChatMessage] = []
     var connectionState: ConnectionState = .disconnected
     var isAgentBusy = false
     var busyStartTime: Date?
     var busyPhase: String = "Thinking"
-    var pluginUpdateWarning: String?
-    var lastSeenPluginVersion: String?
-    var lastSeenPluginBundleId: String?
-    var config: GroupConfig?
     var scrollRevision = 0
 
     /// The Matrix room (session) currently shown. Messages are scoped to it.
@@ -961,7 +909,6 @@ final class ChatViewModel {
     @ObservationIgnored let matrixSession = MatrixSession()
     @ObservationIgnored private let transport: MessageTransport
     private var modelContext: ModelContext?
-    private let minimumPluginVersion = "0.1.0"
 
     // Tracks current streaming message being assembled
     private var currentStreamId: String?
@@ -1073,8 +1020,6 @@ final class ChatViewModel {
     func disconnect() {
         connectionState = .disconnected
         Task { await matrixSession.signOut() }
-        KeychainService.delete() // legacy v1 cleanup; harmless if absent
-        config = nil
     }
 
     func send(text: String) {
@@ -1180,9 +1125,6 @@ final class ChatViewModel {
     // MARK: - Inner Message Handling
 
     private func handleInnerMessage(_ inner: InnerMessage) {
-        rememberPluginMetadata(from: inner.from)
-        updatePluginVersionWarning(from: inner.from)
-
         if let from = inner.from,
            from.role == .app,
            from.deviceId == DeviceIdentity.currentDeviceId {
@@ -1655,74 +1597,6 @@ final class ChatViewModel {
         }
     }
 
-    private func updatePluginVersionWarning(from sender: SenderInfo?) {
-        guard let sender, sender.role == .plugin else { return }
-        guard let version = sender.appVersion, !version.isEmpty else {
-            pluginUpdateWarning = nil
-            return
-        }
-
-        if Self.compareVersions(version, minimumPluginVersion) == .orderedAscending {
-            let package = sender.bundleId ?? "plugin"
-            pluginUpdateWarning = "Update \(package) to \(minimumPluginVersion) or newer."
-        } else {
-            pluginUpdateWarning = nil
-        }
-    }
-
-    private func loadStoredPluginMetadata(for config: GroupConfig) {
-        guard let groupId = config.groupId else {
-            lastSeenPluginVersion = nil
-            lastSeenPluginBundleId = nil
-            return
-        }
-
-        let stored = PluginMetadataStore.load(groupId: groupId)
-        lastSeenPluginVersion = stored.version
-        lastSeenPluginBundleId = stored.bundleId
-    }
-
-    private func rememberPluginMetadata(from sender: SenderInfo?) {
-        guard let sender, sender.role == .plugin else { return }
-        guard let groupId = config?.groupId else { return }
-
-        if let version = sender.appVersion, !version.isEmpty {
-            lastSeenPluginVersion = version
-        }
-
-        if let bundleId = sender.bundleId, !bundleId.isEmpty {
-            lastSeenPluginBundleId = bundleId
-        }
-
-        PluginMetadataStore.save(
-            version: lastSeenPluginVersion,
-            bundleId: lastSeenPluginBundleId,
-            groupId: groupId
-        )
-    }
-
-    private static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        let lhsParts = numericVersionParts(lhs)
-        let rhsParts = numericVersionParts(rhs)
-        let count = max(lhsParts.count, rhsParts.count)
-
-        for index in 0..<count {
-            let left = index < lhsParts.count ? lhsParts[index] : 0
-            let right = index < rhsParts.count ? rhsParts[index] : 0
-            if left < right { return .orderedAscending }
-            if left > right { return .orderedDescending }
-        }
-        return .orderedSame
-    }
-
-    private static func numericVersionParts(_ version: String) -> [Int] {
-        version
-            .split(separator: ".", omittingEmptySubsequences: true)
-            .map { part in
-                let digits = part.prefix(while: { $0.isNumber })
-                return Int(digits) ?? 0
-            }
-    }
 
     private func loadMessagesMergingTransientState() {
         // Scope to the active room (v2 multi-session). Before a room is

@@ -141,16 +141,14 @@ struct QRScannerView: View {
     }
 
     private func handleScannedCode(_ code: String) {
-        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = RelayCrypto.normalizePairingCode(trimmed)
-        let pairingInvite = RelayCrypto.parsePairingURI(trimmed)
-        let parsedConfig = GroupConfig.parse(trimmed)
-
-        guard normalized.count == 8 || pairingInvite != nil || parsedConfig != nil else {
-            errorMessage = "Not a valid chat4000 pairing code or group key"
+        // v2: a QR encodes the 6-digit pairing code (optionally as a
+        // chat4000://pair?code=NNNNNN URI). Validate that 6 digits are present.
+        let digits = String(code.filter(\.isNumber).prefix(6))
+        guard digits.count == 6 else {
+            errorMessage = "Not a valid chat4000 pairing code"
             Task {
                 try? await Task.sleep(for: .seconds(2))
-                if errorMessage == "Not a valid chat4000 pairing code or group key" {
+                if errorMessage == "Not a valid chat4000 pairing code" {
                     errorMessage = nil
                 }
             }
@@ -159,7 +157,7 @@ struct QRScannerView: View {
 
         errorMessage = nil
         Haptics.success()
-        onScanned(normalized.count == 8 ? normalized : trimmed)
+        onScanned(digits)
     }
 
     private func openSettings() {

@@ -12,12 +12,15 @@ struct SettingsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    let config: GroupConfig?
+    let userId: String?
     let pluginVersion: String?
     let pluginBundleId: String?
     var onAddDevice: () -> Void
     var onDisconnect: () -> Void
     var onClearHistory: () -> Void
+    /// Optional: ask the paired plugin to update itself (protocol §5, owner-gated
+    /// server-side). Fire-and-forget — the result isn't surfaced.
+    var onUpdatePlugin: (() -> Void)? = nil
 
     @State private var showClearConfirmation = false
     @State private var sentryResultMessage: String?
@@ -93,6 +96,27 @@ struct SettingsSheet: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
+
+                    if let onUpdatePlugin {
+                        Button {
+                            onUpdatePlugin()
+                            dismiss()
+                        } label: {
+                            Text("Update Plugin")
+                                .font(AppFonts.button)
+                                .foregroundStyle(AppColors.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                                .background(AppColors.inputBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: AppRadius.button)
+                                        .stroke(AppColors.inputBorder, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                    }
 
                     VStack(spacing: 12) {
                         Text("Need help, or just want to say hi?")
@@ -187,16 +211,18 @@ struct SettingsSheet: View {
                 .foregroundStyle(AppColors.textSecondary)
 
             VStack(alignment: .leading, spacing: 16) {
-                if let groupId = config?.groupId {
+                if let userId, !userId.isEmpty {
                     HStack(spacing: 8) {
-                        Text("Group ID")
+                        Text("Account")
                             .font(AppFonts.label)
                             .foregroundStyle(AppColors.textSecondary)
 
-                        Text(String(groupId.prefix(8)))
+                        Text(userId)
                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundStyle(AppColors.textPrimary)
                             .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
                         Spacer(minLength: 0)
                     }
@@ -307,7 +333,7 @@ struct SettingsSheet: View {
             scope.setTag(value: "handled_exception", key: "test_type")
             scope.setContext(value: [
                 "bundle_id": Bundle.main.bundleIdentifier ?? "unknown",
-                "group_id": config?.groupId ?? "none",
+                "user_id": userId ?? "none",
             ], key: "hidden_test")
             scope.setExtra(value: String(reflecting: error), key: "error_reflection")
         }
@@ -484,7 +510,7 @@ private enum SentryDevTestError: LocalizedError {
 
 #Preview {
     SettingsSheet(
-        config: GroupConfig(groupKey: Data(repeating: 7, count: 32)),
+        userId: "@u_demo:chat4000.com",
         pluginVersion: "0.1.0",
         pluginBundleId: "@chat4000/openclaw-plugin",
         onAddDevice: {},
