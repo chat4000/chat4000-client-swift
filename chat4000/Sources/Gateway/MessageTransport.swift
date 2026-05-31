@@ -55,6 +55,10 @@ protocol MessageTransport: AnyObject {
 
     func connect()
     func disconnect()
+
+    /// Send a private read receipt for the latest message in the active room
+    /// (protocol D.2 `m.read.private`). Clears unread + suppresses redundant push.
+    func markRead()
 }
 
 /// What a consumer hands the transport. The transport translates this

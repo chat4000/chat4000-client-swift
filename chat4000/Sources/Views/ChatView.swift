@@ -36,6 +36,7 @@ struct ChatView: View {
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
     @State private var pendingScrollTask: Task<Void, Never>?
+    @State private var versionPolicy = VersionPolicyManager.shared
     private let macComposerMaxHeight: CGFloat = 210
 
     var body: some View {
@@ -45,6 +46,12 @@ struct ChatView: View {
 
             VStack(spacing: 0) {
                 navBar
+
+                if versionPolicy.showNag, case .recommendUpgrade(let recommended, _) = versionPolicy.action {
+                    UpgradeRecommendedBanner(recommendedVersion: recommended) {
+                        versionPolicy.dismissNag()
+                    }
+                }
 
                 // Messages and busy indicators live inside the scroll view so
                 // they flow with content and don't resize the scroll area when
@@ -70,7 +77,9 @@ struct ChatView: View {
                     }
                     .onChange(of: viewModel.messages.count) {
                         scrollToBottom(using: proxy)
+                        viewModel.markRead()
                     }
+                    .onAppear { viewModel.markRead() }
                     .onChange(of: viewModel.scrollRevision) {
                         scrollToBottom(using: proxy)
                     }
@@ -983,6 +992,12 @@ final class ChatViewModel {
     func refreshMessages() {
         guard modelContext != nil else { return }
         loadMessagesMergingTransientState()
+    }
+
+    /// Mark the active room read (private receipt) — call when the chat is on
+    /// screen so unread clears and we don't get pushed for messages we've seen.
+    func markRead() {
+        transport.markRead()
     }
 
     /// v2 pairing: redeem the entered/scanned pairing code at the registrar and

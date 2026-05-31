@@ -26,8 +26,11 @@ Pods/
 # Dev credentials (never commit)
 dev-config.json
 
-# Vendor (cloned reference repos)
-vendor/
+# Vendor (root-level cloned reference repos). Anchored to repo root so it
+# doesn't also swallow chat4000/Vendor/ (the vendored Matrix crypto bindings,
+# which we DO track as text — only the 505MB xcframework binary is excluded
+# below and rebuilt locally per the crypto build steps).
+/vendor/
 
 # Rust
 relay/target/
@@ -39,3 +42,4 @@ figma-screens/dist/
 # Claude Code session state
 .claude/
 .matrix-ffi-ref/
+chat4000/Vendor/MatrixSDKCrypto/MatrixSDKCryptoFFI.xcframework/

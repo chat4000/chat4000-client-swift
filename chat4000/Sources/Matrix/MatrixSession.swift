@@ -244,6 +244,24 @@ final class MatrixSession {
         sendControlCommand(["command": "session.archive", "room_id": roomId])
     }
 
+    /// Mute / unmute a room via the homeserver's notification settings
+    /// (protocol D.2: a room push rule). Muted rooms never wake the user.
+    func muteRoom(_ roomId: String) {
+        guard let client else { return }
+        Task {
+            let settings = await client.getNotificationSettings()
+            try? await settings.setRoomNotificationMode(roomId: roomId, mode: .mute)
+        }
+    }
+
+    func unmuteRoom(_ roomId: String) {
+        guard let client else { return }
+        Task {
+            let settings = await client.getNotificationSettings()
+            try? await settings.unmuteRoom(roomId: roomId, isEncrypted: true, isOneToOne: false)
+        }
+    }
+
     /// Plugin self-update (§5, owner-gated server-side). Fire-and-forget: the
     /// plugin's `command_result` is not surfaced because the SDK doesn't expose
     /// custom message fields (and the event is encrypted, so no raw read).

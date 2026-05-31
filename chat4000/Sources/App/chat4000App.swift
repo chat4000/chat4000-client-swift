@@ -29,6 +29,7 @@ struct chat4000App: App {
     @State private var activeSessionStartedAt: Date?
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
+    @State private var versionPolicy = VersionPolicyManager.shared
     #if os(iOS)
     @State private var telemetryFlushBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -58,17 +59,29 @@ struct chat4000App: App {
         else { return nil }
         return json
     }
+
+    /// Protocol C.5: check the registrar `/version` on every open and drive the
+    /// terms-reconsent gate from `current_terms_version`.
+    private func runVersionCheck() async {
+        await versionPolicy.check()
+        if let terms = versionPolicy.currentTermsVersion {
+            LegalConsent.finalizePendingAcceptanceIfNeeded(currentTermsVersion: terms)
+            currentTermsVersion = terms
+            showLegalReconsentModal = LegalConsent.requiresTermsAcceptance(currentTermsVersion: terms)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            primaryContent
-            .background(ModelContextBinder(viewModel: chatViewModel))
-            .task {
-                chatViewModel.onTermsVersionUpdate = { currentTermsVersion in
-                    LegalConsent.finalizePendingAcceptanceIfNeeded(currentTermsVersion: currentTermsVersion)
-                    self.currentTermsVersion = currentTermsVersion
-                    self.showLegalReconsentModal = LegalConsent.requiresTermsAcceptance(currentTermsVersion: currentTermsVersion)
+            Group {
+                if case .forceUpgrade(let minV, let rec, let msg) = versionPolicy.action {
+                    UpgradeRequiredView(minVersion: minV, recommended: rec, message: msg)
+                } else {
+                    primaryContent
                 }
             }
+            .background(ModelContextBinder(viewModel: chatViewModel))
+            .task { await runVersionCheck() }
             .preferredColorScheme(.dark)
             #if os(macOS)
             .animation(.easeInOut(duration: 0.3), value: currentScreen)
@@ -111,6 +124,7 @@ struct chat4000App: App {
                     if currentScreen == .chat, chatViewModel.isPaired {
                         Task { await chatViewModel.matrixSession.connect() }
                     }
+                    Task { await runVersionCheck() }
                     PushNotificationManager.shared.clearBadge()
                     TelemetryManager.shared.track(.appOpened)
                 case .background:

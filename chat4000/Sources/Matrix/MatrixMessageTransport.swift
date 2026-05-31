@@ -29,6 +29,8 @@ final class MatrixMessageTransport: MessageTransport {
     @ObservationIgnored private var timeline: Timeline?
     @ObservationIgnored private var timelineHandle: TaskHandle?
     @ObservationIgnored private var boundRoomId: String?
+    /// Newest event id in the bound room (for read receipts).
+    @ObservationIgnored private var lastEventId: String?
 
     // Timeline → InnerMessage state (reset on every room rebind). The decision
     // logic lives in the pure, unit-tested `MatrixTimelineMapper`.
@@ -88,6 +90,11 @@ final class MatrixMessageTransport: MessageTransport {
         return localId
     }
 
+    func markRead() {
+        guard let timeline, let eventId = lastEventId else { return }
+        Task { try? await timeline.sendReadReceipt(receiptType: .readPrivate, eventId: eventId) }
+    }
+
     // MARK: - Timeline binding (follows MatrixSession.activeRoomId)
 
     private func bindTimeline(_ roomId: String) async {
@@ -135,6 +142,7 @@ final class MatrixMessageTransport: MessageTransport {
     private func feed(_ item: TimelineItem, live: Bool) {
         guard let event = item.asEvent() else { return }
         guard case let .eventId(eid) = event.eventOrTransactionId else { return }
+        lastEventId = eid
         let tsMs = Int64(event.timestamp)
 
         // Tool/thinking "sections" ride inside the agent's message; surface them
@@ -206,6 +214,7 @@ final class MatrixMessageTransport: MessageTransport {
     private func resetTimelineState() {
         mapper.reset()
         initialLoaded = false
+        lastEventId = nil
         emittedToolStarts.removeAll()
         emittedToolEnds.removeAll()
         finalizeTask?.cancel()

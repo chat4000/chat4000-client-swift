@@ -197,6 +197,8 @@ struct SessionsSidebar: View {
                 renameText = room.name
                 renameTarget = room
             } label: { Label("Rename", systemImage: "pencil") }
+            Button { session.muteRoom(room.id) } label: { Label("Mute", systemImage: "bell.slash") }
+            Button { session.unmuteRoom(room.id) } label: { Label("Unmute", systemImage: "bell") }
             Button(role: .destructive) {
                 session.archiveSession(roomId: room.id)
             } label: { Label("Archive", systemImage: "archivebox") }
