@@ -148,6 +148,8 @@ final class GatewayClient: GatewayRequesting {
         let id = "r\(reqCounter)"
         var frame: [String: Any] = ["t": "req", "id": id, "method": method, "path": path]
         if let body { frame["body"] = body }
+        AppLog.debug("🛰️→ req id=%@ %@ %@ body_keys=%@", id, method, path,
+                     (body?.keys.sorted().joined(separator: ",")) ?? "-")
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             send(frame)
@@ -170,7 +172,17 @@ final class GatewayClient: GatewayRequesting {
     private func send(_ frame: [String: Any]) {
         guard let socket,
               let data = try? JSONSerialization.data(withJSONObject: frame),
-              let text = String(data: data, encoding: .utf8) else { return }
+              let text = String(data: data, encoding: .utf8) else {
+            AppLog.debug("🛰️→ send DROPPED (no socket or encode fail) t=%@", frame["t"] as? String ?? "?")
+            return
+        }
+        // `auth` carries the access token — log only that it was sent, not the body.
+        let t = frame["t"] as? String ?? "?"
+        if t == "auth" {
+            AppLog.debug("🛰️→ auth (token redacted) app_id=%@", identity.appId)
+        } else if t != "req" { // req already logged with detail in request()
+            AppLog.debug("🛰️→ %@ (%d bytes)", t, text.count)
+        }
         socket.send(.string(text)) { error in
             if let error { AppLog.log("⚙️ gateway send error: \(error)") }
         }
@@ -201,28 +213,44 @@ final class GatewayClient: GatewayRequesting {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["t"] as? String else { return }
 
+        AppLog.debug("🛰️← recv t=%@ (%d bytes)", type, text.count)
         switch type {
         case "auth_ok":
             let result = AuthResult(userId: obj["user_id"] as? String ?? "", deviceId: obj["device_id"] as? String ?? "")
+            AppLog.debug("🛰️← auth_ok user=%@ device=%@", result.userId, result.deviceId)
             authContinuation?.resume(returning: result)
             authContinuation = nil
         case "auth_error":
             let reason = obj["reason"] as? String ?? "unknown"
+            AppLog.debug("🛰️← auth_error reason=%@", reason)
             authContinuation?.resume(throwing: GatewayError.authError(reason))
             authContinuation = nil
         case "reauth":
+            AppLog.debug("🛰️← reauth requested")
             onReauthNeeded?()
         case "resp":
-            guard let id = obj["id"] as? String, let cont = pending.removeValue(forKey: id) else { return }
+            guard let id = obj["id"] as? String, let cont = pending.removeValue(forKey: id) else {
+                AppLog.debug("🛰️← resp for unknown id=%@", obj["id"] as? String ?? "nil")
+                return
+            }
             let status = obj["status"] as? Int ?? 0
             let bodyData = (try? JSONSerialization.data(withJSONObject: obj["body"] ?? [:])) ?? Data()
+            if !(200..<300).contains(status) {
+                AppLog.debug("🛰️← resp id=%@ status=%d body=%@", id, status,
+                             String(data: bodyData, encoding: .utf8)?.prefix(300).description ?? "")
+            } else {
+                AppLog.debug("🛰️← resp id=%@ status=%d (%d bytes)", id, status, bodyData.count)
+            }
             cont.resume(returning: (status: status, body: bodyData))
         case "error":
             AppLog.log("⚙️ gateway error frame: \(obj["reason"] as? String ?? "")")
         case "sync":
             if let pos = obj["pos"] as? String { syncPos = pos }
+            let rooms = (obj["rooms"] as? [String: Any])?.count ?? 0
+            AppLog.debug("🛰️← sync pos=%@ rooms=%d", obj["pos"] as? String ?? "nil", rooms)
             onSync?(obj)
         default:
+            AppLog.debug("🛰️← UNHANDLED frame t=%@", type)
             break
         }
     }

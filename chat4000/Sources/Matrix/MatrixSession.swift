@@ -327,6 +327,8 @@ final class MatrixSession {
 
         let isControl = roomKinds[room.id] == "control"
         let isActive = activeRoomId == room.id
+        AppLog.debug("🏠· process %@ control=%@ active=%@ timeline=%d",
+                     room.id, String(isControl), String(isActive), room.timeline.count)
 
         for outer in room.timeline {
             guard let eid = outer.eventId, !seenEventIds.contains(eid) else { continue }
@@ -337,12 +339,15 @@ final class MatrixSession {
                 clear = try? crypto?.decrypt(eventJSON: outer.rawJSON, roomId: room.id)
                 if clear == nil {
                     AppLog.log("🔒 undecryptable event %@ in %@ (key may arrive later)", eid, room.id)
+                } else {
+                    AppLog.debug("🔓 decrypted %@ in %@", eid, room.id)
                 }
             } else {
                 clear = outer.rawJSON
             }
 
             if isControl {
+                AppLog.debug("🎛️ control event %@ → parse command_result", eid)
                 handleControlEvent(clear: clear)
                 continue
             }

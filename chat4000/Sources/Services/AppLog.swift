@@ -16,8 +16,16 @@ enum AppLog {
     //   - persistent flag (Mac):   defaults write com.neonnode.chat94app CHAT4000_VERBOSE -bool true
     //                              (disable: defaults delete com.neonnode.chat94app CHAT4000_VERBOSE)
     static var isVerbose: Bool {
+        // Debug builds and `.dev`-suffixed installs are verbose by default (you
+        // can't easily set an env var on a device install). Prod stays quiet
+        // unless explicitly opted in via env or the persistent flag.
+        #if DEBUG
+        return true
+        #else
+        if Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true { return true }
         if ProcessInfo.processInfo.environment["CHAT4000_VERBOSE"] == "1" { return true }
         return UserDefaults.standard.bool(forKey: "CHAT4000_VERBOSE")
+        #endif
     }
 
     static func log(_ message: @autoclosure () -> String) {

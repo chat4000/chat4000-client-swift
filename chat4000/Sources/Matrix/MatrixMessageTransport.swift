@@ -102,10 +102,17 @@ final class MatrixMessageTransport: MessageTransport {
 
     private func ingest(_ event: DecryptedRoomEvent, live: Bool) {
         if let eid = event.outer.eventId { lastEventId = eid }
-        guard let clear = event.clear, let clearObj = json(clear) else { return }
+        guard let clear = event.clear, let clearObj = json(clear) else {
+            AppLog.debug("📥 ingest skip (no cleartext) outerType=%@ eid=%@ own=%@",
+                         event.outer.type, event.outer.eventId ?? "nil", String(event.isOwn))
+            return
+        }
         let content = clearObj["content"] as? [String: Any] ?? [:]
         let ts = event.outer.originServerTs ?? 0
         let relation = relatesTo(event.outer)
+        AppLog.debug("📥 ingest msgtype=%@ sender=%@ own=%@ live=%@ rel=%@",
+                     content["msgtype"] as? String ?? "nil", event.outer.sender ?? "nil",
+                     String(event.isOwn), String(live), relation?.relType ?? "-")
 
         switch content["msgtype"] as? String {
         case "m.text", "m.notice", "m.emote":

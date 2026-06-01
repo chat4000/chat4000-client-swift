@@ -68,6 +68,9 @@ final class CryptoEngine {
     /// requests. Call this BEFORE processing the sync's room events so freshly
     /// received room keys are available for decryption.
     func processSync(_ sync: GatewaySync) async throws {
+        AppLog.debug("🔐 processSync to_device=%d changed=%d left=%d otk=%@ fallback=%@",
+                     sync.toDevice.count, sync.deviceLists.changed.count, sync.deviceLists.left.count,
+                     sync.oneTimeKeyCounts.description, sync.unusedFallbackKeyTypes?.description ?? "nil")
         let deviceChanges = DeviceLists(changed: sync.deviceLists.changed, left: sync.deviceLists.left)
         _ = try machine.receiveSyncChanges(
             events: sync.toDevice.eventsJSON,
@@ -88,6 +91,7 @@ final class CryptoEngine {
     func runOutgoingRequests() async throws {
         for pass in 0..<maxPumpPasses {
             let requests = try machine.outgoingRequests()
+            AppLog.debug("🔐 pump pass %d: %d outgoing request(s)", pass, requests.count)
             if requests.isEmpty { return }
             for request in requests {
                 try await send(request)
@@ -99,6 +103,7 @@ final class CryptoEngine {
     }
 
     private func send(_ request: Request) async throws {
+        AppLog.debug("🔐→ outgoing %@", Self.describe(request))
         switch request {
         case let .keysUpload(requestId, body):
             let resp = try await post("/_matrix/client/v3/keys/upload", jsonBody: body)
@@ -171,12 +176,15 @@ final class CryptoEngine {
         content: [String: Any],
         cleartextEnvelope: [String: Any] = [:]
     ) async throws -> String? {
+        AppLog.debug("🔐 encryptAndSend room=%@ type=%@ recipients=%d", roomId, eventType, recipients.count)
         if let claim = try machine.getMissingSessions(users: recipients) {
+            AppLog.debug("🔐 getMissingSessions → claiming")
             try await send(claim)
             try await runOutgoingRequests()
         }
 
         let shareRequests = try machine.shareRoomKey(roomId: roomId, users: recipients, settings: encryptionSettings)
+        AppLog.debug("🔐 shareRoomKey → %d to-device request(s)", shareRequests.count)
         for request in shareRequests { try await send(request) }
 
         let plaintext = try jsonString(content)
@@ -192,7 +200,9 @@ final class CryptoEngine {
         let txnId = UUID().uuidString
         let path = "/_matrix/client/v3/rooms/\(encode(roomId))/send/m.room.encrypted/\(encode(txnId))"
         let resp = try await put(path, dictBody: outer)
-        return (try? dict(fromJSON: resp))?["event_id"] as? String
+        let eventId = (try? dict(fromJSON: resp))?["event_id"] as? String
+        AppLog.debug("🔐 sent encrypted to %@ → event_id=%@", roomId, eventId ?? "nil")
+        return eventId
     }
 
     /// Decrypt an inbound `m.room.encrypted` event (the full event JSON) to its
@@ -266,6 +276,19 @@ final class CryptoEngine {
               let string = String(data: data, encoding: .utf8)
         else { throw CryptoEngineError.encodeFailed }
         return string
+    }
+
+    /// Human-readable request kind for debug logging (no secret material).
+    private static func describe(_ request: Request) -> String {
+        switch request {
+        case .keysUpload: return "keysUpload"
+        case let .keysQuery(_, users): return "keysQuery(\(users.count) users)"
+        case .keysClaim: return "keysClaim"
+        case let .toDevice(_, eventType, _): return "toDevice(\(eventType))"
+        case .signatureUpload: return "signatureUpload"
+        case .keysBackup: return "keysBackup"
+        case let .roomMessage(_, roomId, eventType, _): return "roomMessage(\(eventType) -> \(roomId))"
+        }
     }
 
     /// Percent-encode a single path segment (room ids contain `!`, `:`, `@`).
