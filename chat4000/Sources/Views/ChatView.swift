@@ -18,7 +18,6 @@ struct ChatView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var viewModel: ChatViewModel
-    var onAddDevice: () -> Void
     /// When set, a leading sidebar-toggle button appears in the nav bar.
     var onToggleSidebar: (() -> Void)?
     @State private var messageText = ""
@@ -100,7 +99,6 @@ struct ChatView: View {
                 userId: viewModel.matrixSession.userId,
                 pluginVersion: nil,
                 pluginBundleId: nil,
-                onAddDevice: onAddDevice,
                 onDisconnect: viewModel.disconnect,
                 onClearHistory: viewModel.clearHistory,
                 onUpdatePlugin: { viewModel.matrixSession.applyPluginUpdate() }

@@ -201,7 +201,6 @@ struct chat4000App: App {
         case .chat:
             ChatShell(
                 viewModel: chatViewModel,
-                onAddDevice: startHostedPairing,
                 shouldConnect: true
             )
         }
@@ -276,13 +275,6 @@ struct chat4000App: App {
             currentScreen = .connecting
         }
         Task { await chatViewModel.pair(code: code) }
-    }
-
-    /// v2 add-device uses the SDK's MSC4108 QR login (a logged-in device
-    /// provisions the new one). Not wired yet.
-    private func startHostedPairing() {
-        AppLog.log("🔗 Add-device (MSC4108 QR login) not implemented in v2 yet")
-        errorMessage = nil
     }
 
 }

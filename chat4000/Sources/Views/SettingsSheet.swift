@@ -15,7 +15,6 @@ struct SettingsSheet: View {
     let userId: String?
     let pluginVersion: String?
     let pluginBundleId: String?
-    var onAddDevice: () -> Void
     var onDisconnect: () -> Void
     var onClearHistory: () -> Void
     /// Optional: ask the paired plugin to update itself (protocol §5, owner-gated
@@ -37,6 +36,7 @@ struct SettingsSheet: View {
     @State private var showFounderPromptTest = false
     @State private var diagnosticStatusMessage: String?
     @State private var showDiagnosticAlert = false
+    @State private var showAddDeviceInfo = false
 
     var body: some View {
         ScrollView {
@@ -181,6 +181,16 @@ struct SettingsSheet: View {
         .sheet(isPresented: $showFounderPromptTest) {
             FounderChatPromptModal(source: "settings_10tap_test")
         }
+        .sheet(isPresented: $showAddDeviceInfo) {
+            AddDeviceInfoSheet()
+                #if os(macOS)
+                .presentationDetents([.height(420)])
+                #else
+                .presentationDetents([.medium])
+                #endif
+                .presentationDragIndicator(.visible)
+                .presentationBackground(AppColors.cardBackground)
+        }
         .alert(
             "Diagnostics",
             isPresented: $showDiagnosticAlert
@@ -233,8 +243,7 @@ struct SettingsSheet: View {
                 }
 
                 Button {
-                    dismiss()
-                    onAddDevice()
+                    showAddDeviceInfo = true
                 } label: {
                     Text("Add Device")
                         .font(AppFonts.button)
@@ -508,12 +517,81 @@ private enum SentryDevTestError: LocalizedError {
     }
 }
 
+/// "Add Device" explainer. In v2 a device is onboarded by redeeming a 6-digit
+/// pairing code that the **plugin** reserves (protocol C); the app cannot mint
+/// codes itself (the registrar's `/pair/register` is plugin-service-token-gated,
+/// C.1), and device-to-device MSC4108 QR login doesn't fit the appservice-token
+/// auth model. So this device can't generate a code — it points the user at the
+/// real flow. (Future: a control-room `device.*` command so the app can ask its
+/// plugin to mint a code on demand.)
+struct AddDeviceInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Add a Device")
+                    .font(AppFonts.sheetTitle)
+                    .foregroundStyle(AppColors.textPrimary)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(AppColors.textSecondary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("To connect another phone or Mac to this account, pair it the same way you paired this one:")
+                .font(AppFonts.body)
+                .foregroundStyle(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 12) {
+                step(1, "Generate a pairing code from your plugin",
+                     "Run your OpenClaw / Hermes plugin on your computer and ask it for a new pairing code (it prints a 6-digit code).")
+                step(2, "Open chat4000 on the new device",
+                     "Install and launch the app on the phone or Mac you want to add.")
+                step(3, "Enter the 6-digit code there",
+                     "Type or scan the code on the new device's pairing screen. It connects to the same account.")
+            }
+
+            Spacer(minLength: 0)
+
+            ChatWithFounderButton(source: "settings_add_device")
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(AppColors.cardBackground)
+    }
+
+    private func step(_ number: Int, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(AppFonts.mono(12, weight: .bold))
+                .foregroundStyle(AppColors.textPrimary)
+                .frame(width: 24, height: 24)
+                .background(Color.white.opacity(0.08))
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(AppFonts.label)
+                    .foregroundStyle(AppColors.textPrimary)
+                Text(detail)
+                    .font(AppFonts.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 #Preview {
     SettingsSheet(
         userId: "@u_demo:chat4000.com",
         pluginVersion: "0.1.0",
         pluginBundleId: "@chat4000/openclaw-plugin",
-        onAddDevice: {},
         onDisconnect: {},
         onClearHistory: {}
     )

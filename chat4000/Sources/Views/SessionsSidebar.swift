@@ -7,7 +7,6 @@ import SwiftData
 struct ChatShell: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var viewModel: ChatViewModel
-    var onAddDevice: () -> Void
     var shouldConnect: Bool
 
     @State private var showSidebar: Bool = ChatShell.defaultSidebarVisible
@@ -72,7 +71,6 @@ struct ChatShell: View {
     private var chat: some View {
         ChatView(
             viewModel: viewModel,
-            onAddDevice: onAddDevice,
             onToggleSidebar: { withAnimation(.easeInOut(duration: 0.2)) { showSidebar.toggle() } }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

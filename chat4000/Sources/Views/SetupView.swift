@@ -347,18 +347,18 @@ extension EnterPairingCodeView {
             VStack(spacing: 10) {
                 helpStepCard(
                     number: 1,
-                    title: "Open chat4000 on a paired device",
-                    hint: "Use a phone or Mac that already has chat4000 connected to your group."
+                    title: "Open your plugin on your computer",
+                    hint: "Run your OpenClaw or Hermes plugin and ask it for a new pairing code."
                 )
                 helpStepCard(
                     number: 2,
-                    title: "Tap Settings → Add Device",
-                    hint: "It generates a fresh pairing code and QR for this connection."
+                    title: "Copy the 6-digit code",
+                    hint: "The plugin prints a single-use 6-digit code (and may show a QR)."
                 )
                 helpStepCard(
                     number: 3,
-                    title: "Scan or type the code here",
-                    hint: "Use Scan QR on the previous screen, or enter the 8-character code."
+                    title: "Enter it here",
+                    hint: "Type the 6 digits on this screen, or scan the QR with Scan QR."
                 )
             }
 
