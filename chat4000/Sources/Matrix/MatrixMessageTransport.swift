@@ -75,10 +75,18 @@ final class MatrixMessageTransport: MessageTransport {
                 return localId
             }
             Task { await session.sendText(text, roomId: roomId) }
-        case .image, .audio:
-            // TODO(v2): authenticated media over HTTP (protocol D.3) — encrypt
-            // blob, upload to the gateway media path, send m.image/m.audio.
-            AppLog.log("⚠️ Matrix media send not implemented yet")
+        case let .image(data, mimeType):
+            guard let roomId = session.activeRoomId else {
+                AppLog.log("⚠️ Matrix image send dropped — no active room")
+                return localId
+            }
+            Task { await session.sendImage(data, mimeType: mimeType, roomId: roomId) }
+        case let .audio(data, mimeType, durationMs, _):
+            guard let roomId = session.activeRoomId else {
+                AppLog.log("⚠️ Matrix audio send dropped — no active room")
+                return localId
+            }
+            Task { await session.sendAudio(data, mimeType: mimeType, durationMs: durationMs, roomId: roomId) }
         case .textDelta, .textEnd, .status, .ack:
             break // inbound-only in v2
         }
@@ -104,8 +112,43 @@ final class MatrixMessageTransport: MessageTransport {
             handleText(content: content, relation: relation, outer: event.outer, isOwn: event.isOwn, live: live, ts: ts)
         case "chat4000.tool":
             handleTool(content: content, sender: event.outer.sender, ts: ts)
+        case "m.image":
+            handleMedia(content: content, outer: event.outer, isOwn: event.isOwn, kind: .image, ts: ts)
+        case "m.audio":
+            handleMedia(content: content, outer: event.outer, isOwn: event.isOwn, kind: .audio, ts: ts)
         default:
             break
+        }
+    }
+
+    private enum MediaKind { case image, audio }
+
+    /// Inbound `m.image`/`m.audio`: download + decrypt the blob (protocol D.3),
+    /// then emit it as the image/audio inner message the UI already renders. Our
+    /// own echo is skipped (ChatViewModel suppresses it anyway — no point paying
+    /// for the download).
+    private func handleMedia(content: [String: Any], outer: SyncEvent, isOwn: Bool, kind: MediaKind, ts: Int64) {
+        guard !isOwn, let file = content["file"] as? [String: Any] else { return }
+        let info = content["info"] as? [String: Any] ?? [:]
+        let mimeType = info["mimetype"] as? String ?? (kind == .image ? "image/jpeg" : VoiceNoteConstants.mimeType)
+        let durationMs = intValue(info["duration"]) ?? 0
+        let id = outer.eventId ?? UUID().uuidString
+        let from = MatrixTimelineMapper.sender(matrixUserId: outer.sender ?? "", isOwn: false)
+
+        Task { [weak self] in
+            guard let self, let data = await self.session.downloadMedia(file: file) else { return }
+            let base64 = data.base64EncodedString()
+            switch kind {
+            case .image:
+                self.onReceive?(InnerMessage(
+                    t: .image, id: id, from: from,
+                    body: .image(.init(dataBase64: base64, mimeType: mimeType)), ts: ts))
+            case .audio:
+                let waveform = VoiceWaveformBuilder.decodeWaveform(from: data)
+                self.onReceive?(InnerMessage(
+                    t: .audio, id: id, from: from,
+                    body: .audio(.init(dataBase64: base64, mimeType: mimeType, durationMs: durationMs, waveform: waveform)), ts: ts))
+            }
         }
     }
 

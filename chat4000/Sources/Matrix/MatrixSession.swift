@@ -59,6 +59,9 @@ final class MatrixSession {
     @ObservationIgnored private var gateway: GatewayClient?
     @ObservationIgnored private var crypto: CryptoEngine?
     @ObservationIgnored private var creds: MatrixCredentialStore.Stored?
+    /// HTTP base for authenticated media (protocol D.3), derived from the
+    /// gateway URL on connect.
+    @ObservationIgnored private var mediaBaseURL: String?
 
     @ObservationIgnored private var roomOrder: [String] = []
     @ObservationIgnored private var roomMembers: [String: [String]] = [:]
@@ -170,6 +173,7 @@ final class MatrixSession {
             throw MatrixError.pairingFailed("invalid gateway URL")
         }
         creds = stored
+        mediaBaseURL = MatrixEnvironment.mediaBaseURL(fromGatewayURL: stored.gatewayURL)
         let identity = GatewayClient.Identity(
             appId: Bundle.main.bundleIdentifier ?? "com.neonnode.chat94app",
             clientVersion: AppRegistrationIdentity.currentAppVersion,
@@ -347,6 +351,47 @@ final class MatrixSession {
         } catch {
             AppLog.log("⚠️ Matrix sendText failed: \(error)")
         }
+    }
+
+    /// Encrypt the blob, upload the ciphertext (protocol D.3), and send an
+    /// `m.image` referencing the resulting `mxc://` + decryption key.
+    func sendImage(_ data: Data, mimeType: String, roomId: String) async {
+        await sendMedia(data, mimeType: mimeType, roomId: roomId,
+                        msgtype: "m.image", filename: "image.jpg", info: ["mimetype": mimeType, "size": data.count])
+    }
+
+    /// Same as `sendImage` for a voice note (`m.audio` + duration).
+    func sendAudio(_ data: Data, mimeType: String, durationMs: Int, roomId: String) async {
+        await sendMedia(data, mimeType: mimeType, roomId: roomId,
+                        msgtype: "m.audio", filename: "voice.m4a",
+                        info: ["mimetype": mimeType, "size": data.count, "duration": durationMs])
+    }
+
+    private func sendMedia(
+        _ data: Data, mimeType: String, roomId: String,
+        msgtype: String, filename: String, info: [String: Any]
+    ) async {
+        guard let creds, let mediaBase = mediaBaseURL else {
+            AppLog.log("⚠️ media send dropped — no media base / creds")
+            return
+        }
+        do {
+            let file = try await MatrixMedia.encryptAndUpload(
+                data, mediaBaseURL: mediaBase, accessToken: creds.accessToken, filename: filename)
+            let content: [String: Any] = ["msgtype": msgtype, "body": filename, "file": file, "info": info]
+            _ = try await crypto?.encryptAndSend(
+                roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content)
+        } catch {
+            AppLog.log("⚠️ Matrix media send failed: \(error)")
+        }
+    }
+
+    /// Download + decrypt an `EncryptedFile` blob (for inbound m.image/m.audio).
+    func downloadMedia(file: [String: Any]) async -> Data? {
+        guard let creds, let mediaBase = mediaBaseURL,
+              let parsed = MatrixMedia.EncryptedFile(file) else { return nil }
+        return try? await MatrixMedia.downloadAndDecrypt(
+            parsed, mediaBaseURL: mediaBase, accessToken: creds.accessToken)
     }
 
     /// Private read receipt for the latest event in a room (protocol D.2).
