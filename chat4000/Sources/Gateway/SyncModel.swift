@@ -59,6 +59,11 @@ struct SyncRoom: Sendable, Identifiable, Equatable {
     var isSpace: Bool
     /// True when `m.room.encryption` is present (drives `setRoomAlgorithm`).
     var isEncrypted: Bool
+    /// True when the room carries sliding-sync `invite_state` — i.e. we're
+    /// invited but not joined. The client auto-joins these so the control /
+    /// session rooms surface with full state (they otherwise never appear,
+    /// since the list only shows joined rooms).
+    var isInvite: Bool
     /// Joined member MXIDs from `m.room.member` state — the recipient set for
     /// sharing the megolm room key (CryptoEngine.shareRoomKey) and tracking.
     var members: [String]
@@ -158,6 +163,7 @@ enum SyncModel {
             roomKind: roomKind,
             isSpace: isSpace,
             isEncrypted: isEncrypted,
+            isInvite: room["invite_state"] != nil,
             members: members,
             statusState: statusState,
             notificationCount: intField(room["notification_count"]) ?? 0,

@@ -55,6 +55,21 @@ struct SyncModelTests {
         #expect(Set(room.members) == ["@u:x", "@plugin:x"])
     }
 
+    /// Worth 8 — invite detection drives auto-join; without it the control room
+    /// (invite-only until joined) never surfaces and chat is unusable.
+    @Test
+    func detectsInviteState() throws {
+        let invited: [String: Any] = [
+            "rooms": ["!r:x": ["invite_state": ["events": []], "required_state": [], "timeline": []]],
+        ]
+        #expect(try #require(SyncModel.parse(invited).rooms.first).isInvite)
+
+        let joined: [String: Any] = [
+            "rooms": ["!j:x": ["required_state": [], "timeline": []]],
+        ]
+        #expect(try #require(SyncModel.parse(joined).rooms.first).isInvite == false)
+    }
+
     /// Worth 7 — a space must be flagged so the sidebar hides it (protocol E).
     @Test
     func flagsSpaceRoom() throws {

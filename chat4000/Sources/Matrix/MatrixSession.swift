@@ -71,6 +71,9 @@ final class MatrixSession {
     @ObservationIgnored private var roomNames: [String: String] = [:]
     @ObservationIgnored private var spaceRooms: Set<String> = []
     @ObservationIgnored private var encryptedRooms: Set<String> = []
+    /// Rooms we've already fired a join for (invite auto-accept), so we don't
+    /// re-POST /join on every sync while the join settles.
+    @ObservationIgnored private var joinedInviteAttempts: Set<String> = []
     @ObservationIgnored private var trackedUsers: Set<String> = []
     @ObservationIgnored private var seenEventIds: Set<String> = []
     @ObservationIgnored private var roomEventCache: [String: [DecryptedRoomEvent]] = [:]
@@ -177,6 +180,7 @@ final class MatrixSession {
         roomNames = [:]
         spaceRooms = []
         encryptedRooms = []
+        joinedInviteAttempts = []
         trackedUsers = []
         seenEventIds = []
         roomEventCache = [:]
@@ -286,6 +290,16 @@ final class MatrixSession {
     }
 
     private func processRoom(_ room: SyncRoom) async {
+        // Auto-accept invites: a room we're invited to (the plugin's control
+        // room / space / session) only appears in sliding sync as `invite`; the
+        // list shows joined rooms, so we'd never see it with full state. Join it
+        // and let the next sync re-deliver it joined (with chat4000.room_kind etc.).
+        if isInvited(room), joinedInviteAttempts.insert(room.id).inserted {
+            AppLog.log("📨 auto-joining invited room %@", room.id)
+            await joinRoom(room.id)
+            return
+        }
+
         if !roomOrder.contains(room.id) { roomOrder.append(room.id) }
         if let kind = room.roomKind { roomKinds[room.id] = kind }
         if let name = room.name, !name.isEmpty { roomNames[room.id] = name }
@@ -633,6 +647,32 @@ final class MatrixSession {
     }
 
     // MARK: - Helpers
+
+    /// True when we're invited (not joined) to a room — via sliding-sync
+    /// `invite_state`, or our own `m.room.member` state showing `invite`.
+    private func isInvited(_ room: SyncRoom) -> Bool {
+        if room.isInvite { return true }
+        guard let userId else { return false }
+        for event in room.requiredState where event.type == "m.room.member" && event.stateKey == userId {
+            if let obj = parseJSON(event.rawJSON),
+               let content = obj["content"] as? [String: Any],
+               content["membership"] as? String == "invite" {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func joinRoom(_ roomId: String) async {
+        let path = "/_matrix/client/v3/rooms/\(roomId)/join"
+        do {
+            _ = try await gateway?.request(method: "POST", path: percentEncodePath(path), body: [:])
+        } catch {
+            // Let a later sync re-surface the invite so we retry.
+            joinedInviteAttempts.remove(roomId)
+            AppLog.log("📨 join failed for \(roomId): \(error)")
+        }
+    }
 
     private func parseJSON(_ string: String) -> [String: Any]? {
         guard let data = string.data(using: .utf8) else { return nil }
