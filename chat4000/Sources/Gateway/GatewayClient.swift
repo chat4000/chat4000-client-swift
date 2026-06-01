@@ -43,6 +43,7 @@ final class GatewayClient: GatewayRequesting {
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
+    private var keepaliveTask: Task<Void, Never>?
     /// Set by `disconnect()` so the receive loop's resulting error does not fire
     /// `onClosed` (which would trigger a spurious reconnect on a clean close).
     private var isClosing = false
@@ -84,6 +85,7 @@ final class GatewayClient: GatewayRequesting {
         socket.resume()
 
         startReceiveLoop()
+        startKeepalive()
         send(authFrame())
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -93,6 +95,8 @@ final class GatewayClient: GatewayRequesting {
 
     func disconnect() {
         isClosing = true
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         receiveLoop?.cancel()
         receiveLoop = nil
         socket?.cancel(with: .normalClosure, reason: nil)
@@ -100,6 +104,25 @@ final class GatewayClient: GatewayRequesting {
         session?.invalidateAndCancel()
         session = nil
         failAllPending(GatewayError.socketClosed)
+    }
+
+    /// WebSocket-level keepalive. Without it an idle sliding-sync socket (the
+    /// gateway long-polls upstream, so it can be silent for a while) gets reaped
+    /// by NAT/iOS after ~15-30s — which dropped us right before the plugin's
+    /// invite arrived. A ping every 20s keeps it alive; a failed ping surfaces
+    /// the dead socket so reconnect kicks in.
+    private func startKeepalive() {
+        keepaliveTask?.cancel()
+        keepaliveTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled, let self, let socket = self.socket else { return }
+                AppLog.debug("🛰️↔ ping")
+                socket.sendPing { error in
+                    if let error { AppLog.log("⚙️ gateway ping failed: \(error)") }
+                }
+            }
+        }
     }
 
     /// Re-auth in place (after `reauth`) without dropping the socket.
@@ -257,6 +280,8 @@ final class GatewayClient: GatewayRequesting {
 
     private func handleSocketError(_ error: Error) {
         AppLog.log("⚙️ gateway socket closed: \(error)")
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         failAllPending(error)
         // Reconnect/backoff is the caller's concern (MatrixSession owns retry).
         // Suppressed on a clean `disconnect()`.
