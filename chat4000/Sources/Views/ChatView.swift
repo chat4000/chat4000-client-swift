@@ -91,7 +91,11 @@ struct ChatView: View {
                     errorBanner(voiceErrorMessage)
                 }
 
-                inputBar
+                // No session → no composer at all (the empty state's New chat
+                // is the only action). Don't show an input you can't send from.
+                if viewModel.hasActiveSession {
+                    inputBar
+                }
             }
         }
         .sheet(isPresented: $showSettings) {
