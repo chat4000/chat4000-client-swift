@@ -120,6 +120,11 @@ final class MatrixSession {
                 storePassphrase: MatrixCredentialStore.newStorePassphrase()
             )
             try MatrixCredentialStore.save(stored)
+            // A fresh pairing is a brand-new device with new keys; remove any
+            // crypto store left by a previous pairing — its passphrase won't
+            // match the freshly-generated one, which otherwise surfaces as
+            // CryptoStoreError.OpenStore ("Failed to open the store").
+            Self.wipeCryptoStore()
             try await startClient(stored)
         } catch {
             connectionState = .failed(error.localizedDescription)
@@ -155,8 +160,17 @@ final class MatrixSession {
         let uid = userId
         await disconnect()
         MatrixCredentialStore.delete()
+        Self.wipeCryptoStore()
         if let uid { UserDefaults.standard.removeObject(forKey: Self.syncPosKey(uid)) }
         userId = nil
+    }
+
+    /// Delete the standalone crypto store on disk. A fresh pairing (new device,
+    /// new keys, new passphrase) must not inherit a store encrypted under a
+    /// previous passphrase — that fails to open. The store dir is recreated
+    /// empty by `cryptoStorePath` when the next client starts.
+    private static func wipeCryptoStore() {
+        try? FileManager.default.removeItem(atPath: MatrixEnvironment.current.cryptoStorePath)
     }
 
     private func resetSessionState() {
