@@ -509,6 +509,7 @@ final class MatrixSession {
                 )
             } catch {
                 AppLog.log("⚙️ control command send failed: \(error)")
+                lastCommandError = "Couldn't send that to your plugin. Please try again."
             }
         }
     }

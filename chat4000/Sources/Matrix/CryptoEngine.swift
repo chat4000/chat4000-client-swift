@@ -116,9 +116,14 @@ final class CryptoEngine {
             try machine.markRequestAsSent(requestId: requestId, requestType: .keysClaim, responseBody: resp)
 
         case let .toDevice(requestId, eventType, body):
-            // requestId doubles as the idempotent txn id.
+            // The FFI `body` is the messages map ({user:{device:content}}); the
+            // C-S sendToDevice endpoint wants it wrapped under `messages`.
+            // Without the wrapper the homeserver 400s (M_BAD_JSON: missing field
+            // `messages`) and room-key sharing — hence all encrypted sends —
+            // fails. requestId doubles as the idempotent txn id.
+            let messages = (try? dict(fromJSON: body)) ?? [:]
             let path = "/_matrix/client/v3/sendToDevice/\(encode(eventType))/\(encode(requestId))"
-            let resp = try await put(path, jsonBody: body)
+            let resp = try await put(path, dictBody: ["messages": messages])
             try machine.markRequestAsSent(requestId: requestId, requestType: .toDevice, responseBody: resp)
 
         case let .signatureUpload(requestId, body):
@@ -126,8 +131,10 @@ final class CryptoEngine {
             try machine.markRequestAsSent(requestId: requestId, requestType: .signatureUpload, responseBody: resp)
 
         case let .keysBackup(requestId, version, rooms):
+            // FFI `rooms` is the rooms map; the C-S body wraps it under `rooms`.
+            let roomsMap = (try? dict(fromJSON: rooms)) ?? [:]
             let path = "/_matrix/client/v3/room_keys/keys?version=\(encode(version))"
-            let resp = try await put(path, jsonBody: rooms)
+            let resp = try await put(path, dictBody: ["rooms": roomsMap])
             try machine.markRequestAsSent(requestId: requestId, requestType: .keysBackup, responseBody: resp)
 
         case let .roomMessage(requestId, roomId, eventType, content):
