@@ -12,9 +12,6 @@ enum MatrixCredentialStore {
         var deviceId: String
         /// The WS gateway URL the device connects to (`gateway_url` from redeem).
         var gatewayURL: String
-        /// Random passphrase encrypting the OlmMachine SQLite store. Generated
-        /// once on first pair, reused on every relaunch.
-        var storePassphrase: String
     }
 
     private static var fileURL: URL {
@@ -40,13 +37,6 @@ enum MatrixCredentialStore {
     static func delete() {
         try? FileManager.default.removeItem(at: fileURL)
         AppLog.log("💾 Matrix credentials deleted")
-    }
-
-    /// Fresh 32-byte base64 store passphrase.
-    static func newStorePassphrase() -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes).base64EncodedString()
     }
 }
 

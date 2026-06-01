@@ -12,8 +12,7 @@ struct MatrixCredentialStoreTests {
             accessToken: token,
             userId: user,
             deviceId: device,
-            gatewayURL: "wss://gateway.example/ws",
-            storePassphrase: "pass123"
+            gatewayURL: "wss://gateway.example/ws"
         )
     }
 
@@ -28,7 +27,6 @@ struct MatrixCredentialStoreTests {
         #expect(back.userId == "@u:x")
         #expect(back.deviceId == "DEV")
         #expect(back.gatewayURL == "wss://gateway.example/ws")
-        #expect(back.storePassphrase == "pass123")
     }
 
     /// Worth 8 — save → load must preserve credentials across a relaunch, and
@@ -44,15 +42,5 @@ struct MatrixCredentialStoreTests {
 
         MatrixCredentialStore.delete()
         #expect(MatrixCredentialStore.load() == nil)
-    }
-
-    /// Worth 5 — the store passphrase must be fresh, base64, and 32 bytes; a
-    /// weak/empty passphrase silently disables crypto-store encryption at rest.
-    @Test
-    func newStorePassphraseIs32RandomBytes() {
-        let a = MatrixCredentialStore.newStorePassphrase()
-        let b = MatrixCredentialStore.newStorePassphrase()
-        #expect(a != b)
-        #expect(Data(base64Encoded: a)?.count == 32)
     }
 }

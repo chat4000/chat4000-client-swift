@@ -116,14 +116,12 @@ final class MatrixSession {
                 accessToken: redeemed.accessToken,
                 userId: redeemed.userId,
                 deviceId: redeemed.deviceId,
-                gatewayURL: redeemed.gatewayUrl,
-                storePassphrase: MatrixCredentialStore.newStorePassphrase()
+                gatewayURL: redeemed.gatewayUrl
             )
             try MatrixCredentialStore.save(stored)
-            // A fresh pairing is a brand-new device with new keys; remove any
-            // crypto store left by a previous pairing — its passphrase won't
-            // match the freshly-generated one, which otherwise surfaces as
-            // CryptoStoreError.OpenStore ("Failed to open the store").
+            // A fresh pairing is a brand-new device with new keys; discard any
+            // crypto store left by a previous pairing so the new device doesn't
+            // inherit a stale key DB (different user / device_id).
             Self.wipeCryptoStore()
             try await startClient(stored)
         } catch {
@@ -166,8 +164,8 @@ final class MatrixSession {
     }
 
     /// Delete the standalone crypto store on disk. A fresh pairing (new device,
-    /// new keys, new passphrase) must not inherit a store encrypted under a
-    /// previous passphrase — that fails to open. The store dir is recreated
+    /// new keys) must not inherit a previous pairing's key DB. The store is
+    /// unencrypted (CryptoEngine passes no passphrase); the dir is recreated
     /// empty by `cryptoStorePath` when the next client starts.
     private static func wipeCryptoStore() {
         try? FileManager.default.removeItem(atPath: MatrixEnvironment.current.cryptoStorePath)
@@ -220,7 +218,6 @@ final class MatrixSession {
             userId: auth.userId,
             deviceId: auth.deviceId,
             storePath: MatrixEnvironment.current.cryptoStorePath,
-            passphrase: stored.storePassphrase,
             gateway: gateway
         )
 

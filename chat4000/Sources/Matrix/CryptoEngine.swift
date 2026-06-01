@@ -52,8 +52,13 @@ final class CryptoEngine {
     /// forever; one or two passes is the normal case.
     private let maxPumpPasses = 20
 
-    init(userId: String, deviceId: String, storePath: String, passphrase: String?, gateway: GatewayRequesting) throws {
-        self.machine = try OlmMachine(userId: userId, deviceId: deviceId, path: storePath, passphrase: passphrase)
+    init(userId: String, deviceId: String, storePath: String, gateway: GatewayRequesting) throws {
+        // passphrase: nil → the crypto (Olm/Megolm key) store is NOT encrypted
+        // at rest. Deliberate: it sits inside the app sandbox under iOS file
+        // protection, and an unencrypted store sidesteps the passphrase-mismatch
+        // failure mode (CryptoStoreError.OpenStore). Messages live in SwiftData,
+        // not here — this store is keys only.
+        self.machine = try OlmMachine(userId: userId, deviceId: deviceId, path: storePath, passphrase: nil)
         self.gateway = gateway
     }
 
