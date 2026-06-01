@@ -263,9 +263,10 @@ struct chat4000App: App {
             return
         }
 
-        // v2 codes are 6 digits; extract them (the input may be a bare code or
-        // a chat4000://pair?code=NNNNNN URI).
-        let code = String(trimmed.filter(\.isNumber).prefix(6))
+        // v2 codes are 6 digits; the input may be a bare code or a
+        // chat4000://pair?code=NNNNNN URI — extract the `code` param, don't
+        // digit-filter the whole string ("chat4000" contributes 4000).
+        let code = MatrixPairing.extractCode(from: trimmed)
 
         errorMessage = nil
         TelemetryManager.shared.track(.pairingCodeSubmitted, properties: ["input_type": "code"])

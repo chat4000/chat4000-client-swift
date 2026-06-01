@@ -23,4 +23,16 @@ struct MatrixPairingTests {
         #expect(r.deviceId == "DEVICE123")
         #expect(r.accessToken == "syt_secret_token")
     }
+
+    /// Worth 9 — regression: a `chat4000://pair?code=NNNNNN` QR/URI must yield
+    /// the `code` param, NOT the first 6 digits of the whole string (the URI's
+    /// "chat4000" contributes 4000, which produced "invalid pairing code").
+    @Test
+    func extractsCodeFromUriNotStrayDigits() {
+        #expect(MatrixPairing.extractCode(from: "chat4000://pair?code=322144") == "322144")
+        #expect(MatrixPairing.extractCode(from: "chat4000://pair?code=322144&x=1") == "322144")
+        #expect(MatrixPairing.extractCode(from: "322144") == "322144")
+        #expect(MatrixPairing.extractCode(from: "322 144") == "322144")
+        #expect(MatrixPairing.extractCode(from: "  322144 ") == "322144")
+    }
 }

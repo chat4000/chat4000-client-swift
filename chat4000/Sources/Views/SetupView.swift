@@ -46,7 +46,8 @@ struct EnterPairingCodeView: View {
     }
 
     private func submitInput(_ rawInput: String) {
-        let code = String(rawInput.filter(\.isNumber).prefix(Self.codeLength))
+        // Handles a bare typed code OR a pasted chat4000://pair?code= URI.
+        let code = MatrixPairing.extractCode(from: rawInput)
         guard code.count == Self.codeLength, code != lastSubmittedCode else { return }
 
         lastSubmittedCode = code
@@ -122,9 +123,10 @@ struct EnterPairingCodeView: View {
         .sheet(isPresented: $showScanner) {
             QRScannerView(
                 onScanned: { scannedText in
-                    // Accept a QR encoding the 6-digit code (optionally as a
-                    // chat4000://pair?code=NNNNNN URI) — just extract the digits.
-                    let code = String(scannedText.filter(\.isNumber).prefix(Self.codeLength))
+                    // Accept a QR encoding the 6-digit code, usually a
+                    // chat4000://pair?code=NNNNNN URI — parse the `code` param
+                    // (don't digit-filter the whole payload).
+                    let code = MatrixPairing.extractCode(from: scannedText)
                     codeText = code
                     showScanner = false
                     if requiresConsent {
@@ -195,8 +197,9 @@ extension EnterPairingCodeView {
                             submitInput(codeText)
                         }
                         .onChange(of: codeText) { _, newValue in
-                            // Keep digits only, capped at the 6-digit code length.
-                            let digits = String(newValue.filter(\.isNumber).prefix(Self.codeLength))
+                            // Keep digits only (or the code param if a URI was
+                            // pasted), capped at the 6-digit code length.
+                            let digits = MatrixPairing.extractCode(from: newValue)
                             if digits != newValue { codeText = digits }
                             if digits.isEmpty { lastSubmittedCode = "" }
                             // Auto-submit once 6 digits are entered (OTP-style).

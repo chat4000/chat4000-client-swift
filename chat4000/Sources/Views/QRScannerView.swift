@@ -141,9 +141,10 @@ struct QRScannerView: View {
     }
 
     private func handleScannedCode(_ code: String) {
-        // v2: a QR encodes the 6-digit pairing code (optionally as a
-        // chat4000://pair?code=NNNNNN URI). Validate that 6 digits are present.
-        let digits = String(code.filter(\.isNumber).prefix(6))
+        // v2: a QR encodes the 6-digit pairing code, usually as a
+        // chat4000://pair?code=NNNNNN URI. Parse the `code` param — do NOT
+        // digit-filter the whole payload ("chat4000" contributes 4000).
+        let digits = MatrixPairing.extractCode(from: code)
         guard digits.count == 6 else {
             errorMessage = "Not a valid chat4000 pairing code"
             Task {

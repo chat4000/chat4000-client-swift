@@ -82,6 +82,26 @@ enum MatrixPairing {
     }
 }
 
+extension MatrixPairing {
+    /// Extract the 6-digit pairing code from raw input — a bare code
+    /// (`"322144"` / `"322 144"`) or a `chat4000://pair?code=NNNNNN` QR/URI
+    /// payload.
+    ///
+    /// Naive "keep all digits, take 6" is WRONG for the URI: `chat4000://…`
+    /// contributes the digits `4000`, so `chat4000://pair?code=322144` would
+    /// yield `400032` instead of `322144` (the bug that produced "invalid
+    /// pairing code" on scan). So read the `code` query item first; only fall
+    /// back to digit-filtering for a bare typed/pasted code.
+    static func extractCode(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let comps = URLComponents(string: trimmed), comps.scheme != nil,
+           let codeParam = comps.queryItems?.first(where: { $0.name == "code" })?.value {
+            return String(codeParam.filter(\.isNumber).prefix(6))
+        }
+        return String(trimmed.filter(\.isNumber).prefix(6))
+    }
+}
+
 /// chat4000 v2 standard error envelope (protocol conventions).
 private struct MatrixApiError: Decodable {
     let errcode: String
