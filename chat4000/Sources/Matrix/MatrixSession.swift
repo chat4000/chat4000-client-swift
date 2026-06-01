@@ -462,9 +462,13 @@ final class MatrixSession {
         }
     }
 
+    /// Clear the last surfaced command error (UI dismiss).
+    func clearCommandError() { lastCommandError = nil }
+
     private func sendControlCommand(_ fields: [String: Any]) {
         guard let controlRoomId, let crypto else {
             AppLog.log("⚙️ control command dropped — no control room / crypto yet")
+            lastCommandError = "Can't reach your plugin yet. Make sure it's running and synced, then try again."
             return
         }
         var content: [String: Any] = ["msgtype": "chat4000.command"]

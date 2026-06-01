@@ -324,20 +324,40 @@ struct ChatView: View {
     }
 
     private var emptyChatPlaceholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "bubble.left.and.bubble.right")
+        let hasSession = viewModel.hasActiveSession
+        return VStack(spacing: 12) {
+            Image(systemName: hasSession ? "bubble.left.and.bubble.right" : "plus.bubble")
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(AppColors.textSecondary)
 
-            Text("No messages yet")
+            Text(hasSession ? "No messages yet" : "No sessions yet")
                 .font(AppFonts.title)
                 .foregroundStyle(AppColors.textPrimary)
 
-            Text("Type a message below and press send to talk to your agent.")
+            Text(hasSession
+                 ? "Type a message below and press send to talk to your agent."
+                 : "Create a session to start chatting — your plugin sets it up and names it.")
                 .font(AppFonts.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if !hasSession {
+                Button {
+                    Haptics.impact()
+                    viewModel.matrixSession.requestNewSession()
+                } label: {
+                    Label("New chat", systemImage: "plus")
+                        .font(AppFonts.button)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 20)
+                        .frame(height: 48)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 48)
@@ -589,6 +609,12 @@ struct ChatView: View {
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // No session bound → don't ghost the message; keep the text and nudge
+        // the user to create/pick a session (the empty state has a New chat).
+        guard viewModel.hasActiveSession else {
+            Haptics.error()
+            return
+        }
 
         Haptics.impact()
         viewModel.send(text: text)
@@ -1011,6 +1037,10 @@ final class ChatViewModel {
     /// True once a Matrix session is persisted on disk (drives launch routing).
     var isPaired: Bool { matrixSession.isPaired }
 
+    /// True when a session room is selected/active. Sending requires this — with
+    /// no active room a message has nowhere to go (it would be a local ghost).
+    var hasActiveSession: Bool { activeRoomId != nil }
+
     /// Silent-push wake entry point (A1): connect + drain one sync via the
     /// Matrix session; it posts local notifications for new messages.
     func backgroundWake() async -> Bool {
@@ -1042,7 +1072,11 @@ final class ChatViewModel {
     }
 
     func send(text: String) {
-        let message = ChatMessage(text: text, sender: .user, status: .sending, roomId: activeRoomId)
+        guard let roomId = activeRoomId else {
+            AppLog.log("✋ send blocked — no active session")
+            return
+        }
+        let message = ChatMessage(text: text, sender: .user, status: .sending, roomId: roomId)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
@@ -1072,8 +1106,12 @@ final class ChatViewModel {
 
     func sendImage(_ image: PlatformImage) {
         guard let jpegData = image.clawConnectJPEGData else { return }
+        guard let roomId = activeRoomId else {
+            AppLog.log("✋ image send blocked — no active session")
+            return
+        }
 
-        let message = ChatMessage(imageData: jpegData, sender: .user, status: .sending, roomId: activeRoomId)
+        let message = ChatMessage(imageData: jpegData, sender: .user, status: .sending, roomId: roomId)
         messages.append(message)
         modelContext?.insert(message)
         try? modelContext?.save()
@@ -1096,6 +1134,10 @@ final class ChatViewModel {
     }
 
     func sendAudio(_ audioData: Data, mimeType: String, duration: TimeInterval, waveform: [Float], source: String) {
+        guard let roomId = activeRoomId else {
+            AppLog.log("✋ audio send blocked — no active session")
+            return
+        }
         let message = ChatMessage(
             audioData: audioData,
             audioMimeType: mimeType,
@@ -1103,7 +1145,7 @@ final class ChatViewModel {
             audioWaveform: waveform,
             sender: .user,
             status: .sending,
-            roomId: activeRoomId
+            roomId: roomId
         )
         messages.append(message)
         modelContext?.insert(message)
@@ -1618,9 +1660,14 @@ final class ChatViewModel {
 
 
     private func loadMessagesMergingTransientState() {
-        // Scope to the active room (v2 multi-session). Before a room is
-        // selected, `activeRoomId` is nil and only legacy nil-room rows match.
-        let rid = activeRoomId
+        // No session selected → show nothing. (Loading `roomId == nil` here is
+        // what surfaced the confusing legacy/ghost bucket before a session is
+        // picked — B2.)
+        guard let rid = activeRoomId else {
+            messages = []
+            requestScrollToBottom()
+            return
+        }
         let descriptor = FetchDescriptor<ChatMessage>(
             predicate: #Predicate { $0.roomId == rid },
             sortBy: [SortDescriptor(\.timestamp, order: .forward)]

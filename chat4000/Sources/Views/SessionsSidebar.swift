@@ -33,6 +33,17 @@ struct ChatShell: View {
             .onChange(of: viewModel.matrixSession.activeRoomId) { _, newId in
                 if let newId { viewModel.switchRoom(id: newId) }
             }
+            .alert(
+                "Couldn't reach your plugin",
+                isPresented: Binding(
+                    get: { viewModel.matrixSession.lastCommandError != nil },
+                    set: { if !$0 { viewModel.matrixSession.clearCommandError() } }
+                )
+            ) {
+                Button("OK", role: .cancel) { viewModel.matrixSession.clearCommandError() }
+            } message: {
+                Text(viewModel.matrixSession.lastCommandError ?? "")
+            }
     }
 
     @ViewBuilder
