@@ -64,7 +64,24 @@ enum MatrixPairing {
                 try? await Task.sleep(for: .milliseconds(600))
                 return try await post(url: url, code: code, deviceName: deviceName, attempt: 1)
             }
-            throw MatrixError.pairingFailed(error.localizedDescription)
+            throw MatrixError.pairingFailed(networkMessage(for: error))
+        }
+    }
+
+    /// Friendly text for transport-level failures (the raw Apple message —
+    /// "A server with the specified hostname could not be found" — is confusing;
+    /// it's almost always the device's connection/DNS, not the app or server).
+    private static func networkMessage(for error: Error) -> String {
+        guard let urlError = error as? URLError else { return error.localizedDescription }
+        switch urlError.code {
+        case .notConnectedToInternet:
+            return "You're offline. Connect to the internet and try again."
+        case .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
+            return "Can't reach the server — check your connection (Wi-Fi/cellular) and try again."
+        case .timedOut, .networkConnectionLost:
+            return "The connection dropped. Try again."
+        default:
+            return "Network error. Check your connection and try again."
         }
     }
 
