@@ -59,6 +59,9 @@ enum MatrixPairing {
         } catch let error as MatrixError {
             throw error
         } catch {
+            let urlCode = (error as? URLError)?.code.rawValue ?? 0
+            AppLog.log("❌ redeem network error code=%ld host=%@ desc=%@",
+                       urlCode, url.host ?? "?", error.localizedDescription)
             // Network-level failure — retry once (idempotent within the TTL window).
             if attempt == 0 {
                 try? await Task.sleep(for: .milliseconds(600))
