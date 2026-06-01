@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One decrypted (or cleartext) room event handed to the timeline mapper.
 /// `outer` is the envelope (`event_id`/`sender`/`origin_server_ts`, and the
@@ -78,6 +81,10 @@ final class MatrixSession {
     @ObservationIgnored private var autoOpenRoomId: String?
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var pushTokenObserver: NSObjectProtocol?
+    /// Continuations awaiting the next processed sync (background-wake drain).
+    @ObservationIgnored private var syncWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Local notifications posted in the current sync batch (flood guard).
+    @ObservationIgnored private var backgroundNotifyCount = 0
 
     init() {
         pushTokenObserver = NotificationCenter.default.addObserver(
@@ -237,6 +244,7 @@ final class MatrixSession {
     // MARK: - Sync handling
 
     private func handleSync(_ frame: [String: Any]) async {
+        backgroundNotifyCount = 0
         let sync = SyncModel.parse(frame)
         // Feed e2ee state (to-device room keys, device lists, OTK counts) and
         // drain outgoing crypto requests BEFORE decrypting room events.
@@ -246,6 +254,7 @@ final class MatrixSession {
         for room in sync.rooms { await processRoom(room) }
         rebuildRoomList()
         applyAutoOpen()
+        resumeSyncWaiters()
     }
 
     private func processRoom(_ room: SyncRoom) async {
@@ -293,6 +302,7 @@ final class MatrixSession {
             let event = DecryptedRoomEvent(outer: outer, clear: clear, isOwn: outer.sender == userId)
             roomEventCache[room.id, default: []].append(event)
             if isActive { onRoomEvent?(room.id, event, true) }
+            if isBackgrounded, !event.isOwn { maybePostBackgroundNotification(outer: outer, clear: clear) }
         }
 
         // chat4000.status (cleartext state) → busy indicator, active room only.
@@ -526,7 +536,89 @@ final class MatrixSession {
         }
     }
 
+    // MARK: - Background wake (silent push drain)
+
+    /// Drain on a silent push: ensure the gateway is connected and wait for one
+    /// processed sync (bounded). Reuses this session's single OlmMachine — no
+    /// second crypto store is opened. Notifications for new push-eligible plugin
+    /// messages are posted from `processRoom` while backgrounded.
+    func backgroundWake() async -> Bool {
+        if connectionState != .connected { await connect() }
+        guard connectionState == .connected else { return false }
+        await waitForSync(timeout: .seconds(8))
+        return true
+    }
+
+    private func waitForSync(timeout: Duration) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            syncWaiters.append(continuation)
+            Task { try? await Task.sleep(for: timeout); self.resumeSyncWaiters() }
+        }
+    }
+
+    private func resumeSyncWaiters() {
+        let waiters = syncWaiters
+        syncWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// True when the app is not foregrounded (iOS). Always false on macOS, which
+    /// has no silent-push background drain.
+    private var isBackgrounded: Bool {
+        #if canImport(UIKit)
+        UIApplication.shared.applicationState != .active
+        #else
+        false
+        #endif
+    }
+
+    /// Post a local notification for a newly-decrypted, push-eligible plugin
+    /// message (mirrors the `chat4000.push` flag, protocol E), deduped by event
+    /// id and capped per sync batch. Streaming partials (`chat4000.push: false`)
+    /// and tool/status events never notify.
+    private func maybePostBackgroundNotification(outer: SyncEvent, clear: String?) {
+        guard backgroundNotifyCount < 3, let eid = outer.eventId, !Self.wasNotified(eid) else { return }
+        // Push eligibility: explicit `chat4000.push: false` on the cleartext
+        // envelope → not the final answer → skip.
+        if let envelope = parseJSON(outer.rawJSON)?["content"] as? [String: Any],
+           (envelope["chat4000.push"] as? Bool) == false { return }
+        guard let clear, let obj = parseJSON(clear),
+              let content = obj["content"] as? [String: Any] else { return }
+
+        let body: String
+        switch content["msgtype"] as? String {
+        case "m.text", "m.notice", "m.emote":
+            let newContent = content["m.new_content"] as? [String: Any]
+            body = (newContent?["body"] as? String) ?? (content["body"] as? String) ?? "New message"
+        case "m.image": body = "📷 Photo"
+        case "m.audio": body = "🎤 Voice message"
+        default: return // tool / status / other → no notification
+        }
+
+        Self.markNotified(eid)
+        backgroundNotifyCount += 1
+        Task { await PushNotificationManager.shared.presentLocalNotification(body: body) }
+    }
+
     // MARK: - Helpers
+
+    private func parseJSON(_ string: String) -> [String: Any]? {
+        guard let data = string.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// Bounded record of event ids we've already notified for, so a cold-launch
+    /// drain (which re-sees recent timeline) doesn't re-alert old messages.
+    private static let notifiedKey = "chat4000.notifiedEventIds"
+    private static func wasNotified(_ id: String) -> Bool {
+        (UserDefaults.standard.stringArray(forKey: notifiedKey) ?? []).contains(id)
+    }
+    private static func markNotified(_ id: String) {
+        var ids = UserDefaults.standard.stringArray(forKey: notifiedKey) ?? []
+        ids.append(id)
+        if ids.count > 200 { ids.removeFirst(ids.count - 200) }
+        UserDefaults.standard.set(ids, forKey: notifiedKey)
+    }
 
     /// Percent-encode the path segments (room ids / event ids contain `!`, `:`,
     /// `@`) while leaving the slashes and any query string intact.

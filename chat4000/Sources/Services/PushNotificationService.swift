@@ -15,7 +15,9 @@ final class PushNotificationManager: NSObject {
 
     private let tokenDefaultsKey = "chat4000.PushDeviceToken"
 
-    var backgroundWakeHandler: (@Sendable () async -> Bool)?
+    /// Set by the app to drain queued messages on a silent push. MainActor-
+    /// isolated so it can reach the live `MatrixSession`.
+    var backgroundWakeHandler: (@MainActor () async -> Bool)?
 
     var deviceToken: String? {
         UserDefaults.standard.string(forKey: tokenDefaultsKey)

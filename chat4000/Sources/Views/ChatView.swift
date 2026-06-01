@@ -1013,6 +1013,12 @@ final class ChatViewModel {
     /// True once a Matrix session is persisted on disk (drives launch routing).
     var isPaired: Bool { matrixSession.isPaired }
 
+    /// Silent-push wake entry point (A1): connect + drain one sync via the
+    /// Matrix session; it posts local notifications for new messages.
+    func backgroundWake() async -> Bool {
+        await matrixSession.backgroundWake()
+    }
+
     // MARK: - Busy state
 
     private func markBusy(phase: String) {

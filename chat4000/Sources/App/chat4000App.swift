@@ -43,8 +43,12 @@ struct chat4000App: App {
         _showLegalReconsentModal = State(initialValue: false)
         _currentTermsVersion = State(initialValue: nil)
 
-        // TODO(v2): background silent-push wake should drain via a short-lived
-        // Matrix sync; the v1 relay-based wake service was removed.
+        // Silent-push wake (A1): drain via the live Matrix session — connect +
+        // one sync — which posts local notifications for new messages while
+        // backgrounded. Reuses the session's single OlmMachine (no second store).
+        PushNotificationManager.shared.backgroundWakeHandler = { @MainActor in
+            await initialViewModel.backgroundWake()
+        }
         PushNotificationManager.shared.clearBadge()
 
         TelemetryManager.shared.configure(from: Self.loadDevConfig())
