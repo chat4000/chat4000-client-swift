@@ -14,6 +14,14 @@ Last updated: 2026-06-01.
 
 **Fix sketch.** Enable server-side key backup (megolm backup + recovery key / SSSS) so a new device can restore history, and/or implement cross-signing + device verification so existing devices share historical keys to a newly-verified one. Both are `matrix-sdk-crypto` features (`BackupKeys`, `BackupRecoveryKey`, `CrossSigningSecrets`, `Verification` are present in the vendored FFI) — they just aren't wired into `CryptoEngine` yet.
 
+## Delivery ticks are dead (should be receipt-driven)
+
+**What.** Message ticks are vestigial from v1's relay ack layer — an outbound message flips to `.sent` immediately and never to `.delivered`/`.read`. There's no real delivery/read signal.
+
+**Why.** v2 has no relay `relay_recv_ack` / inner ack. But Matrix *does* carry **read receipts** (`m.receipt`, incl. `m.read.private`) as events in the sync `receipts` extension (we already request it in `SlidingSync` and send our own via `markRead`).
+
+**Fix sketch.** Parse inbound `m.receipt` from `SyncModel`/sync, match the receipt's `event_id` to our outbound rows, and flip their status to a real "read" tick. Replaces the meaningless `.sent`-only state. ("sent" can also be made truthful: the `PUT /send` returning an `event_id` means it's on the server.)
+
 ## Gateway `sync_ack` rollout coordination
 
 **What.** The client now implements protocol D.1's device-acked sync cursor: it persists the last `pos` per account, resends it on reconnect (`sync_start.pos`), and sends `sync_ack { pos }` after durably persisting each batch (crypto keys via `processSync`, then messages). This also resolved the old "reconnect re-syncs from scratch" debt.
