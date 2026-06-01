@@ -267,6 +267,12 @@ final class MatrixSession {
     private func handleSync(_ frame: [String: Any]) async {
         backgroundNotifyCount = 0
         let sync = SyncModel.parse(frame)
+        AppLog.log("🔄 sync pos=%@ rooms=%d to_device=%d", sync.pos ?? "nil", sync.rooms.count, sync.toDevice.count)
+        for r in sync.rooms {
+            AppLog.log("🏠 room %@ kind=%@ space=%@ invite=%@ enc=%@ members=%d tl=%d",
+                       r.id, r.roomKind ?? "nil", String(r.isSpace), String(r.isInvite),
+                       String(r.isEncrypted), r.members.count, r.timeline.count)
+        }
         // Feed e2ee state (to-device room keys, device lists, OTK counts) and
         // drain outgoing crypto requests BEFORE decrypting room events.
         do { try await crypto?.processSync(sync) }
@@ -365,6 +371,8 @@ final class MatrixSession {
             if roomKinds[id] == "control" { return nil }
             return RoomSummary(id: id, name: roomNames[id] ?? Self.shortId(id))
         }
+        AppLog.log("📋 rebuilt: ordered=%d sessions=%d spaces=%d control=%@",
+                   roomOrder.count, rooms.count, spaceRooms.count, controlRoomId ?? "nil")
     }
 
     private func applyAutoOpen() {
