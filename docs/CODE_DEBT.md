@@ -14,15 +14,26 @@ Last updated: 2026-06-01.
 
 **Fix sketch.** Enable server-side key backup (megolm backup + recovery key / SSSS) so a new device can restore history, and/or implement cross-signing + device verification so existing devices share historical keys to a newly-verified one. Both are `matrix-sdk-crypto` features (`BackupKeys`, `BackupRecoveryKey`, `CrossSigningSecrets`, `Verification` are present in the vendored FFI) — they just aren't wired into `CryptoEngine` yet.
 
-## Reconnect re-syncs from scratch
+## Gateway `sync_ack` rollout coordination
 
-**What.** On a dropped gateway socket, `MatrixSession.handleSocketClosed` builds a fresh `GatewayClient` and starts a new sliding-sync without the previous `pos` cursor.
+**What.** The client now implements protocol D.1's device-acked sync cursor: it persists the last `pos` per account, resends it on reconnect (`sync_start.pos`), and sends `sync_ack { pos }` after durably persisting each batch (crypto keys via `processSync`, then messages). This also resolved the old "reconnect re-syncs from scratch" debt.
 
-**Why.** Quickest correct reconnect; the new client has no `syncPos`.
+**Why it's still listed.** `protocol.md` mandates `sync_ack`, but the gateway code (`chat4000-matrix-ws-proxy/src/protocol.rs`) does **not yet** parse a `sync_ack` frame — its `ClientFrame` is still `Auth/SyncStart/SyncUpdate/SyncStop/Req`. So client and gateway must ship `sync_ack` together: a gateway that errors on the unknown frame could close the socket; a gateway that auto-advances just ignores the ack (client still works, minus the key-loss protection the ack buys).
 
-**Impact.** Works, but each reconnect refetches the current sync window instead of resuming — extra bandwidth/latency, and a larger initial diff to process.
+**Action.** Confirm the deployed gateway accepts — and gates the upstream cursor on — `sync_ack` before/with this client release.
 
-**Fix sketch.** Persist the last `pos` (per account) and pass it to `startSync` on reconnect, or keep the `GatewayClient` and re-`auth` in place instead of rebuilding.
+## Agent-turn visual grouping
+
+**What.** Tool-call bubbles and the agent-status label render inline in timeline order; they're not visually nested under their answer "turn" (protocol E groups by the encrypted `chat4000.turn_id`).
+
+**Why deferred.** No correctness impact — inline chronological rendering is a valid presentation, and the client does **not** depend on the removed `m.relates_to(chat4000.turn)` scheme (it reads `m.relates_to` only for `m.replace` edits). Visual nesting is a `ChatView`/`MessageBubble` redesign (collapsible turn view), deferred as a UX enhancement.
+
+**Fix sketch.** Read `chat4000.turn_id` from decrypted tool/answer content, carry it on `ChatMessage`, render tools + status grouped under their anchor bubble.
+
+## Protocol concerns to raise (client-relevant)
+
+- **`sync_ack` gates *all* batches, not just key-bearing ones.** Streaming a turn is many `m.replace` timeline edits (no new keys), yet each needs a persist+ack round-trip before the gateway sends the next frame — adding RTT per edit to live streaming. Only to-device (key) batches strictly need the durable-ack; the client could safely fast-ack key-less batches. Worth raising with the protocol owner.
+- **Device-cap eviction has no client signal.** Adding a 5th device silently kills the oldest device's token (G / C.4); the client just sees auth failures and our `reauth` resends the dead token in a loop. Want a distinct `auth_error` reason (e.g. `device_revoked`) so the client can say "this device was signed out" and route to re-pair. (Multi-device history / key backup is tracked above under "E2EE history on a newly-added device".)
 
 ## Token refresh just resends the same token
 

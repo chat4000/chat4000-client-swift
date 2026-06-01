@@ -17,8 +17,9 @@ struct SettingsSheet: View {
     let pluginBundleId: String?
     var onDisconnect: () -> Void
     var onClearHistory: () -> Void
-    /// Optional: ask the paired plugin to update itself (protocol §5, owner-gated
-    /// server-side). Fire-and-forget — the result isn't surfaced.
+    /// Optional: ask the paired plugin to update itself (protocol E). Any
+    /// control-room member may run it — there's no separate owner role; the
+    /// plugin gates on control-room membership. Fire-and-forget.
     var onUpdatePlugin: (() -> Void)? = nil
 
     @State private var showClearConfirmation = false

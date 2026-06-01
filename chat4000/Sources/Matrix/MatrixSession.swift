@@ -152,8 +152,10 @@ final class MatrixSession {
     }
 
     func signOut() async {
+        let uid = userId
         await disconnect()
         MatrixCredentialStore.delete()
+        if let uid { UserDefaults.standard.removeObject(forKey: Self.syncPosKey(uid)) }
         userId = nil
     }
 
@@ -217,7 +219,11 @@ final class MatrixSession {
 
         // Publish our device keys / one-time keys before syncing.
         try await crypto.runOutgoingRequests()
-        gateway.startSync(body: SlidingSync.requestBody())
+        // Resume from the device's last durably-acked position (protocol D.1):
+        // the device is the source of truth for `pos`, so to-device room keys we
+        // hadn't persisted are still on the homeserver and get re-delivered.
+        let resumePos = Self.loadSyncPos(userId: auth.userId)
+        gateway.startSync(body: SlidingSync.requestBody(), pos: resumePos)
 
         if let token = PushNotificationManager.shared.deviceToken {
             await registerPushToken(token)
@@ -254,6 +260,17 @@ final class MatrixSession {
         for room in sync.rooms { await processRoom(room) }
         rebuildRoomList()
         applyAutoOpen()
+
+        // Durable-ack the cursor (protocol D.1, "Sync cursor & key delivery"):
+        // processSync persisted the to-device Megolm keys + crypto state and the
+        // dispatch above persisted messages, so it's now safe to let the gateway
+        // advance upstream (and the homeserver delete the acked to-device). The
+        // gateway holds the cursor until this arrives — without it, sync never
+        // advances and no new messages are delivered.
+        if let pos = sync.pos {
+            Self.saveSyncPos(pos, userId: userId)
+            gateway?.syncAck(pos: pos)
+        }
         resumeSyncWaiters()
     }
 
@@ -605,6 +622,17 @@ final class MatrixSession {
     private func parseJSON(_ string: String) -> [String: Any]? {
         guard let data = string.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// Per-account durably-persisted sync position (protocol D.1). The device is
+    /// the source of truth for `pos`; we resend it on reconnect so un-acked
+    /// to-device room keys are re-delivered rather than lost.
+    private static func syncPosKey(_ userId: String?) -> String { "chat4000.syncPos.\(userId ?? "")" }
+    private static func saveSyncPos(_ pos: String, userId: String?) {
+        UserDefaults.standard.set(pos, forKey: syncPosKey(userId))
+    }
+    private static func loadSyncPos(userId: String) -> String? {
+        UserDefaults.standard.string(forKey: syncPosKey(userId))
     }
 
     /// Bounded record of event ids we've already notified for, so a cold-launch

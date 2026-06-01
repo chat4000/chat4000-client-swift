@@ -110,8 +110,12 @@ final class GatewayClient: GatewayRequesting {
 
     // MARK: - Sync
 
-    func startSync(body: [String: Any]) {
+    /// Start/resume the sliding-sync loop. `pos` is the device's last
+    /// durably-persisted position (protocol D.1) — pass it on reconnect so the
+    /// gateway resumes upstream from there; omit for a fresh sync.
+    func startSync(body: [String: Any], pos: String? = nil) {
         syncBody = body
+        if let pos { syncPos = pos }
         var frame: [String: Any] = ["t": "sync_start", "body": body]
         if let syncPos { frame["pos"] = syncPos }
         send(frame)
@@ -120,6 +124,16 @@ final class GatewayClient: GatewayRequesting {
     func updateSync(body: [String: Any]) {
         syncBody = body
         send(["t": "sync_update", "body": body])
+    }
+
+    /// Acknowledge that the device has DURABLY persisted everything in the sync
+    /// up to `pos` (incl. to-device Megolm keys + crypto state). The gateway
+    /// gates the upstream cursor on this — it will not advance (and the
+    /// homeserver will not delete the acked to-device messages) until it
+    /// arrives (protocol D.1, "Sync cursor & key delivery").
+    func syncAck(pos: String) {
+        syncPos = pos
+        send(["t": "sync_ack", "pos": pos])
     }
 
     func stopSync() { send(["t": "sync_stop"]) }

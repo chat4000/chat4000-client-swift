@@ -210,10 +210,17 @@ final class MatrixMessageTransport: MessageTransport {
         }
     }
 
-    /// Map a `chat4000.status` state value to a status inner message. The
-    /// protocol's `working` collapses to the app's "thinking" busy phase.
+    /// Map a `chat4000.status` state value to a status inner message. `idle`
+    /// clears busy; `typing` is the typing phase; everything else — `thinking`,
+    /// `working`, and any future/unknown state — maps to the generic busy
+    /// ("thinking") phase, per protocol E ("unrecognized state → fall back to a
+    /// generic Working…, never error").
     private func emitStatus(_ state: String) {
-        let mapped = (state == "working") ? "thinking" : state
+        let mapped: String
+        switch state {
+        case "idle", "typing", "thinking": mapped = state
+        default: mapped = "thinking"
+        }
         onReceive?(InnerMessage(
             t: .status, id: UUID().uuidString,
             from: SenderInfo(role: .plugin, deviceId: "", deviceName: ""),
