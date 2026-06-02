@@ -132,7 +132,16 @@ final class MatrixMessageTransport: MessageTransport {
         case "m.audio":
             handleMedia(content: content, outer: event.outer, isOwn: event.isOwn, kind: .audio, ts: ts)
         default:
-            break
+            // We are about to DROP this decrypted event. Log the WHOLE thing —
+            // event type + full content — so we can see exactly what the plugin
+            // is sending that we ignore (wasted bandwidth), and whether tool calls
+            // are hiding here in a shape we don't recognize. Nothing gets dropped
+            // silently.
+            AppLog.log("🗑️ ingest DROPPED type=%@ msgtype=%@ sender=%@ own=%@ live=%@ rel=%@ clear=%@",
+                       clearObj["type"] as? String ?? "nil",
+                       content["msgtype"] as? String ?? "nil",
+                       event.outer.sender ?? "nil", String(event.isOwn), String(live),
+                       relation?.relType ?? "-", clear)
         }
     }
 

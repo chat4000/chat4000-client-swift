@@ -31,7 +31,14 @@ struct ChatShell: View {
             // The session auto-selects the most-recent room, and the sidebar
             // selects others; both flow through here into the view model.
             .onChange(of: viewModel.matrixSession.activeRoomId) { _, newId in
-                if let newId { viewModel.switchRoom(id: newId) }
+                // G1: when the session resets (e.g. a new pairing) the active room
+                // goes nil — clear the visible room + messages so we don't keep
+                // showing the OLD room's persisted messages with no session.
+                if let newId {
+                    viewModel.switchRoom(id: newId)
+                } else {
+                    viewModel.clearActiveRoom()
+                }
             }
             .alert(
                 "Couldn't reach your plugin",
@@ -91,6 +98,7 @@ struct ChatShell: View {
         SessionsSidebar(
             session: viewModel.matrixSession,
             onSelect: { id in
+                Haptics.impact()   // G5: tactile feedback on session switch
                 viewModel.switchRoom(id: id)
                 #if os(iOS)
                 withAnimation(.easeInOut(duration: 0.2)) { showSidebar = false }

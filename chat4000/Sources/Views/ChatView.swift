@@ -308,7 +308,7 @@ struct ChatView: View {
     @ViewBuilder
     private var messageListRows: some View {
         if viewModel.messages.isEmpty && !viewModel.isAgentBusy {
-            if viewModel.isSettingUp {
+            if viewModel.showSetupProgress {
                 SetupProgressView(phase: viewModel.setupPhase)
                     .id("setupProgress")
             } else {
@@ -943,6 +943,18 @@ final class ChatViewModel {
     var isAgentBusy = false
     var busyStartTime: Date?
     var busyPhase: String = "Thinking"
+    /// Per-room busy state. `isAgentBusy`/`busyStartTime`/`busyPhase` reflect the
+    /// ACTIVE room for the UI; these dicts remember each room's busy start/phase
+    /// so switching to another session and back does NOT zero the thinking timer
+    /// (the agent is still working on that room — its clock keeps running).
+    @ObservationIgnored private var busyStartByRoom: [String: Date] = [:]
+    @ObservationIgnored private var busyPhaseByRoom: [String: String] = [:]
+    /// 4a: when busy is cleared then re-marked within a blink (re-delivered reply
+    /// clears, stale `typing` re-marks), that's churn — not a real stop. Remember
+    /// the prior start + when it cleared so markBusy can reuse it instead of
+    /// zeroing the clock.
+    @ObservationIgnored private var busyPriorStartByRoom: [String: Date] = [:]
+    @ObservationIgnored private var busyClearedAtByRoom: [String: Date] = [:]
     var scrollRevision = 0
 
     /// The Matrix room (session) currently shown. Messages are scoped to it.
@@ -1050,11 +1062,23 @@ final class ChatViewModel {
         currentStreamId = nil
         currentStreamText = ""
         currentStreamMessageId = nil
+        // Reflect the room we're switching TO — its own busy clock, not the
+        // previous room's. (selectRoom's status replay may refine it.)
+        restoreBusyState(for: id)
         // Drop the previous room's in-memory rows before loading the new
         // room's, so the transient-merge doesn't carry them across.
         messages = []
         matrixSession.selectRoom(id)
         loadMessagesMergingTransientState()
+    }
+
+    /// G1: the session reset (new pairing / signed out) — drop the visible room
+    /// and its messages so a stale `activeRoomId` doesn't keep the old room's
+    /// persisted messages on screen when no session is active.
+    func clearActiveRoom() {
+        activeRoomId = nil
+        messages = []
+        requestScrollToBottom()
     }
 
     func refreshMessages() {
@@ -1089,6 +1113,9 @@ final class ChatViewModel {
     var setupPhase: MatrixSession.SetupPhase { matrixSession.setupPhase }
     /// Still bringing the workspace up (show progress, not the empty/New-chat state).
     var isSettingUp: Bool { matrixSession.setupPhase != .ready }
+    /// G4: show the first-run setup screen ONLY before the workspace has ever been
+    /// set up. On relaunch (already set up once) we skip it — no "connecting" screen.
+    var showSetupProgress: Bool { isSettingUp && !matrixSession.hasCompletedFirstSetup }
 
     /// Silent-push wake entry point (A1): connect + drain one sync via the
     /// Matrix session; it posts local notifications for new messages.
@@ -1099,17 +1126,45 @@ final class ChatViewModel {
     // MARK: - Busy state
 
     private func markBusy(phase: String) {
-        if !isAgentBusy {
-            isAgentBusy = true
-            busyStartTime = .now
+        guard let room = activeRoomId else { return }
+        AppLog.log("🌀 markBusy room=%@ phase=%@ wasBusy=%@", room, phase, isAgentBusy ? "true" : "false")
+        if busyStartByRoom[room] == nil {
+            // 4a: re-marked moments after a clear → churn (re-delivered reply
+            // cleared, stale `typing` re-marks), not a real new turn. Reuse the
+            // original start so the timer doesn't zero; only a real gap starts fresh.
+            if let prior = busyPriorStartByRoom[room], let cleared = busyClearedAtByRoom[room],
+               Date().timeIntervalSince(cleared) < 3 {
+                busyStartByRoom[room] = prior
+            } else {
+                busyStartByRoom[room] = .now
+            }
         }
-        if busyPhase != phase {
-            busyPhase = phase
-        }
+        busyPhaseByRoom[room] = phase
+        isAgentBusy = true
+        busyStartTime = busyStartByRoom[room]
+        busyPhase = phase
     }
 
     private func clearBusy() {
-        if isAgentBusy {
+        AppLog.log("🌀 clearBusy room=%@ wasBusy=%@", activeRoomId ?? "nil", isAgentBusy ? "true" : "false")
+        if let room = activeRoomId {
+            busyPriorStartByRoom[room] = busyStartByRoom[room]   // 4a: remember for sticky reuse
+            busyClearedAtByRoom[room] = .now
+            busyStartByRoom[room] = nil
+            busyPhaseByRoom[room] = nil
+        }
+        isAgentBusy = false
+        busyStartTime = nil
+    }
+
+    /// Show the busy state belonging to `room` (on room switch) so the indicator
+    /// + timer reflect that room, not whatever was last active.
+    private func restoreBusyState(for room: String) {
+        if let start = busyStartByRoom[room] {
+            isAgentBusy = true
+            busyStartTime = start
+            busyPhase = busyPhaseByRoom[room] ?? "Thinking"
+        } else {
             isAgentBusy = false
             busyStartTime = nil
         }

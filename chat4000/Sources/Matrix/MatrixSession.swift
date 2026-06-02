@@ -289,10 +289,20 @@ final class MatrixSession {
 
         // Publish our device keys / one-time keys before syncing.
         try await crypto.runOutgoingRequests()
-        // Resume from the device's last durably-acked position (protocol D.1):
-        // the device is the source of truth for `pos`, so to-device room keys we
-        // hadn't persisted are still on the homeserver and get re-delivered.
-        let resumePos = Self.loadSyncPos(userId: auth.userId)
+        // Resume from the saved `pos` ONLY on a warm reconnect — i.e. when we
+        // still hold the room list in memory (`roomOrder` non-empty). The gateway
+        // resumes upstream from `pos` and sends deltas-since-`pos` (`rooms=0` when
+        // nothing changed); it does NOT re-send the room snapshot. On a COLD
+        // launch the in-memory room list is empty (it's never persisted), so a
+        // `pos`-resume leaves the list empty forever and the app sits on the
+        // setup screen despite being connected. A fresh full sync (`pos=nil`)
+        // re-delivers the room snapshot AND any pending to-device keys (the
+        // homeserver keeps un-acked to-device until the cursor advances past
+        // them), so nothing is lost — it just costs one full sync on launch.
+        let isWarmReconnect = !roomOrder.isEmpty
+        let resumePos = isWarmReconnect ? Self.loadSyncPos(userId: auth.userId) : nil
+        AppLog.log("🔗 startSync %@ (rooms_in_memory=%d) pos=%@",
+                   isWarmReconnect ? "warm-resume" : "cold-full", roomOrder.count, resumePos ?? "nil")
         gateway.startSync(body: SlidingSync.requestBody(), pos: resumePos)
 
         if let token = PushNotificationManager.shared.deviceToken {
@@ -445,6 +455,22 @@ final class MatrixSession {
             if isBackgrounded, !event.isOwn { maybePostBackgroundNotification(outer: outer, clear: clear) }
         }
 
+        // DIAG: capture the RAW chat4000.status state per sync so we can locate
+        // where a missing `idle` dies — is the homeserver's current state genuinely
+        // stuck at `typing` (plugin/gateway never wrote idle), or does it show
+        // `idle` while we keep spinning (client mis-tracking)? Logs the current
+        // value, the value we last acted on, and the state event's id/ts/sender.
+        if isActive, !isControl {
+            if let ev = room.requiredState.first(where: { $0.type == "chat4000.status" }) {
+                AppLog.log("👻 status room=%@ value=%@ last=%@ ts=%@ sender=%@ eid=%@",
+                           room.id, room.statusState ?? "nil", lastStatusByRoom[room.id] ?? "nil",
+                           String(ev.originServerTs ?? 0), ev.sender ?? "nil", ev.eventId ?? "nil")
+            } else {
+                AppLog.debug("👻 status room=%@ (no chat4000.status this sync) last=%@",
+                             room.id, lastStatusByRoom[room.id] ?? "nil")
+            }
+        }
+
         // chat4000.status (cleartext state) → busy indicator, active room only.
         if isActive, !isControl, let state = room.statusState, lastStatusByRoom[room.id] != state {
             lastStatusByRoom[room.id] = state
@@ -488,9 +514,16 @@ final class MatrixSession {
     }
 
     /// Recompute the first-run progress phase from current room state.
+    /// G4: true once the workspace has ever been set up (a control/session room
+    /// existed). On relaunch we use this to SKIP the first-run setup/"connecting"
+    /// screen and go straight to the chat, instead of flashing it every cold start.
+    var hasCompletedFirstSetup: Bool { UserDefaults.standard.bool(forKey: Self.firstSetupKey) }
+    private static let firstSetupKey = "chat4000.didCompleteFirstSetup"
+
     private func updateSetupPhase() {
         if controlRoomId != nil || !rooms.isEmpty {
             setupPhase = .ready
+            UserDefaults.standard.set(true, forKey: Self.firstSetupKey)   // G4
         } else if !joinedInviteAttempts.isEmpty {
             setupPhase = .joiningWorkspace          // joined an invite; awaiting the joined re-sync
         } else {
@@ -517,7 +550,10 @@ final class MatrixSession {
         for event in roomEventCache[id] ?? [] {
             onRoomEvent?(id, event, false)
         }
-        if let state = lastStatusByRoom[id] { onActiveRoomStatus?(state) }
+        if let state = lastStatusByRoom[id] {
+            AppLog.log("👻 selectRoom REPLAY status room=%@ value=%@ (re-emitting cached state)", id, state)
+            onActiveRoomStatus?(state)
+        }
     }
 
     // MARK: - Sending (called by the transport)
