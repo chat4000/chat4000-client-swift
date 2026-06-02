@@ -15,7 +15,10 @@ enum MatrixCredentialStore {
     }
 
     private static var fileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fatalError("application support directory is unavailable on this platform")
+        }
         let dir = appSupport
             .appendingPathComponent("chat4000", isDirectory: true)
             .appendingPathComponent(AppEnvironment.current.storageNamespace, isDirectory: true)

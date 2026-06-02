@@ -97,7 +97,9 @@ enum MatrixPairing {
         case (429, _): return "Too many attempts. Wait a moment and try again."
         case (404, _), (400, _): return "Invalid pairing code."
         case (503, _): return "Server unavailable. Please try again."
-        default: return parsed?.error.isEmpty == false ? parsed!.error : "Pairing failed (HTTP \(status))"
+        default:
+            if let parsedError = parsed?.error, !parsedError.isEmpty { return parsedError }
+            return "Pairing failed (HTTP \(status))"
         }
     }
 }

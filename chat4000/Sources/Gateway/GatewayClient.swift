@@ -188,7 +188,7 @@ final class GatewayClient: GatewayRequesting {
             "app_id": identity.appId,
             "client_version": identity.clientVersion,
             "platform": identity.platform,
-            "release_channel": identity.releaseChannel,
+            "release_channel": identity.releaseChannel
         ]
     }
 
@@ -274,7 +274,6 @@ final class GatewayClient: GatewayRequesting {
             onSync?(obj)
         default:
             AppLog.debug("🛰️← UNHANDLED frame t=%@", type)
-            break
         }
     }
 

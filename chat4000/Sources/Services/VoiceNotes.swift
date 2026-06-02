@@ -134,6 +134,7 @@ enum VoiceWaveformBuilder {
 
             return downsample(output, targetCount: targetCount)
         } catch {
+            ErrorReporter.capture(error, context: "VoiceNotes.waveform.read")
             return downsample([], targetCount: targetCount)
         }
     }
@@ -177,7 +178,7 @@ final class VoiceNoteRecorder {
             AVSampleRateKey: 24_000,
             AVNumberOfChannelsKey: 1,
             AVEncoderBitRateKey: 32_000,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
         ]
 
         let recorder = try AVAudioRecorder(url: url, settings: settings)
@@ -331,6 +332,7 @@ final class VoicePlaybackController {
             self.duration = resolvedDuration(hint: durationHint, fallback: player.duration)
             self.currentTime = 0
         } catch {
+            ErrorReporter.capture(error, context: "VoiceNotes.player.init")
             self.player = nil
             self.sourceKey = nil
             self.duration = resolvedDuration(hint: durationHint, fallback: 0)

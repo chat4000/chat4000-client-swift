@@ -157,7 +157,12 @@ final class MatrixSession {
             // inherit a stale key DB (different user / device_id).
             Self.wipeCryptoStore()
             try await startClient(stored)
+        } catch let error as MatrixError {
+            // Expected, user-facing pairing failures (bad/expired code, etc.).
+            connectionState = .failed(error.localizedDescription)
+            AppLog.log("❌ Matrix pairing failed: \(error)")
         } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.pair.startClient")
             connectionState = .failed(error.localizedDescription)
             AppLog.log("❌ Matrix pairing failed: \(error)")
         }
@@ -174,6 +179,7 @@ final class MatrixSession {
         do {
             try await startClient(stored)
         } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.connect.startClient")
             connectionState = .failed(error.localizedDescription)
             AppLog.log("❌ Matrix connect failed: \(error)")
         }
@@ -289,8 +295,8 @@ final class MatrixSession {
         guard connectionState == .reconnecting, let stored = creds else { return }
         gateway = nil
         crypto = nil
-        do { try await startClient(stored) }
-        catch {
+        do { try await startClient(stored) } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.reconnect.startClient")
             AppLog.log("❌ reconnect failed: \(error)")
             await handleSocketClosed()
         }
@@ -309,8 +315,10 @@ final class MatrixSession {
         }
         // Feed e2ee state (to-device room keys, device lists, OTK counts) and
         // drain outgoing crypto requests BEFORE decrypting room events.
-        do { try await crypto?.processSync(sync) }
-        catch { AppLog.log("⚙️ crypto.processSync failed: \(error)") }
+        do { try await crypto?.processSync(sync) } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.processSync")
+            AppLog.log("⚙️ crypto.processSync failed: \(error)")
+        }
 
         for room in sync.rooms { await processRoom(room) }
         retryUndecrypted()
@@ -357,8 +365,10 @@ final class MatrixSession {
         // These were silently `try?`'d; a failure here breaks key sharing
         // (no algorithm set / untracked users → no Olm session → UTD), so log it.
         if room.isEncrypted, !encryptedRooms.contains(room.id) {
-            do { try crypto?.markRoomEncrypted(room.id); encryptedRooms.insert(room.id) }
-            catch { AppLog.log("⚙️ markRoomEncrypted failed for %@: %@", room.id, error.localizedDescription) }
+            do { try crypto?.markRoomEncrypted(room.id); encryptedRooms.insert(room.id) } catch {
+                ErrorReporter.capture(error, context: "MatrixSession.markRoomEncrypted")
+                AppLog.log("⚙️ markRoomEncrypted failed for %@: %@", room.id, error.localizedDescription)
+            }
         }
         if !room.members.isEmpty {
             roomMembers[room.id] = room.members
@@ -369,6 +379,7 @@ final class MatrixSession {
                     trackedUsers.formUnion(newUsers)
                     AppLog.debug("🔑 tracking %d new user(s) for key queries: %@", newUsers.count, newUsers.joined(separator: ","))
                 } catch {
+                    ErrorReporter.capture(error, context: "MatrixSession.updateTrackedUsers")
                     AppLog.log("⚙️ updateTrackedUsers failed for %@: %@", room.id, error.localizedDescription)
                 }
             }
@@ -504,6 +515,7 @@ final class MatrixSession {
             )
             if let eventId { onSentEventId?(localId, eventId) }
         } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.sendText")
             AppLog.log("⚠️ Matrix sendText failed: \(error)")
         }
     }
@@ -538,6 +550,7 @@ final class MatrixSession {
                 roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content)
             if let eventId { onSentEventId?(localId, eventId) }
         } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.sendMedia")
             AppLog.log("⚠️ Matrix media send failed: \(error)")
         }
     }
@@ -553,7 +566,11 @@ final class MatrixSession {
     /// Private read receipt for the latest event in a room (protocol D.2).
     func sendReadReceipt(roomId: String, eventId: String) async {
         let path = "/_matrix/client/v3/rooms/\(roomId)/receipt/m.read.private/\(eventId)"
-        _ = try? await gateway?.request(method: "POST", path: percentEncodePath(path), body: [:])
+        do {
+            _ = try await gateway?.request(method: "POST", path: percentEncodePath(path), body: [:])
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.sendReadReceipt")
+        }
     }
 
     // MARK: - Control-room commands (protocol E)
@@ -580,14 +597,22 @@ final class MatrixSession {
     func muteRoom(_ roomId: String) {
         Task {
             let path = "/_matrix/client/v3/pushrules/global/room/\(roomId)"
-            _ = try? await gateway?.request(method: "PUT", path: percentEncodePath(path), body: ["actions": ["dont_notify"]])
+            do {
+                _ = try await gateway?.request(method: "PUT", path: percentEncodePath(path), body: ["actions": ["dont_notify"]])
+            } catch {
+                ErrorReporter.capture(error, context: "MatrixSession.muteRoom")
+            }
         }
     }
 
     func unmuteRoom(_ roomId: String) {
         Task {
             let path = "/_matrix/client/v3/pushrules/global/room/\(roomId)"
-            _ = try? await gateway?.request(method: "DELETE", path: percentEncodePath(path), body: nil)
+            do {
+                _ = try await gateway?.request(method: "DELETE", path: percentEncodePath(path), body: nil)
+            } catch {
+                ErrorReporter.capture(error, context: "MatrixSession.unmuteRoom")
+            }
         }
     }
 
@@ -612,6 +637,7 @@ final class MatrixSession {
                     cleartextEnvelope: ["chat4000.push": false]
                 )
             } catch {
+                ErrorReporter.capture(error, context: "MatrixSession.controlCommand")
                 AppLog.log("⚙️ control command send failed: \(error)")
                 lastCommandError = "Couldn't send that to your plugin. Please try again."
             }
@@ -676,13 +702,14 @@ final class MatrixSession {
             "lang": "en",
             "data": [
                 "url": MatrixEnvironment.current.notificationPushURL,
-                "format": "event_id_only",
-            ],
+                "format": "event_id_only"
+            ]
         ]
         do {
             _ = try await gateway?.request(method: "POST", path: "/_matrix/client/v3/pushers/set", body: body)
             AppLog.log("✅ APNs pusher registered (app_id=\(appId))")
         } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.pusherSet")
             AppLog.log("❌ pusher set failed: \(error)")
         }
     }
@@ -773,6 +800,7 @@ final class MatrixSession {
         do {
             _ = try await gateway?.request(method: "POST", path: percentEncodePath(path), body: [:])
         } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.joinRoom")
             // Let a later sync re-surface the invite so we retry.
             joinedInviteAttempts.remove(roomId)
             AppLog.log("📨 join failed for \(roomId): \(error)")

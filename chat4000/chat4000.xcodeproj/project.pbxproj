@@ -14,6 +14,7 @@
 		04ACE7EEF960016B96ED61CE /* ToolCallBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */; };
 		054C58A6D63C373929305ED8 /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 853062E21AF8E7B8FDDD38D4 /* MatrixEnvironment.swift */; };
 		061DD07107510A886DFB24F6 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */; };
+		06A3761B4213833BD05E388F /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261757F4308024D0CDBD8824 /* ErrorReporter.swift */; };
 		0775F69200598C722BD4FA4A /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 68D83A1025C08CB45A6EFF30 /* Sentry */; };
 		0D4A36A4EFAB57F66E79AA38 /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 853062E21AF8E7B8FDDD38D4 /* MatrixEnvironment.swift */; };
 		0F6B6A2A88F66B8740A2E4FA /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D577136CE593FD82EF78E86F /* AppLog.swift */; };
@@ -48,6 +49,7 @@
 		443327C01E32612D0585DD74 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		452474235E7C879E9686978B /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
 		499A7F16C1608A8380374249 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
+		4A12CA78A6EA439016C04C6D /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292B92B50C5BCD4831BA1F5B /* AppError.swift */; };
 		4AE8AC90DF5638962D2C19D9 /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		4FF28F296D92FD5D9FEEC01A /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */; };
 		5090338F809B82F32B646A93 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 199DD1E568D2E07267FC264D /* MatrixSDKCrypto */; };
@@ -63,6 +65,7 @@
 		61C94687A4B83B85DB92D515 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		6344C9D91CC944DD0E689465 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
 		64B7784CA3FFDA09C46E9385 /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */; };
+		6BCE9DD3D1995A16B00DD592 /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292B92B50C5BCD4831BA1F5B /* AppError.swift */; };
 		6D42E3F66D3E40C67839BDE2 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
 		733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180349B31809B66A001D8B94 /* DiagnosticReportService.swift */; };
 		73F5D0F1CB8EFB33173C2392 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
@@ -71,6 +74,7 @@
 		761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
 		7A1D32E7E45FA056F6F7A094 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
+		7E7C85F28D65340254A2F302 /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261757F4308024D0CDBD8824 /* ErrorReporter.swift */; };
 		802911DBE04560F5A3C51867 /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		80AA850977DA8EA94854B83D /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 35A4ED5BD998D05E585717A2 /* PostHog */; };
 		8122D2340D8232055D544F33 /* SyncModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */; };
@@ -101,10 +105,12 @@
 		9D1342D7CA48C38E55402397 /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */; };
 		9E0ABFA1C2F324731A0EB65A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		A0B6CC2D7E1C240C87D6EF61 /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 853062E21AF8E7B8FDDD38D4 /* MatrixEnvironment.swift */; };
+		A2D4032429C03DA3F87B7C0F /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261757F4308024D0CDBD8824 /* ErrorReporter.swift */; };
 		A2E10BB4BC56CC9C20CA478B /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180349B31809B66A001D8B94 /* DiagnosticReportService.swift */; };
 		A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
 		A585C2D3E17C9D006F3DD113 /* MatrixMessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 271334475620EB7CEA0C3039 /* MatrixMessageTransport.swift */; };
 		A7C80BDC5C82EAF951CCF63E /* MatrixMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05027BA245E6C6A3547D1AFB /* MatrixMediaTests.swift */; };
+		A8819B54D50F75A5475DBC3A /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292B92B50C5BCD4831BA1F5B /* AppError.swift */; };
 		A90B5478003BBD843B523B97 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
 		ADBA7109CFF1CB68A63FDF12 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
 		AE9077B6572E9A1FAF84CC92 /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC626D09942862C10A3DE4B /* SlidingSync.swift */; };
@@ -197,8 +203,10 @@
 		1C266381533F0F1DA7D96666 /* MatrixSDKCrypto */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MatrixSDKCrypto; path = Vendor/MatrixSDKCrypto; sourceTree = SOURCE_ROOT; };
 		1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryManager.swift; sourceTree = "<group>"; };
 		1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalConsent.swift; sourceTree = "<group>"; };
+		261757F4308024D0CDBD8824 /* ErrorReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporter.swift; sourceTree = "<group>"; };
 		271334475620EB7CEA0C3039 /* MatrixMessageTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMessageTransport.swift; sourceTree = "<group>"; };
 		28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsSidebar.swift; sourceTree = "<group>"; };
+		292B92B50C5BCD4831BA1F5B /* AppError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppError.swift; sourceTree = "<group>"; };
 		2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkToTeamButton.swift; sourceTree = "<group>"; };
 		2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixSession.swift; sourceTree = "<group>"; };
 		32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixCredentialStore.swift; sourceTree = "<group>"; };
@@ -363,6 +371,7 @@
 		8EB9FD491E62FAE9FB31B7FD /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				292B92B50C5BCD4831BA1F5B /* AppError.swift */,
 				A816A1C283669BC3405C6770 /* ChatMessage.swift */,
 				3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */,
 			);
@@ -427,6 +436,7 @@
 				7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */,
 				D577136CE593FD82EF78E86F /* AppLog.swift */,
 				180349B31809B66A001D8B94 /* DiagnosticReportService.swift */,
+				261757F4308024D0CDBD8824 /* ErrorReporter.swift */,
 				F20986EDB38AB39E9B87CF73 /* Haptics.swift */,
 				AC864A0C51C9B9647423BC9F /* IntercomService.swift */,
 				E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */,
@@ -460,6 +470,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 84F7B8EDC57BA6F384FCD9F5 /* Build configuration list for PBXNativeTarget "chat4000iphonedev" */;
 			buildPhases = (
+				BB04E8A659C6E14D4AA858EF /* SwiftLint */,
 				1E72328B7EDD9A8D5382A041 /* Sources */,
 				5AA6AD9FCCF58DFA84B4D9BF /* Resources */,
 				4916E4CF70281DC4B34DF2C8 /* Frameworks */,
@@ -484,6 +495,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = BA63EB2D426409544ABD3897 /* Build configuration list for PBXNativeTarget "chat4000mac" */;
 			buildPhases = (
+				8CA8AECBEC30C2856755D968 /* SwiftLint */,
 				41073052465059B4F4E05942 /* Sources */,
 				1BEDF18AB826E64850A899FC /* Resources */,
 				1E8DB21465230D02A40A332F /* Frameworks */,
@@ -526,6 +538,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = F660539E8465EAA836AA513C /* Build configuration list for PBXNativeTarget "chat4000iphoneappstore" */;
 			buildPhases = (
+				66B3C46ACD4001F9350B6868 /* SwiftLint */,
 				23936579A3E2825DC9760E43 /* Sources */,
 				EBBDB14C200F47E242C26B16 /* Resources */,
 				765DFF621903E29985F8DF5F /* Frameworks */,
@@ -670,6 +683,63 @@
 			shellPath = /bin/sh;
 			shellScript = "\"$SRCROOT/scripts/upload-dsym-to-sentry.sh\"\n";
 		};
+		66B3C46ACD4001F9350B6868 /* SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = SwiftLint;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
+		};
+		8CA8AECBEC30C2856755D968 /* SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = SwiftLint;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
+		};
+		BB04E8A659C6E14D4AA858EF /* SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = SwiftLint;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -679,6 +749,7 @@
 			files = (
 				DCA0A87EFF5DEBD7471790AE /* AnalyticsEvent.swift in Sources */,
 				A90B5478003BBD843B523B97 /* AppEnvironment.swift in Sources */,
+				A8819B54D50F75A5475DBC3A /* AppError.swift in Sources */,
 				0F6B6A2A88F66B8740A2E4FA /* AppLog.swift in Sources */,
 				C265CC61705A11DF0DF9B14B /* CameraCaptureView.swift in Sources */,
 				61C94687A4B83B85DB92D515 /* ChatMessage.swift in Sources */,
@@ -687,6 +758,7 @@
 				061DD07107510A886DFB24F6 /* ConnectionState.swift in Sources */,
 				D1123A5FFD13BDE42BCFDD0B /* CryptoEngine.swift in Sources */,
 				A2E10BB4BC56CC9C20CA478B /* DiagnosticReportService.swift in Sources */,
+				06A3761B4213833BD05E388F /* ErrorReporter.swift in Sources */,
 				E8436C5B504D38765372E21B /* FounderChatPromptModal.swift in Sources */,
 				E3B1CDFE6CC7AFB2E4EACBEE /* GatewayClient.swift in Sources */,
 				CBD9415E86196C507B48311C /* Haptics.swift in Sources */,
@@ -733,6 +805,7 @@
 			files = (
 				D844D398F476545D3D5531A7 /* AnalyticsEvent.swift in Sources */,
 				73F5D0F1CB8EFB33173C2392 /* AppEnvironment.swift in Sources */,
+				4A12CA78A6EA439016C04C6D /* AppError.swift in Sources */,
 				13250B422AB05F59BF84F50A /* AppLog.swift in Sources */,
 				3B682D685AF528D32A08FF03 /* CameraCaptureView.swift in Sources */,
 				CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */,
@@ -741,6 +814,7 @@
 				8ACDD02C4B7F64F036A9424F /* ConnectionState.swift in Sources */,
 				951BDD41D642B4F282A7394A /* CryptoEngine.swift in Sources */,
 				733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */,
+				A2D4032429C03DA3F87B7C0F /* ErrorReporter.swift in Sources */,
 				A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */,
 				425F525EF0BEA5A6001EB4F8 /* GatewayClient.swift in Sources */,
 				ADBA7109CFF1CB68A63FDF12 /* Haptics.swift in Sources */,
@@ -787,6 +861,7 @@
 			files = (
 				9D1342D7CA48C38E55402397 /* AnalyticsEvent.swift in Sources */,
 				499A7F16C1608A8380374249 /* AppEnvironment.swift in Sources */,
+				6BCE9DD3D1995A16B00DD592 /* AppError.swift in Sources */,
 				9CFA613F3EDAC6BDDE2E9A9B /* AppLog.swift in Sources */,
 				3C51C0C38CA6BCC5EE598377 /* CameraCaptureView.swift in Sources */,
 				B32DEB39084257E9A8EEA90F /* ChatMessage.swift in Sources */,
@@ -795,6 +870,7 @@
 				60342C78A130F40DD1726710 /* ConnectionState.swift in Sources */,
 				DB36633D34F589487D8ED6D1 /* CryptoEngine.swift in Sources */,
 				37AEB826FD4E4255BEF0A8CE /* DiagnosticReportService.swift in Sources */,
+				7E7C85F28D65340254A2F302 /* ErrorReporter.swift in Sources */,
 				452474235E7C879E9686978B /* FounderChatPromptModal.swift in Sources */,
 				851A2D6926F3E4E057C96E21 /* GatewayClient.swift in Sources */,
 				D71964EA9FCE6279922ED795 /* Haptics.swift in Sources */,
@@ -916,6 +992,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chat94.chat4000Tests;
 				SDKROOT = iphoneos;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/chat4000iphoneappstore.app/chat4000iphoneappstore";
 			};
@@ -1033,6 +1110,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -1049,6 +1128,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chat94.chat4000Tests;
 				SDKROOT = iphoneos;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/chat4000iphoneappstore.app/chat4000iphoneappstore";
 			};
@@ -1114,6 +1194,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;

@@ -133,7 +133,9 @@ final class TelemetryManager {
             return
         }
 
-        let postHogConfig = PostHogConfig(apiKey: apiKey, host: config.postHogHost)
+        // PostHog 3.x renamed `apiKey` → `projectToken` (same value); the old
+        // initializer is deprecated and forwards to this one.
+        let postHogConfig = PostHogConfig(projectToken: apiKey, host: config.postHogHost)
         postHogConfig.captureApplicationLifecycleEvents = false
         postHogConfig.captureScreenViews = false
         postHogConfig.sendFeatureFlagEvent = false
@@ -160,12 +162,12 @@ final class TelemetryManager {
         PostHogSDK.shared.register([
             "$lib": "posthog-macos",
             "platform": "macos",
-            "environment": Self.appEnvironmentTag,
+            "environment": Self.appEnvironmentTag
         ])
         #else
         PostHogSDK.shared.register([
             "platform": "ios",
-            "environment": Self.appEnvironmentTag,
+            "environment": Self.appEnvironmentTag
         ])
         #endif
         postHogStarted = true
@@ -225,7 +227,7 @@ final class TelemetryManager {
             "build_channel": Self.sentryEnvironment,
             "distribution_channel": Self.distributionChannel,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
-            "build_number": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0",
+            "build_number": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         ].merging(properties) { _, new in new }
     }
 

@@ -71,6 +71,7 @@ final class DiagnosticReportService {
                 ["bundle_size_bytes": json.count]
             )
         } catch {
+            ErrorReporter.capture(error, context: "DiagnosticReportService.collect")
             emit("diagnostic_collect_failed", ["error": String(describing: error)])
             status = .failed(reason: "Could not collect diagnostics")
             return
@@ -88,6 +89,7 @@ final class DiagnosticReportService {
                 ["bundle_size_bytes": encrypted.count]
             )
         } catch {
+            ErrorReporter.capture(error, context: "DiagnosticReportService.encrypt")
             emit("diagnostic_encrypt_failed", ["error": String(describing: error)])
             status = .failed(reason: "Could not encrypt diagnostics")
             return
@@ -102,12 +104,13 @@ final class DiagnosticReportService {
                     "url": url,
                     "bundle_size_bytes": encrypted.count,
                     "host": "uguu.se",
-                    "retention_hours": 48,
+                    "retention_hours": 48
                 ]
             )
             emit("diagnostic_completed", ["path": "uploaded"])
             status = .succeeded(url: url)
         } catch {
+            ErrorReporter.capture(error, context: "DiagnosticReportService.upload")
             emit("diagnostic_upload_failed", ["error": String(describing: error)])
             emit("diagnostic_completed", ["path": "upload_failed"])
             status = .failed(reason: "Could not upload diagnostics")
@@ -136,7 +139,7 @@ final class DiagnosticReportService {
         bundle["meta"] = [
             "schema": "chat4000-diag-inapp/1",
             "session_id": sessionId,
-            "collected_at": ISO8601DateFormatter().string(from: Date()),
+            "collected_at": ISO8601DateFormatter().string(from: Date())
         ]
         bundle["app"] = Self.appInfo()
         bundle["system"] = Self.systemInfo()
@@ -159,12 +162,12 @@ final class DiagnosticReportService {
         #if os(macOS)
         candidates = [
             FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
-                .first?.appendingPathComponent("Logs/chat4000.log"),
+                .first?.appendingPathComponent("Logs/chat4000.log")
         ].compactMap { $0 }
         #else
         candidates = [
             FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
-                .first?.appendingPathComponent("Logs/chat4000.log"),
+                .first?.appendingPathComponent("Logs/chat4000.log")
         ].compactMap { $0 }
         #endif
 
@@ -182,12 +185,12 @@ final class DiagnosticReportService {
             return [
                 "source": url.path,
                 "size_bytes": data.count,
-                "content": Self.redact(raw),
+                "content": Self.redact(raw)
             ]
         }
         return [
             "source": "<not found>",
-            "checked_paths": candidates.map { $0.path },
+            "checked_paths": candidates.map { $0.path }
         ]
     }
 
@@ -225,7 +228,7 @@ final class DiagnosticReportService {
             "telemetry_distribution_channel": info["TelemetryDistributionChannel"] as? String ?? "",
             "minimum_system_version": info["LSMinimumSystemVersion"] as? String ?? "",
             "sdk_name": info["DTSDKName"] as? String ?? "",
-            "xcode_build": info["DTXcodeBuild"] as? String ?? "",
+            "xcode_build": info["DTXcodeBuild"] as? String ?? ""
         ]
     }
 
@@ -247,7 +250,7 @@ final class DiagnosticReportService {
             "locale_region_code": locale.region?.identifier ?? "",
             "timezone": TimeZone.current.identifier,
             "is_low_power": ProcessInfo.processInfo.isLowPowerModeEnabled,
-            "thermal_state": Self.thermalState(),
+            "thermal_state": Self.thermalState()
         ]
     }
 
@@ -289,7 +292,7 @@ final class DiagnosticReportService {
         if kerr == KERN_SUCCESS {
             return [
                 "resident_size_bytes": info.resident_size,
-                "virtual_size_bytes": info.virtual_size,
+                "virtual_size_bytes": info.virtual_size
             ]
         }
         return ["error": "task_info failed kerr=\(kerr)"]
@@ -300,7 +303,7 @@ final class DiagnosticReportService {
         // can statically. Live URLSession probes are too slow for a
         // user-facing tap.
         return [
-            "default_relay_url": "wss://relay.chat4000.com/ws",
+            "default_relay_url": "wss://relay.chat4000.com/ws"
             // Sandbox blocks reading the system DNS resolvers list, so
             // we leave network probing to the sample we pulled from the
             // user's machine via `diagnose.py` historically.
@@ -311,7 +314,7 @@ final class DiagnosticReportService {
         let knownKeys = [
             "chat4000.actionButtonMode",
             "chat4000.telemetryCollectionEnabled",
-            "chat4000.legalConsentAcceptedVersion",
+            "chat4000.legalConsentAcceptedVersion"
         ]
         let defaults = UserDefaults.standard
         var dump: [String: Any] = [:]
@@ -331,8 +334,9 @@ final class DiagnosticReportService {
 
     static func encryptOpenSSLCompatible(plaintext: Data, password: String) throws -> Data {
         var salt = Data(count: 8)
-        let saltResult = salt.withUnsafeMutableBytes { ptr in
-            SecRandomCopyBytes(kSecRandomDefault, 8, ptr.baseAddress!)
+        let saltResult = salt.withUnsafeMutableBytes { ptr -> Int32 in
+            guard let base = ptr.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, 8, base)
         }
         guard saltResult == errSecSuccess else { throw EncryptionError.keyDerivationFailed }
 
@@ -388,7 +392,7 @@ final class DiagnosticReportService {
 
         // OpenSSL framing: "Salted__" || salt(8) || ciphertext.
         var framed = Data()
-        framed.append("Salted__".data(using: .ascii)!)
+        framed.append(requireUTF8("Salted__"))
         framed.append(salt)
         framed.append(output)
         return framed
@@ -403,13 +407,13 @@ final class DiagnosticReportService {
         let filename = "chat4000-diag-\(ISO8601DateFormatter().string(from: Date())).enc"
 
         var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(requireUTF8("--\(boundary)\r\n"))
+        body.append(requireUTF8("Content-Disposition: form-data; name=\"files[]\"; filename=\"\(filename)\"\r\n"))
+        body.append(requireUTF8("Content-Type: application/octet-stream\r\n\r\n"))
         body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(requireUTF8("\r\n--\(boundary)--\r\n"))
 
-        var req = URLRequest(url: URL(string: Self.uploadEndpoint)!)
+        var req = URLRequest(url: requireURL(Self.uploadEndpoint))
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("chat4000-diagnose-inapp/1.0", forHTTPHeaderField: "User-Agent")
@@ -451,7 +455,7 @@ final class DiagnosticReportService {
             "macos_version": {
                 let v = ProcessInfo.processInfo.operatingSystemVersion
                 return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
-            }(),
+            }()
         ]
         for (k, v) in extras { properties[k] = v }
 
@@ -459,11 +463,11 @@ final class DiagnosticReportService {
             "api_key": Self.posthogApiKey,
             "event": event,
             "distinct_id": distinctId(),
-            "properties": properties,
+            "properties": properties
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
 
-        var req = URLRequest(url: URL(string: "\(Self.posthogHost)/i/v0/e/")!)
+        var req = URLRequest(url: requireURL("\(Self.posthogHost)/i/v0/e/"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("chat4000-diagnose-inapp/1.0", forHTTPHeaderField: "User-Agent")

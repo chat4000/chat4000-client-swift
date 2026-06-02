@@ -52,7 +52,7 @@ final class VersionPolicyManager {
             "app_id": Bundle.main.bundleIdentifier ?? "",
             "client_version": AppRegistrationIdentity.currentAppVersion,
             "release_channel": Self.releaseChannel,
-            "platform": Self.platform,
+            "platform": Self.platform
         ])
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),

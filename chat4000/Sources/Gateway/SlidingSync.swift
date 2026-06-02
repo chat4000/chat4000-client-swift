@@ -31,17 +31,17 @@ enum SlidingSync {
                         ["chat4000.room_kind", ""],
                         ["chat4000.status", ""],
                         ["m.space.child", "*"],
-                        ["m.space.parent", "*"],
+                        ["m.space.parent", "*"]
                     ],
-                    "timeline_limit": timelineLimit,
-                ],
+                    "timeline_limit": timelineLimit
+                ]
             ],
             "extensions": [
                 "to_device": ["enabled": true],
                 "e2ee": ["enabled": true],
                 "account_data": ["enabled": true],
-                "receipts": ["enabled": true],
-            ],
+                "receipts": ["enabled": true]
+            ]
         ]
     }
 }

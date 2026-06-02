@@ -50,10 +50,10 @@ enum MatrixMedia {
                 "alg": "A256CTR",
                 "ext": true,
                 "k": base64url(key),
-                "key_ops": ["encrypt", "decrypt"],
+                "key_ops": ["encrypt", "decrypt"]
             ],
             "iv": unpaddedBase64(iv),
-            "hashes": ["sha256": unpaddedBase64(sha)],
+            "hashes": ["sha256": unpaddedBase64(sha)]
         ]
     }
 
@@ -236,7 +236,7 @@ enum MatrixMedia {
             "url": "mxc://test.server/abc123",
             "key": ["k": base64url(key)],
             "iv": unpaddedBase64(iv),
-            "hashes": ["sha256": unpaddedBase64(sha)],
+            "hashes": ["sha256": unpaddedBase64(sha)]
         ]
         guard let parsed = EncryptedFile(fileDict),
               let recoveredKey = decodeBase64url(parsed.keyBase64url),

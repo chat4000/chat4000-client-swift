@@ -100,8 +100,8 @@ struct ChatWithFounderCallout: View {
 enum TelegramCommunity {
     @MainActor
     static func open() {
-        let appURL = URL(string: "tg://resolve?domain=chat4000official")!
-        let webURL = URL(string: "https://t.me/chat4000official")!
+        let appURL = requireURL("tg://resolve?domain=chat4000official")
+        let webURL = requireURL("https://t.me/chat4000official")
 
         #if os(iOS)
         if UIApplication.shared.canOpenURL(appURL) {
@@ -118,4 +118,3 @@ enum TelegramCommunity {
         #endif
     }
 }
-

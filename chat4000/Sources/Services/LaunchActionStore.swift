@@ -7,8 +7,8 @@ enum LaunchAction: String {
 
 enum LaunchActionStore {
     private static let key = "chat4000.pendingLaunchAction"
-    static let recordingURL = URL(string: "chat4000://record")!
-    static let composerURL = URL(string: "chat4000://compose")!
+    static let recordingURL: URL = requireURL("chat4000://record")
+    static let composerURL: URL = requireURL("chat4000://compose")
     static let didSetNotification = Notification.Name("chat4000.pendingLaunchActionDidSet")
 
     static func set(_ action: LaunchAction) {

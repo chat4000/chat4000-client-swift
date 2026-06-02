@@ -50,7 +50,9 @@ struct MatrixEnvironment {
     }
 
     private static func ensuredDirectory(in base: FileManager.SearchPathDirectory, leaf: String) -> String {
-        let root = FileManager.default.urls(for: base, in: .userDomainMask).first!
+        guard let root = FileManager.default.urls(for: base, in: .userDomainMask).first else {
+            fatalError("search-path directory \(base) is unavailable on this platform")
+        }
         let dir = root
             .appendingPathComponent("chat4000", isDirectory: true)
             .appendingPathComponent(AppEnvironment.current.storageNamespace, isDirectory: true)

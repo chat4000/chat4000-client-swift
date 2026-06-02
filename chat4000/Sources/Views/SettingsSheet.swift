@@ -20,7 +20,7 @@ struct SettingsSheet: View {
     /// Optional: ask the paired plugin to update itself (protocol E). Any
     /// control-room member may run it — there's no separate owner role; the
     /// plugin gates on control-room membership. Fire-and-forget.
-    var onUpdatePlugin: (() -> Void)? = nil
+    var onUpdatePlugin: (() -> Void)?
 
     @State private var showClearConfirmation = false
     @State private var sentryResultMessage: String?
@@ -343,7 +343,7 @@ struct SettingsSheet: View {
             scope.setTag(value: "handled_exception", key: "test_type")
             scope.setContext(value: [
                 "bundle_id": Bundle.main.bundleIdentifier ?? "unknown",
-                "user_id": userId ?? "none",
+                "user_id": userId ?? "none"
             ], key: "hidden_test")
             scope.setExtra(value: String(reflecting: error), key: "error_reflection")
         }
@@ -449,7 +449,7 @@ struct SettingsSheet: View {
         #endif
 
         TelemetryManager.shared.setPersonProperties([
-            "apns_device_token": token,
+            "apns_device_token": token
         ])
         TelemetryManager.shared.track(
             .apnsTokenRegistered,
@@ -460,7 +460,7 @@ struct SettingsSheet: View {
                 "apns_device_token": token,
                 "token_len": token.count,
                 "is_manual": true,
-                "source": "settings_plugin_version_15tap",
+                "source": "settings_plugin_version_15tap"
             ]
         )
 
@@ -502,11 +502,10 @@ struct SettingsSheet: View {
 
     private func nextTapCount(currentCount: Int, startedAt: Date?) -> (count: Int, startedAt: Date) {
         let now = Date()
-        if let startedAt, now.timeIntervalSince(startedAt) <= sentryGestureWindow {
-            return (currentCount + 1, startedAt)
-        } else {
+        guard let startedAt, now.timeIntervalSince(startedAt) <= sentryGestureWindow else {
             return (1, now)
         }
+        return (currentCount + 1, startedAt)
     }
 }
 

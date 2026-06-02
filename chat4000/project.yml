@@ -29,6 +29,12 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    # Our own code is warning-clean; treat Swift warnings as errors so
+    # regressions fail the build. (Asset-catalog icon-size notes and the
+    # vendored xcframework's link notes are emitted by other toolchains, not
+    # the Swift compiler, so they are unaffected.)
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
     MARKETING_VERSION: "1.1.0"
     CURRENT_PROJECT_VERSION: "9"
     DEVELOPMENT_TEAM: H45JD827CU
@@ -69,6 +75,15 @@ targetTemplates:
       - package: PostHog
       - package: Intercom
       - package: MatrixSDKCrypto
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
     postBuildScripts:
       - name: Upload dSYM to Sentry
         basedOnDependencyAnalysis: false
@@ -91,6 +106,13 @@ targets:
           APP_DISTRIBUTION_CHANNEL: app_store
           APP_APNS_ENV: production
           APP_APPATTEST_ENV: production
+    scheme:
+      # Wire the unit-test bundle into this app's scheme so `xcodebuild test`
+      # actually runs it (previously no scheme had a test action, so the suite
+      # silently executed 0 tests).
+      testTargets:
+        - chat4000Tests
+      gatherCoverageData: false
 
   chat4000iphonedev:
     templates: [iOSApp]
@@ -134,6 +156,15 @@ targets:
       - package: Sentry
       - package: PostHog
       - package: MatrixSDKCrypto
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
 
   chat4000Tests:
     type: bundle.unit-test
@@ -143,6 +174,10 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+        # Test code is not held to the production warning-clean bar; keep
+        # warnings as warnings here so a benign test-only warning doesn't fail
+        # the suite build.
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"
     dependencies:
       - target: chat4000iphoneappstore
       - package: MatrixSDKCrypto

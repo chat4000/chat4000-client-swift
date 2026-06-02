@@ -166,7 +166,7 @@ struct MessageBubble: View {
         let contentCount = [
             message.imageData != nil,
             message.audioData != nil,
-            !message.text.isEmpty,
+            !message.text.isEmpty
         ].filter { $0 }.count
         return contentCount > 1 ? 8 : 0
     }
@@ -180,19 +180,18 @@ struct BubbleShape: Shape {
         let r = AppRadius.messageBubble
         let tail = AppRadius.messageTail
 
-        if isUser {
-            // User: small radius on bottom-right
-            return RoundedCornerShape(
-                topLeft: r, topRight: r,
-                bottomLeft: r, bottomRight: tail
-            ).path(in: rect)
-        } else {
+        guard isUser else {
             // Agent: small radius on bottom-left
             return RoundedCornerShape(
                 topLeft: r, topRight: r,
                 bottomLeft: tail, bottomRight: r
             ).path(in: rect)
         }
+        // User: small radius on bottom-right
+        return RoundedCornerShape(
+            topLeft: r, topRight: r,
+            bottomLeft: r, bottomRight: tail
+        ).path(in: rect)
     }
 }
 

@@ -54,7 +54,7 @@ struct chat4000Shortcuts: AppShortcutsProvider {
             phrases: [
                 "Start recording in \(.applicationName)",
                 "Record with \(.applicationName)",
-                "Open \(.applicationName) and record",
+                "Open \(.applicationName) and record"
             ],
             shortTitle: "Start Recording",
             systemImageName: "mic.fill"
@@ -64,7 +64,7 @@ struct chat4000Shortcuts: AppShortcutsProvider {
             phrases: [
                 "Type in \(.applicationName)",
                 "Compose in \(.applicationName)",
-                "Open \(.applicationName) to type",
+                "Open \(.applicationName) to type"
             ],
             shortTitle: "Open to Type",
             systemImageName: "keyboard"

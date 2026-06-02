@@ -86,6 +86,7 @@ final class CryptoEngine {
         // DIAG (Olm intake): log every RAW inbound to-device event (type, sender,
         // sender_key, algorithm) so we can see exactly what the plugin sent —
         // including its m.olm key-share — before the machine consumes it.
+        // swiftlint:disable:next empty_count - `count` is a wire field (event count), not collection emptiness.
         if sync.toDevice.count > 0 { logToDeviceBatch("⬇️ raw", sync.toDevice.eventsJSON) }
 
         let deviceChanges = DeviceLists(changed: sync.deviceLists.changed, left: sync.deviceLists.left)
@@ -115,6 +116,7 @@ final class CryptoEngine {
         if !result.toDeviceEvents.isEmpty {
             AppLog.debug("🔑 receiveSyncChanges decrypted %d to-device event(s):", result.toDeviceEvents.count)
             for ev in result.toDeviceEvents { logToDeviceEvent("✅ decrypted", ev) }
+            // swiftlint:disable:next empty_count - `count` is a wire field (event count), not collection emptiness.
         } else if sync.toDevice.count > 0 {
             // Non-revealing signal that a batch yielded nothing — keep at INFO.
             AppLog.log("🔑 ⚠️ batch of %d to-device produced 0 decrypted events", sync.toDevice.count)
@@ -377,7 +379,7 @@ final class CryptoEngine {
         guard let obj = try? dict(fromJSON: resp),
               let deviceKeys = obj["device_keys"] as? [String: Any] else { return "no device_keys" }
         var parts: [String] = []
-        for (user, devices) in deviceKeys {
+        for (_, devices) in deviceKeys {
             guard let devices = devices as? [String: Any] else { continue }
             for (deviceId, dk) in devices {
                 let keys = (dk as? [String: Any])?["keys"] as? [String: Any] ?? [:]
@@ -399,7 +401,8 @@ final class CryptoEngine {
             }
         }
         let failures = (obj["failures"] as? [String: Any])?.keys.sorted().joined(separator: ",")
-        return "claimed=[\(claimed.joined(separator: ","))] failures=\(failures?.isEmpty == false ? failures! : "none")"
+        let failureText = (failures?.isEmpty == false) ? (failures ?? "none") : "none"
+        return "claimed=[\(claimed.joined(separator: ","))] failures=\(failureText)"
     }
 
     // MARK: - To-device diagnostics

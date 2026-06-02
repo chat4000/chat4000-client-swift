@@ -648,12 +648,13 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
+            ErrorReporter.capture(error, context: "ChatView.startVoiceRecording")
             voiceErrorMessage = error.localizedDescription
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
                     "reason": error.localizedDescription,
-                    "source": activeRecordingSource.rawValue,
+                    "source": activeRecordingSource.rawValue
                 ]
             )
             Haptics.error()
@@ -691,13 +692,14 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
+            ErrorReporter.capture(error, context: "ChatView.startVoiceRecordingFromLaunchAction")
             AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.localizedDescription)
             voiceErrorMessage = error.localizedDescription
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
                     "reason": error.localizedDescription,
-                    "source": activeRecordingSource.rawValue,
+                    "source": activeRecordingSource.rawValue
                 ]
             )
             Haptics.error()
@@ -723,7 +725,7 @@ struct ChatView: View {
             .voiceRecordingFinished,
             properties: [
                 "source": recordingSource.rawValue,
-                "duration_bucket": AnalyticsBuckets.durationBucket(for: clip.duration),
+                "duration_bucket": AnalyticsBuckets.durationBucket(for: clip.duration)
             ]
         )
         activeRecordingSource = .inputBar
@@ -877,10 +879,10 @@ private struct MacComposerTextView: NSViewRepresentable {
 
         @MainActor
         func recalculateHeight() {
-            guard let textView else { return }
-            textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+            guard let textView, let textContainer = textView.textContainer else { return }
+            textView.layoutManager?.ensureLayout(for: textContainer)
 
-            let usedHeight = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? parent.minHeight
+            let usedHeight = textView.layoutManager?.usedRect(for: textContainer).height ?? parent.minHeight
             let verticalPadding = MacComposerTextView.verticalInset * 2
             let nextHeight = min(parent.maxHeight, max(parent.minHeight, ceil(usedHeight + verticalPadding)))
 
@@ -952,6 +954,20 @@ final class ChatViewModel {
     @ObservationIgnored private let transport: MessageTransport
     private var modelContext: ModelContext?
 
+    /// Persist pending SwiftData changes. The only place the SwiftData `save()`
+    /// boundary is crossed (Rule 2): a failure is UNEXPECTED, so it is reported
+    /// once to the sink rather than silently dropped (Rule 3). Behaviour is
+    /// otherwise identical to the previous `persistContext()` — a failed
+    /// save leaves the in-memory model intact and the UI continues.
+    private func persistContext() {
+        guard let modelContext else { return }
+        do {
+            try modelContext.save()
+        } catch {
+            ErrorReporter.capture(error, context: "ChatViewModel.persistContext")
+        }
+    }
+
     // Tracks current streaming message being assembled
     private var currentStreamId: String?
     private var currentStreamText = ""
@@ -992,7 +1008,7 @@ final class ChatViewModel {
         transport.onSentEventId = { [weak self] localId, eventId in
             guard let self, let row = self.messages.first(where: { $0.msgId == localId }) else { return }
             row.matrixEventId = eventId
-            try? self.modelContext?.save()
+            self.persistContext()
         }
         // The plugin read up to this event → flip the matching row to the read
         // tick (.delivered renders as the double check). Never demote.
@@ -1001,7 +1017,7 @@ final class ChatViewModel {
                   let row = self.messages.first(where: { $0.matrixEventId == eventId }) else { return }
             if row.status == .sending || row.status == .sent {
                 row.status = .delivered
-                try? self.modelContext?.save()
+                self.persistContext()
                 AppLog.log("👁️ read tick for %@", eventId)
             }
         }
@@ -1111,7 +1127,7 @@ final class ChatViewModel {
         let message = ChatMessage(text: text, sender: .user, status: .sending, roomId: roomId)
         messages.append(message)
         modelContext?.insert(message)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
 
         // Capture the wire-level inner id and store it on the local row so
@@ -1119,12 +1135,12 @@ final class ChatViewModel {
         // the bubble for tick-state updates (per protocol §6.6.7).
         let wireId = transport.send(.text(text))
         message.msgId = wireId
-        try? modelContext?.save()
+        persistContext()
         TelemetryManager.shared.track(
             .messageSentText,
             properties: [
                 "source": "keyboard",
-                "length_bucket": AnalyticsBuckets.lengthBucket(for: text),
+                "length_bucket": AnalyticsBuckets.lengthBucket(for: text)
             ]
         )
         // Status stays `.sending` until the relay confirms via
@@ -1146,17 +1162,17 @@ final class ChatViewModel {
         let message = ChatMessage(imageData: jpegData, sender: .user, status: .sending, roomId: roomId)
         messages.append(message)
         modelContext?.insert(message)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
 
         let wireId = transport.send(.image(data: jpegData, mimeType: "image/jpeg"))
         message.msgId = wireId
-        try? modelContext?.save()
+        persistContext()
         TelemetryManager.shared.track(
             .messageSentImage,
             properties: [
                 "source": "camera",
-                "count": 1,
+                "count": 1
             ]
         )
         if message.status == .sending {
@@ -1181,7 +1197,7 @@ final class ChatViewModel {
         )
         messages.append(message)
         modelContext?.insert(message)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
 
         let wireId = transport.send(
@@ -1193,12 +1209,12 @@ final class ChatViewModel {
             )
         )
         message.msgId = wireId
-        try? modelContext?.save()
+        persistContext()
         TelemetryManager.shared.track(
             .messageSentAudio,
             properties: [
                 "source": source,
-                "duration_bucket": AnalyticsBuckets.durationBucket(for: duration),
+                "duration_bucket": AnalyticsBuckets.durationBucket(for: duration)
             ]
         )
         if message.status == .sending {
@@ -1210,7 +1226,7 @@ final class ChatViewModel {
         for message in messages {
             modelContext?.delete(message)
         }
-        try? modelContext?.save()
+        persistContext()
         messages.removeAll()
         requestScrollToBottom()
     }
@@ -1342,7 +1358,7 @@ final class ChatViewModel {
         guard let match = messages.first(where: { $0.msgId == msgId }) else { return }
         if match.status == .sending {
             match.status = .sent
-            try? modelContext?.save()
+            persistContext()
         }
     }
 
@@ -1375,7 +1391,7 @@ final class ChatViewModel {
             if existing.toolStatus == nil {
                 existing.toolStatus = .running
             }
-            try? modelContext?.save()
+            persistContext()
             requestScrollToBottom()
             return
         }
@@ -1394,7 +1410,7 @@ final class ChatViewModel {
         )
         messages.append(bubble)
         modelContext?.insert(bubble)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
     }
 
@@ -1417,7 +1433,7 @@ final class ChatViewModel {
         row.toolResult = combined.count > 65_536
             ? String(combined.suffix(65_536))
             : combined
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
     }
 
@@ -1442,7 +1458,7 @@ final class ChatViewModel {
                 row.toolResult = result  // final result replaces streamed
             }
             row.toolDurationMs = durationMs
-            try? modelContext?.save()
+            persistContext()
         } else {
             let bubble = ChatMessage(
                 sender: .agent,
@@ -1457,7 +1473,7 @@ final class ChatViewModel {
             )
             messages.append(bubble)
             modelContext?.insert(bubble)
-            try? modelContext?.save()
+            persistContext()
         }
         requestScrollToBottom()
     }
@@ -1480,7 +1496,7 @@ final class ChatViewModel {
         // delivered or failed.
         if match.status == .sending || match.status == .sent {
             match.status = .delivered
-            try? modelContext?.save()
+            persistContext()
         }
     }
 
@@ -1518,7 +1534,7 @@ final class ChatViewModel {
         let message = ChatMessage(msgId: id, text: text, sender: sender, roomId: activeRoomId)
         messages.append(message)
         modelContext?.insert(message)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
     }
 
@@ -1539,7 +1555,7 @@ final class ChatViewModel {
         let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: activeRoomId)
         messages.append(message)
         modelContext?.insert(message)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
     }
 
@@ -1571,7 +1587,7 @@ final class ChatViewModel {
         )
         messages.append(message)
         modelContext?.insert(message)
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
     }
 
@@ -1649,7 +1665,7 @@ final class ChatViewModel {
         currentStreamId = nil
         currentStreamText = ""
         currentStreamMessageId = nil
-        try? modelContext?.save()
+        persistContext()
         requestScrollToBottom()
     }
 
@@ -1663,7 +1679,7 @@ final class ChatViewModel {
                 }
             }
             modelContext?.delete(existing)
-            try? modelContext?.save()
+            persistContext()
         }
 
         if currentStreamId == streamId {
@@ -1690,7 +1706,6 @@ final class ChatViewModel {
         }
     }
 
-
     private func loadMessagesMergingTransientState() {
         // No session selected → show nothing. (Loading `roomId == nil` here is
         // what surfaced the confusing legacy/ghost bucket before a session is
@@ -1714,7 +1729,7 @@ final class ChatViewModel {
         }
 
         mergedMessages.sort { $0.timestamp < $1.timestamp }
-        try? modelContext?.save()
+        persistContext()
         messages = mergedMessages
         requestScrollToBottom()
     }
@@ -1752,7 +1767,7 @@ private extension PlatformImage {
             (896, 0.66),
             (768, 0.62),
             (640, 0.58),
-            (512, 0.54),
+            (512, 0.54)
         ]
 
         for (maxDimension, quality) in candidates {
@@ -1816,7 +1831,7 @@ struct SetupProgressView: View {
         (.connecting, "Connecting"),
         (.syncing, "Syncing"),
         (.joiningWorkspace, "Joining your workspace"),
-        (.waitingForPlugin, "Waiting for your plugin"),
+        (.waitingForPlugin, "Waiting for your plugin")
     ]
 
     var body: some View {

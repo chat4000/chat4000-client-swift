@@ -251,7 +251,8 @@ final class QRCameraPlatformView: PlatformView, @preconcurrency AVCaptureMetadat
         captureSession.addOutput(output)
         output.setMetadataObjectsDelegate(self, queue: .main)
         output.metadataObjectTypes = [.qr]
-        AppLog.log("📷 QR config: metadata output attached, types=%@", "\(output.metadataObjectTypes)")
+        AppLog.log("📷 QR config: metadata output attached, types=%@",
+                   output.metadataObjectTypes.map(\.rawValue).joined(separator: ","))
         #elseif os(macOS)
         let output = AVCaptureVideoDataOutput()
         guard captureSession.canAddOutput(output) else {
@@ -392,6 +393,9 @@ extension QRCameraPlatformView: AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
             }
         } catch {
+            // Expected, high-frequency: a per-frame Vision barcode pass that finds
+            // no readable code throws here. This runs on every camera frame, so it
+            // is a benign no-op — not reported (would be pure noise).
             return
         }
     }

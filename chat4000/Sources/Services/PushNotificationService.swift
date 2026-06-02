@@ -94,7 +94,7 @@ final class PushNotificationManager: NSObject {
             TelemetryManager.shared.setPersonProperties([
                 "apns_device_token": token,
                 "apns_env": Self.apnsEnvironment,
-                "platform": Self.platformName,
+                "platform": Self.platformName
             ])
             TelemetryManager.shared.track(
                 .apnsTokenRegistered,
@@ -105,7 +105,7 @@ final class PushNotificationManager: NSObject {
                     "apns_device_token": token,
                     "token_len": token.count,
                     "is_first": previous == nil,
-                    "apns_env": Self.apnsEnvironment,
+                    "apns_env": Self.apnsEnvironment
                 ]
             )
         }
@@ -182,6 +182,7 @@ final class PushNotificationManager: NSObject {
                 String(body.prefix(32))
             )
         } catch {
+            ErrorReporter.capture(error, context: "PushNotificationService.enqueueLocalNotification")
             AppLog.log("⚠️ [push] failed to enqueue local notification: \(error.localizedDescription)")
         }
         #endif

@@ -221,7 +221,7 @@ struct chat4000App: App {
             .appClosed,
             properties: [
                 "session_duration_seconds": Int(duration.rounded()),
-                "session_duration_bucket": AnalyticsBuckets.sessionDurationBucket(for: duration),
+                "session_duration_bucket": AnalyticsBuckets.sessionDurationBucket(for: duration)
             ]
         )
         TelemetryManager.shared.flush()
@@ -298,4 +298,3 @@ private struct ModelContextBinder: View {
             }
     }
 }
-
