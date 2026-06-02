@@ -157,13 +157,14 @@ final class MatrixSession {
             // inherit a stale key DB (different user / device_id).
             Self.wipeCryptoStore()
             try await startClient(stored)
-        } catch let error as MatrixError {
-            // Expected, user-facing pairing failures (bad/expired code, etc.).
-            connectionState = .failed(error.localizedDescription)
-            AppLog.log("❌ Matrix pairing failed: \(error)")
+        } catch .cancelled {
+            // Benign — a torn-down pairing flow. Don't surface as a failure.
+            AppLog.log("⚙️ Matrix pairing cancelled")
         } catch {
-            ErrorReporter.capture(error, context: "MatrixSession.pair.startClient")
-            connectionState = .failed(error.localizedDescription)
+            // Expected, user-facing pairing failures (bad/expired code, etc.) and
+            // any classified boundary failure. Reporting (if warranted) already
+            // happened at the boundary that produced the AppError.
+            connectionState = .failed(error.message)
             AppLog.log("❌ Matrix pairing failed: \(error)")
         }
     }
@@ -178,9 +179,11 @@ final class MatrixSession {
         connectionState = .connecting
         do {
             try await startClient(stored)
+        } catch .cancelled {
+            AppLog.log("⚙️ Matrix connect cancelled")
         } catch {
-            ErrorReporter.capture(error, context: "MatrixSession.connect.startClient")
-            connectionState = .failed(error.localizedDescription)
+            // Already classified (and, if unexpected, reported) at the boundary.
+            connectionState = .failed(error.message)
             AppLog.log("❌ Matrix connect failed: \(error)")
         }
     }
@@ -232,9 +235,9 @@ final class MatrixSession {
         setupPhase = .connecting
     }
 
-    private func startClient(_ stored: MatrixCredentialStore.Stored) async throws {
+    private func startClient(_ stored: MatrixCredentialStore.Stored) async throws(AppError) {
         guard let url = URL(string: stored.gatewayURL) else {
-            throw MatrixError.pairingFailed("invalid gateway URL")
+            throw AppError.invalidConfiguration("gateway URL")
         }
         creds = stored
         mediaBaseURL = MatrixEnvironment.mediaBaseURL(fromGatewayURL: stored.gatewayURL)
@@ -295,8 +298,12 @@ final class MatrixSession {
         guard connectionState == .reconnecting, let stored = creds else { return }
         gateway = nil
         crypto = nil
-        do { try await startClient(stored) } catch {
-            ErrorReporter.capture(error, context: "MatrixSession.reconnect.startClient")
+        do {
+            try await startClient(stored)
+        } catch .cancelled {
+            AppLog.log("⚙️ reconnect cancelled")
+        } catch {
+            // Classified (and, if unexpected, reported) at the boundary already.
             AppLog.log("❌ reconnect failed: \(error)")
             await handleSocketClosed()
         }

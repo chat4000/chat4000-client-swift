@@ -20,21 +20,7 @@ import MatrixSDKCrypto
 @MainActor
 protocol GatewayRequesting: AnyObject {
     @discardableResult
-    func request(method: String, path: String, body: [String: Any]?) async throws -> (status: Int, body: Data)
-}
-
-enum CryptoEngineError: LocalizedError {
-    case csRequestFailed(status: Int, path: String, body: String)
-    case encodeFailed
-
-    var errorDescription: String? {
-        switch self {
-        case let .csRequestFailed(status, path, body):
-            return "Homeserver C-S call \(path) failed (\(status)): \(body.prefix(200))"
-        case .encodeFailed:
-            return "Failed to encode a crypto request body"
-        }
-    }
+    func request(method: String, path: String, body: [String: Any]?) async throws(AppError) -> (status: Int, body: Data)
 }
 
 @MainActor
@@ -59,7 +45,7 @@ final class CryptoEngine {
     /// on reconnect (which constructs a fresh CryptoEngine).
     private static var tracingInstalled = false
 
-    init(userId: String, deviceId: String, storePath: String, gateway: GatewayRequesting) throws {
+    init(userId: String, deviceId: String, storePath: String, gateway: GatewayRequesting) throws(AppError) {
         // Install crypto tracing BEFORE the machine so its init is captured too.
         if !Self.tracingInstalled {
             setLogger(logger: CryptoTracingLogger())
@@ -70,7 +56,14 @@ final class CryptoEngine {
         // protection, and an unencrypted store sidesteps the passphrase-mismatch
         // failure mode (CryptoStoreError.OpenStore). Messages live in SwiftData,
         // not here — this store is keys only.
-        self.machine = try OlmMachine(userId: userId, deviceId: deviceId, path: storePath, passphrase: nil)
+        do {
+            self.machine = try OlmMachine(userId: userId, deviceId: deviceId, path: storePath, passphrase: nil)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.init.OlmMachine")
+            throw AppError.unexpected(error)
+        }
         self.gateway = gateway
     }
 
@@ -79,7 +72,7 @@ final class CryptoEngine {
     /// Feed one sync's e2ee state into the machine, then drain its outgoing
     /// requests. Call this BEFORE processing the sync's room events so freshly
     /// received room keys are available for decryption.
-    func processSync(_ sync: GatewaySync) async throws {
+    func processSync(_ sync: GatewaySync) async throws(AppError) {
         AppLog.debug("🔐 processSync to_device=%d changed=%d left=%d otk=%@ fallback=%@",
                      sync.toDevice.count, sync.deviceLists.changed.count, sync.deviceLists.left.count,
                      sync.oneTimeKeyCounts.description, sync.unusedFallbackKeyTypes?.description ?? "nil")
@@ -108,7 +101,9 @@ final class CryptoEngine {
             // ciphertext) go to DEBUG only.
             AppLog.log("🔑 ⛔ receiveSyncChanges threw on a %d-event batch: %@", sync.toDevice.count, String(describing: error))
             AppLog.debug("🔑 ⛔ events_json_prefix=%@", String(sync.toDevice.eventsJSON.prefix(280)))
-            throw error
+            if error is CancellationError { throw AppError.cancelled }
+            // The machine rejected the whole batch — a classifiable crypto failure.
+            throw AppError.crypto("receiveSyncChanges: \(error.localizedDescription)")
         }
 
         // What did the machine DECRYPT out of that batch? An m.room_key here means
@@ -129,9 +124,17 @@ final class CryptoEngine {
     /// Drain `machine.outgoingRequests()` to the homeserver until empty (acking
     /// each), bounded by `maxPumpPasses`. `markRequestAsSent` can enqueue new
     /// requests (e.g. a key query surfacing identity changes), hence the loop.
-    func runOutgoingRequests() async throws {
+    func runOutgoingRequests() async throws(AppError) {
         for pass in 0..<maxPumpPasses {
-            let requests = try machine.outgoingRequests()
+            let requests: [Request]
+            do {
+                requests = try machine.outgoingRequests()
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.outgoingRequests")
+                throw AppError.unexpected(error)
+            }
             AppLog.debug("🔐 pump pass %d: %d outgoing request(s)", pass, requests.count)
             if requests.isEmpty { return }
             for request in requests {
@@ -143,12 +146,25 @@ final class CryptoEngine {
         }
     }
 
-    private func send(_ request: Request) async throws {
+    /// Ack a drained request to the machine. `machine.markRequestAsSent` is the
+    /// FFI boundary, wrapped so only `AppError` escapes.
+    private func markSent(_ requestId: String, _ type: RequestType, _ responseBody: String) throws(AppError) {
+        do {
+            try machine.markRequestAsSent(requestId: requestId, requestType: type, responseBody: responseBody)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.markRequestAsSent")
+            throw AppError.unexpected(error)
+        }
+    }
+
+    private func send(_ request: Request) async throws(AppError) {
         AppLog.debug("🔐→ outgoing %@", Self.describe(request))
         switch request {
         case let .keysUpload(requestId, body):
             let resp = try await post("/_matrix/client/v3/keys/upload", jsonBody: body)
-            try machine.markRequestAsSent(requestId: requestId, requestType: .keysUpload, responseBody: resp)
+            try markSent(requestId, .keysUpload, resp)
             // DIAG (D): how many one-time keys does the server hold for us now?
             // If this drops to 0, the plugin may claim an OTK we've discarded →
             // its prekey Olm message becomes undecryptable.
@@ -160,7 +176,7 @@ final class CryptoEngine {
             var deviceKeys: [String: Any] = [:]
             for user in users { deviceKeys[user] = [String]() }
             let resp = try await post("/_matrix/client/v3/keys/query", dictBody: ["device_keys": deviceKeys])
-            try machine.markRequestAsSent(requestId: requestId, requestType: .keysQuery, responseBody: resp)
+            try markSent(requestId, .keysQuery, resp)
             // DIAG (C): which devices + curve25519 keys did we learn for each
             // queried user? Confirms we actually see the plugin's device (and the
             // curve25519 it shares room keys from).
@@ -170,7 +186,7 @@ final class CryptoEngine {
             // DIAG (C): which user/device/algorithm are we claiming an OTK for?
             AppLog.debug("🔑 keysClaim targets=\(oneTimeKeys)")
             let resp = try await post("/_matrix/client/v3/keys/claim", dictBody: ["one_time_keys": oneTimeKeys])
-            try machine.markRequestAsSent(requestId: requestId, requestType: .keysClaim, responseBody: resp)
+            try markSent(requestId, .keysClaim, resp)
             // DIAG (C): did the homeserver actually hand back the plugin's OTK
             // (so we can establish the Olm session), or did it `failures` out?
             AppLog.debug("🔑 keysClaim result %@", summarizeKeysClaim(resp))
@@ -184,23 +200,23 @@ final class CryptoEngine {
             let messages = (try? dict(fromJSON: body)) ?? [:]
             let path = "/_matrix/client/v3/sendToDevice/\(encode(eventType))/\(encode(requestId))"
             let resp = try await put(path, dictBody: ["messages": messages])
-            try machine.markRequestAsSent(requestId: requestId, requestType: .toDevice, responseBody: resp)
+            try markSent(requestId, .toDevice, resp)
 
         case let .signatureUpload(requestId, body):
             let resp = try await post("/_matrix/client/v3/keys/signatures/upload", jsonBody: body)
-            try machine.markRequestAsSent(requestId: requestId, requestType: .signatureUpload, responseBody: resp)
+            try markSent(requestId, .signatureUpload, resp)
 
         case let .keysBackup(requestId, version, rooms):
             // FFI `rooms` is the rooms map; the C-S body wraps it under `rooms`.
             let roomsMap = (try? dict(fromJSON: rooms)) ?? [:]
             let path = "/_matrix/client/v3/room_keys/keys?version=\(encode(version))"
             let resp = try await put(path, dictBody: ["rooms": roomsMap])
-            try machine.markRequestAsSent(requestId: requestId, requestType: .keysBackup, responseBody: resp)
+            try markSent(requestId, .keysBackup, resp)
 
         case let .roomMessage(requestId, roomId, eventType, content):
             let path = "/_matrix/client/v3/rooms/\(encode(roomId))/send/\(encode(eventType))/\(encode(requestId))"
             let resp = try await put(path, jsonBody: content)
-            try machine.markRequestAsSent(requestId: requestId, requestType: .roomMessage, responseBody: resp)
+            try markSent(requestId, .roomMessage, resp)
         }
     }
 
@@ -208,14 +224,28 @@ final class CryptoEngine {
 
     /// Tell the machine a room is megolm-encrypted (from `m.room.encryption` in
     /// sync). Required before `encrypt`/`shareRoomKey` for that room.
-    func markRoomEncrypted(_ roomId: String) throws {
-        try machine.setRoomAlgorithm(roomId: roomId, algorithm: .megolmV1AesSha2)
+    func markRoomEncrypted(_ roomId: String) throws(AppError) {
+        do {
+            try machine.setRoomAlgorithm(roomId: roomId, algorithm: .megolmV1AesSha2)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.markRoomEncrypted")
+            throw AppError.unexpected(error)
+        }
     }
 
     /// Keep the machine's tracked-user set in step with room membership so it
     /// queries/claims keys for the right devices.
-    func updateTrackedUsers(_ users: [String]) throws {
-        try machine.updateTrackedUsers(users: users)
+    func updateTrackedUsers(_ users: [String]) throws(AppError) {
+        do {
+            try machine.updateTrackedUsers(users: users)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.updateTrackedUsers")
+            throw AppError.unexpected(error)
+        }
     }
 
     /// Encrypt `content` for `roomId` and send it as `m.room.encrypted`
@@ -230,20 +260,20 @@ final class CryptoEngine {
         eventType: String = "m.room.message",
         content: [String: Any],
         cleartextEnvelope: [String: Any] = [:]
-    ) async throws -> String? {
+    ) async throws(AppError) -> String? {
         AppLog.debug("🔐 encryptAndSend room=%@ type=%@ recipients=%d", roomId, eventType, recipients.count)
-        if let claim = try machine.getMissingSessions(users: recipients) {
+        if let claim = try getMissingSessions(recipients) {
             AppLog.debug("🔐 getMissingSessions → claiming")
             try await send(claim)
             try await runOutgoingRequests()
         }
 
-        let shareRequests = try machine.shareRoomKey(roomId: roomId, users: recipients, settings: encryptionSettings)
+        let shareRequests = try shareRoomKey(roomId: roomId, recipients: recipients)
         AppLog.debug("🔐 shareRoomKey → %d to-device request(s)", shareRequests.count)
         for request in shareRequests { try await send(request) }
 
         let plaintext = try jsonString(content)
-        let encrypted = try machine.encrypt(roomId: roomId, eventType: eventType, content: plaintext)
+        let encrypted = try encryptEvent(roomId: roomId, eventType: eventType, plaintext: plaintext)
 
         // `encrypt` returns the `m.room.encrypted` content (algorithm,
         // ciphertext, sender_key, …). Splice the cleartext envelope fields onto
@@ -263,23 +293,40 @@ final class CryptoEngine {
     /// Decrypt an inbound `m.room.encrypted` event (the full event JSON) to its
     /// cleartext event JSON. Throws if the session is missing/undecryptable —
     /// callers should tolerate that (the key may arrive on a later sync).
-    func decrypt(eventJSON: String, roomId: String) throws -> String {
-        let result = try machine.decryptRoomEvent(
-            event: eventJSON,
-            roomId: roomId,
-            handleVerificationEvents: false,
-            strictShields: false,
-            decryptionSettings: decryptionSettings
-        )
-        return result.clearEvent
+    func decrypt(eventJSON: String, roomId: String) throws(AppError) -> String {
+        do {
+            let result = try machine.decryptRoomEvent(
+                event: eventJSON,
+                roomId: roomId,
+                handleVerificationEvents: false,
+                strictShields: false,
+                decryptionSettings: decryptionSettings
+            )
+            return result.clearEvent
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            // A missing/undecryptable session is an EXPECTED outcome here (the key
+            // may arrive on a later sync); callers tolerate it via `try?`. Map to a
+            // classifiable crypto failure rather than reporting it as unexpected.
+            throw AppError.crypto("decrypt: \(error.localizedDescription)")
+        }
     }
 
     /// Gossip-request the Megolm key for an event we couldn't decrypt
     /// (`m.room_key_request`). Other devices in the room — including the plugin —
     /// may respond with the key, after which a later re-decrypt succeeds. Sends
     /// the cancellation (if any) + the request as to-device messages.
-    func requestRoomKey(forEvent eventJSON: String, roomId: String) async throws {
-        let pair = try machine.requestRoomKey(event: eventJSON, roomId: roomId)
+    func requestRoomKey(forEvent eventJSON: String, roomId: String) async throws(AppError) {
+        let pair: KeyRequestPair
+        do {
+            pair = try machine.requestRoomKey(event: eventJSON, roomId: roomId)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.requestRoomKey")
+            throw AppError.unexpected(error)
+        }
         if let cancellation = pair.cancellation { try await send(cancellation) }
         try await send(pair.keyRequest)
         // DIAG (E): log the megolm session + sender_key we're asking for so the
@@ -290,6 +337,44 @@ final class CryptoEngine {
             senderKey = content["sender_key"] as? String ?? "-"
         }
         AppLog.debug("🔐 requested room key room=%@ session=%@ sender_key=%@", roomId, session, senderKey)
+    }
+
+    // MARK: - FFI adapters (typed-throws boundary)
+
+    /// `machine.getMissingSessions` wrapped so only `AppError` escapes.
+    private func getMissingSessions(_ recipients: [String]) throws(AppError) -> Request? {
+        do {
+            return try machine.getMissingSessions(users: recipients)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.getMissingSessions")
+            throw AppError.unexpected(error)
+        }
+    }
+
+    /// `machine.shareRoomKey` wrapped so only `AppError` escapes.
+    private func shareRoomKey(roomId: String, recipients: [String]) throws(AppError) -> [Request] {
+        do {
+            return try machine.shareRoomKey(roomId: roomId, users: recipients, settings: encryptionSettings)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.shareRoomKey")
+            throw AppError.unexpected(error)
+        }
+    }
+
+    /// `machine.encrypt` wrapped so only `AppError` escapes.
+    private func encryptEvent(roomId: String, eventType: String, plaintext: String) throws(AppError) -> String {
+        do {
+            return try machine.encrypt(roomId: roomId, eventType: eventType, content: plaintext)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.encrypt")
+            throw AppError.unexpected(error)
+        }
     }
 
     // MARK: - Settings
@@ -309,45 +394,60 @@ final class CryptoEngine {
 
     /// POST/PUT a request whose body the FFI already handed us as a JSON object
     /// string. Returns the response body as a string for `markRequestAsSent`.
-    private func post(_ path: String, jsonBody: String) async throws -> String {
+    private func post(_ path: String, jsonBody: String) async throws(AppError) -> String {
         try await call("POST", path, body: try? dict(fromJSON: jsonBody))
     }
 
-    private func put(_ path: String, jsonBody: String) async throws -> String {
+    private func put(_ path: String, jsonBody: String) async throws(AppError) -> String {
         try await call("PUT", path, body: try? dict(fromJSON: jsonBody))
     }
 
-    private func post(_ path: String, dictBody: [String: Any]) async throws -> String {
+    private func post(_ path: String, dictBody: [String: Any]) async throws(AppError) -> String {
         try await call("POST", path, body: dictBody)
     }
 
-    private func put(_ path: String, dictBody: [String: Any]) async throws -> String {
+    private func put(_ path: String, dictBody: [String: Any]) async throws(AppError) -> String {
         try await call("PUT", path, body: dictBody)
     }
 
-    private func call(_ method: String, _ path: String, body: [String: Any]?) async throws -> String {
+    private func call(_ method: String, _ path: String, body: [String: Any]?) async throws(AppError) -> String {
         let (status, data) = try await gateway.request(method: method, path: path, body: body)
         let text = String(data: data, encoding: .utf8) ?? "{}"
         guard (200..<300).contains(status) else {
-            throw CryptoEngineError.csRequestFailed(status: status, path: path, body: text)
+            // A non-2xx C-S response is an expected, classifiable failure. The
+            // status code carries the diagnostic; the body text is logged here.
+            AppLog.debug("🔐 C-S %@ %@ failed (%d): %@", method, path, status, String(text.prefix(200)))
+            throw AppError.httpStatus(status)
         }
         return text
     }
 
     // MARK: - JSON helpers
 
-    private func dict(fromJSON json: String) throws -> [String: Any] {
-        guard let data = json.data(using: .utf8),
-              let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { throw CryptoEngineError.encodeFailed }
-        return obj
+    private func dict(fromJSON json: String) throws(AppError) -> [String: Any] {
+        guard let data = json.data(using: .utf8) else {
+            throw AppError.decode("crypto JSON not UTF-8")
+        }
+        let obj: Any
+        do {
+            obj = try JSONSerialization.jsonObject(with: data)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            // Malformed wire/FFI JSON is an expected, classifiable decode failure.
+            throw AppError.decode("crypto JSON parse failed: \(error.localizedDescription)")
+        }
+        guard let dict = obj as? [String: Any] else {
+            throw AppError.decode("crypto JSON was not an object")
+        }
+        return dict
     }
 
-    private func jsonString(_ obj: [String: Any]) throws -> String {
+    private func jsonString(_ obj: [String: Any]) throws(AppError) -> String {
         guard JSONSerialization.isValidJSONObject(obj),
               let data = try? JSONSerialization.data(withJSONObject: obj),
               let string = String(data: data, encoding: .utf8)
-        else { throw CryptoEngineError.encodeFailed }
+        else { throw AppError.encode("crypto JSON serialization failed") }
         return string
     }
 

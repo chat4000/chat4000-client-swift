@@ -362,14 +362,17 @@ struct SettingsSheet: View {
         return SentryStacktrace(frames: frames, registers: [:])
     }
 
+    // EXEMPT: QA harness whose purpose is to throw a RAW error into Sentry — typing it as AppError would defeat the test.
     private func performNestedSentryThrow() throws {
         try sentryThrowLevelOne()
     }
 
+    // EXEMPT: QA harness whose purpose is to throw a RAW error into Sentry — typing it as AppError would defeat the test.
     private func sentryThrowLevelOne() throws {
         try sentryThrowLevelTwo()
     }
 
+    // EXEMPT: QA harness whose purpose is to throw a RAW error into Sentry — typing it as AppError would defeat the test.
     private func sentryThrowLevelTwo() throws {
         throw SentryDevTestError.simulatedFailure
     }

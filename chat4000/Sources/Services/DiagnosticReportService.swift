@@ -128,7 +128,7 @@ final class DiagnosticReportService {
 
     /// Builds the diagnostic bundle as JSON. Everything we collect must
     /// be inside the sandbox boundary (app container + ProcessInfo).
-    private func collectBundleJSON() async throws -> Data {
+    private func collectBundleJSON() async throws(AppError) -> Data {
         // File I/O is small (capped at 2 MB), runs on main actor —
         // avoids Swift 6 strict-concurrency hassles around bouncing
         // `[String: Any]` across actor boundaries.
@@ -148,10 +148,13 @@ final class DiagnosticReportService {
         bundle["preferences"] = Self.safeUserDefaults()
         bundle["log"] = log
 
-        return try JSONSerialization.data(
+        guard let data = try? JSONSerialization.data(
             withJSONObject: bundle,
             options: [.prettyPrinted, .sortedKeys]
-        )
+        ) else {
+            throw AppError.encode("diagnostic bundle JSON")
+        }
+        return data
     }
 
     nonisolated private static func readSelfLog() -> [String: Any] {
@@ -330,15 +333,13 @@ final class DiagnosticReportService {
 
     // MARK: - Encryption (OpenSSL "Salted__" + AES-256-CBC + PBKDF2 SHA256, 100k)
 
-    enum EncryptionError: Error { case keyDerivationFailed, encryptFailed }
-
-    static func encryptOpenSSLCompatible(plaintext: Data, password: String) throws -> Data {
+    static func encryptOpenSSLCompatible(plaintext: Data, password: String) throws(AppError) -> Data {
         var salt = Data(count: 8)
         let saltResult = salt.withUnsafeMutableBytes { ptr -> Int32 in
             guard let base = ptr.baseAddress else { return errSecParam }
             return SecRandomCopyBytes(kSecRandomDefault, 8, base)
         }
-        guard saltResult == errSecSuccess else { throw EncryptionError.keyDerivationFailed }
+        guard saltResult == errSecSuccess else { throw AppError.crypto("diag salt generation failed") }
 
         // Derive 48 bytes: 32-byte key + 16-byte IV via PBKDF2-SHA256 100k iters.
         var derived = Data(count: 48)
@@ -359,7 +360,7 @@ final class DiagnosticReportService {
                 }
             }
         }
-        guard kdf == kCCSuccess else { throw EncryptionError.keyDerivationFailed }
+        guard kdf == kCCSuccess else { throw AppError.crypto("diag PBKDF2 derivation failed") }
         let key = derived.prefix(32)
         let iv = derived.suffix(16)
 
@@ -387,7 +388,7 @@ final class DiagnosticReportService {
                 }
             }
         }
-        guard status == kCCSuccess else { throw EncryptionError.encryptFailed }
+        guard status == kCCSuccess else { throw AppError.crypto("diag AES encrypt failed") }
         output.count = written
 
         // OpenSSL framing: "Salted__" || salt(8) || ciphertext.
@@ -400,9 +401,7 @@ final class DiagnosticReportService {
 
     // MARK: - Upload
 
-    enum UploadError: Error { case noUrlInResponse, badStatus(Int), badBody(String) }
-
-    private func uploadToUguu(data: Data) async throws -> String {
+    private func uploadToUguu(data: Data) async throws(AppError) -> String {
         let boundary = "----chat4000-diag-\(UUID().uuidString)"
         let filename = "chat4000-diag-\(ISO8601DateFormatter().string(from: Date())).enc"
 
@@ -420,16 +419,24 @@ final class DiagnosticReportService {
         req.httpBody = body
         req.timeoutInterval = 60
 
-        let (respData, resp) = try await URLSession.shared.data(for: req)
-        if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
-            throw UploadError.badStatus(http.statusCode)
+        let respData: Data
+        let resp: URLResponse
+        do {
+            (respData, resp) = try await URLSession.shared.data(for: req)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            throw AppError.network("diag upload: \(error.localizedDescription)")
         }
-        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+        if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
+            throw AppError.httpStatus(http.statusCode)
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let files = json["files"] as? [[String: Any]],
               let first = files.first,
               let url = first["url"] as? String
         else {
-            throw UploadError.noUrlInResponse
+            throw AppError.decode("diag upload response had no URL")
         }
         return url
     }

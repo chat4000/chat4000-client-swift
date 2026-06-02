@@ -37,13 +37,48 @@ enum AppError: Error {
     /// An operation was attempted while not connected / not ready.
     case notReady
 
+    /// The operation was cancelled (structured-concurrency `CancellationError`
+    /// mapped into the domain so typed-throws functions can surface it). The
+    /// sink (`ErrorReporter`) drops this — cancellation is benign (Rule 5).
+    case cancelled
+
     /// A configuration / invariant value (URL, key) was invalid.
     case invalidConfiguration(String)
+
+    /// A required OS permission (e.g. microphone) was denied by the user. The
+    /// string is the user-facing prompt to surface verbatim.
+    case permissionDenied(String)
 
     /// Catch-all for an unclassified boundary failure. The wrapped `Error` is
     /// the original external error, never altered. Always paired with an
     /// `ErrorReporter.capture(...)` at the boundary that produced it.
     case unexpected(Error)
+}
+
+extension AppError {
+    /// A user-facing message for surfacing in UI state (e.g. a failed connection
+    /// banner). Cases that carry a human string (`pairing`, `network`) return it
+    /// verbatim — these replace the old `MatrixError`/`GatewayError`
+    /// `errorDescription`s, preserving the exact text users saw before. We do NOT
+    /// conform to `LocalizedError`, so `ErrorReporter`'s `\(error)` fingerprint is
+    /// unaffected.
+    var message: String {
+        switch self {
+        case .notFound: "Not found."
+        case .decode(let m): "Couldn't read data: \(m)"
+        case .encode(let m): "Couldn't prepare data: \(m)"
+        case .network(let m): m
+        case .httpStatus(let code): "Server error (HTTP \(code))."
+        case .storage(let m): "Storage error: \(m)"
+        case .crypto(let m): "Encryption error: \(m)"
+        case .pairing(let m): m
+        case .notReady: "Not connected."
+        case .cancelled: "Cancelled."
+        case .invalidConfiguration(let m): "Invalid configuration: \(m)"
+        case .permissionDenied(let m): m
+        case .unexpected(let error): error.localizedDescription
+        }
+    }
 }
 
 /// Build a `URL` from a hard-coded, compile-time-constant string. A nil here is

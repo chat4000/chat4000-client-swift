@@ -26,9 +26,9 @@ enum MatrixPairing {
         code: String,
         deviceName: String,
         registrarBaseURL: String
-    ) async throws -> Credentials {
+    ) async throws(AppError) -> Credentials {
         guard let url = URL(string: registrarBaseURL.trimmedTrailingSlash + "/pair/redeem") else {
-            throw MatrixError.pairingFailed("invalid registrar URL")
+            throw AppError.pairing("invalid registrar URL")
         }
         return try await post(url: url, code: code, deviceName: deviceName)
     }
@@ -36,28 +36,36 @@ enum MatrixPairing {
     /// One redeem attempt with a single retry on transient failure. Safe because
     /// redeem is idempotent within `REDEEM_RESULT_TTL` (C.4): a retry returns the
     /// same credentials.
-    private static func post(url: URL, code: String, deviceName: String, attempt: Int = 0) async throws -> Credentials {
+    private static func post(url: URL, code: String, deviceName: String, attempt: Int = 0) async throws(AppError) -> Credentials {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code, "device_name": deviceName])
+        guard let body = try? JSONSerialization.data(withJSONObject: ["code": code, "device_name": deviceName]) else {
+            throw AppError.encode("pairing request body")
+        }
+        request.httpBody = body
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                throw MatrixError.pairingFailed("no HTTP response")
+                throw AppError.pairing("no HTTP response")
             }
             if (200..<300).contains(http.statusCode) {
-                return try JSONDecoder().decode(Credentials.self, from: data)
+                guard let creds = try? JSONDecoder().decode(Credentials.self, from: data) else {
+                    throw AppError.decode("pairing credentials")
+                }
+                return creds
             }
             // 503 leaves the code redeemable — retry once.
             if http.statusCode == 503, attempt == 0 {
                 try? await Task.sleep(for: .milliseconds(600))
                 return try await post(url: url, code: code, deviceName: deviceName, attempt: 1)
             }
-            throw MatrixError.pairingFailed(friendlyMessage(status: http.statusCode, body: data))
-        } catch let error as MatrixError {
+            throw AppError.pairing(friendlyMessage(status: http.statusCode, body: data))
+        } catch let error as AppError {
             throw error
+        } catch is CancellationError {
+            throw AppError.cancelled
         } catch {
             let urlCode = (error as? URLError)?.code.rawValue ?? 0
             AppLog.log("❌ redeem network error code=%ld host=%@ desc=%@",
@@ -67,7 +75,7 @@ enum MatrixPairing {
                 try? await Task.sleep(for: .milliseconds(600))
                 return try await post(url: url, code: code, deviceName: deviceName, attempt: 1)
             }
-            throw MatrixError.pairingFailed(networkMessage(for: error))
+            throw AppError.pairing(networkMessage(for: error))
         }
     }
 

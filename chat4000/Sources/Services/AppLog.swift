@@ -88,16 +88,22 @@ enum AppLog {
         }
     }
 
-    private static func rotate(handle: FileHandle, fileURL: URL) throws {
-        try handle.seek(toOffset: 0)
-        let total = try handle.readToEnd() ?? Data()
-        let keepFrom = max(0, total.count - trimToBytes)
-        var trimmed = total.subdata(in: keepFrom..<total.count)
+    private static func rotate(handle: FileHandle, fileURL: URL) throws(AppError) {
+        do {
+            try handle.seek(toOffset: 0)
+            let total = try handle.readToEnd() ?? Data()
+            let keepFrom = max(0, total.count - trimToBytes)
+            var trimmed = total.subdata(in: keepFrom..<total.count)
 
-        if let firstNewline = trimmed.firstIndex(of: 0x0A), firstNewline + 1 < trimmed.count {
-            trimmed = trimmed.subdata(in: (firstNewline + 1)..<trimmed.count)
+            if let firstNewline = trimmed.firstIndex(of: 0x0A), firstNewline + 1 < trimmed.count {
+                trimmed = trimmed.subdata(in: (firstNewline + 1)..<trimmed.count)
+            }
+
+            try trimmed.write(to: fileURL, options: .atomic)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            throw AppError.storage("log rotate: \(error.localizedDescription)")
         }
-
-        try trimmed.write(to: fileURL, options: .atomic)
     }
 }

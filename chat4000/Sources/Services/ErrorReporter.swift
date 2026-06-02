@@ -28,6 +28,7 @@ enum ErrorReporter {
     /// string costs nothing when the call is rate-limited away.
     static func capture(_ error: Error, context: @autoclosure () -> String = "") {
         if error is CancellationError { return }
+        if case AppError.cancelled = error { return }
 
         let fingerprint = "\(type(of: error))|\(error)"
 

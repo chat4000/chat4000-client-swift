@@ -26,9 +26,22 @@ enum MatrixCredentialStore {
         return dir.appendingPathComponent("matrix-session.json")
     }
 
-    static func save(_ stored: Stored) throws {
-        let data = try JSONEncoder().encode(stored)
-        try data.write(to: fileURL, options: [.atomic])
+    static func save(_ stored: Stored) throws(AppError) {
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(stored)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            throw AppError.encode("matrix credentials: \(error.localizedDescription)")
+        }
+        do {
+            try data.write(to: fileURL, options: [.atomic])
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            throw AppError.storage("matrix credentials write: \(error.localizedDescription)")
+        }
         AppLog.log("💾 Matrix credentials saved for \(stored.userId)")
     }
 
@@ -40,17 +53,5 @@ enum MatrixCredentialStore {
     static func delete() {
         try? FileManager.default.removeItem(at: fileURL)
         AppLog.log("💾 Matrix credentials deleted")
-    }
-}
-
-enum MatrixError: LocalizedError {
-    case noStoredSession
-    case pairingFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .noStoredSession: "No stored Matrix session."
-        case .pairingFailed(let m): "Pairing failed: \(m)"
-        }
     }
 }

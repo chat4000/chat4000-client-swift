@@ -34,6 +34,19 @@ final class GatewayClient: GatewayRequesting {
             case .requestFailed(let r): "Gateway request failed: \(r)"
             }
         }
+
+        /// Map this transport error onto the closed `AppError` domain so the
+        /// gateway's typed-throws boundary (`connect`/`request`) surfaces only
+        /// `AppError`. Preserves the prior user-facing distinction (not-ready vs.
+        /// auth vs. network).
+        var asAppError: AppError {
+            switch self {
+            case .badURL: .invalidConfiguration("gateway URL")
+            case .notConnected, .socketClosed: .notReady
+            case .authError(let r): .pairing(r)
+            case .requestFailed(let r): .network(r)
+            }
+        }
     }
 
     private let url: URL
@@ -77,7 +90,7 @@ final class GatewayClient: GatewayRequesting {
     // MARK: - Lifecycle
 
     /// Open the socket, send `auth`, and resolve when `auth_ok` arrives.
-    func connect() async throws -> AuthResult {
+    func connect() async throws(AppError) -> AuthResult {
         let session = URLSession(configuration: .default)
         let socket = session.webSocketTask(with: url)
         self.session = session
@@ -88,8 +101,19 @@ final class GatewayClient: GatewayRequesting {
         startKeepalive()
         send(authFrame())
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.authContinuation = continuation
+        do {
+            return try await withCheckedThrowingContinuation { continuation in
+                self.authContinuation = continuation
+            }
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch let error as GatewayError {
+            throw error.asAppError
+        } catch let error as URLError {
+            throw AppError.network(error.localizedDescription)
+        } catch {
+            ErrorReporter.capture(error, context: "GatewayClient.connect")
+            throw AppError.unexpected(error)
         }
     }
 
@@ -165,17 +189,30 @@ final class GatewayClient: GatewayRequesting {
 
     /// Forward a Matrix C-S call as a `req` frame; resolves on the matching `resp`.
     @discardableResult
-    func request(method: String, path: String, body: [String: Any]? = nil) async throws -> (status: Int, body: Data) {
-        guard socket != nil else { throw GatewayError.notConnected }
+    func request(method: String, path: String, body: [String: Any]? = nil) async throws(AppError) -> (status: Int, body: Data) {
+        guard socket != nil else { throw AppError.notReady }
         reqCounter += 1
         let id = "r\(reqCounter)"
         var frame: [String: Any] = ["t": "req", "id": id, "method": method, "path": path]
         if let body { frame["body"] = body }
         AppLog.debug("🛰️→ req id=%@ %@ %@ body_keys=%@", id, method, path,
                      (body?.keys.sorted().joined(separator: ",")) ?? "-")
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            send(frame)
+        do {
+            return try await withCheckedThrowingContinuation { continuation in
+                pending[id] = continuation
+                send(frame)
+            }
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch let error as GatewayError {
+            throw error.asAppError
+        } catch let error as URLError {
+            // The socket died mid-request (receive loop failed all pending). An
+            // expected transport failure — reconnect is the owner's concern.
+            throw AppError.network(error.localizedDescription)
+        } catch {
+            ErrorReporter.capture(error, context: "GatewayClient.request")
+            throw AppError.unexpected(error)
         }
     }
 

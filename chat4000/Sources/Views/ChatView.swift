@@ -648,12 +648,13 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
-            ErrorReporter.capture(error, context: "ChatView.startVoiceRecording")
-            voiceErrorMessage = error.localizedDescription
+            // start() already reported truly unexpected device failures at its
+            // boundary; permission denial is expected. Surface the user message.
+            voiceErrorMessage = error.message
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
-                    "reason": error.localizedDescription,
+                    "reason": error.message,
                     "source": activeRecordingSource.rawValue
                 ]
             )
@@ -692,13 +693,13 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
-            ErrorReporter.capture(error, context: "ChatView.startVoiceRecordingFromLaunchAction")
-            AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.localizedDescription)
-            voiceErrorMessage = error.localizedDescription
+            // start() reported unexpected device failures at its boundary already.
+            AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.message)
+            voiceErrorMessage = error.message
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
-                    "reason": error.localizedDescription,
+                    "reason": error.message,
                     "source": activeRecordingSource.rawValue
                 ]
             )

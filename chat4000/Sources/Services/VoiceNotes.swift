@@ -156,18 +156,12 @@ final class VoiceNoteRecorder {
         meterTask?.cancel()
     }
 
-    func start() async throws {
+    func start() async throws(AppError) {
         guard !isRecording else { return }
         let granted = await requestPermission()
         guard granted else {
-            throw VoiceNoteError.permissionDenied
+            throw AppError.permissionDenied("Microphone access is required to record voice messages.")
         }
-
-        #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothA2DP])
-        try session.setActive(true)
-        #endif
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("voice-\(UUID().uuidString)")
@@ -181,7 +175,20 @@ final class VoiceNoteRecorder {
             AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
         ]
 
-        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        let recorder: AVAudioRecorder
+        do {
+            #if os(iOS)
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            try session.setActive(true)
+            #endif
+            recorder = try AVAudioRecorder(url: url, settings: settings)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "VoiceNoteRecorder.start")
+            throw AppError.unexpected(error)
+        }
         recorder.isMeteringEnabled = true
         recorder.record()
 
@@ -416,16 +423,5 @@ final class VoicePlaybackController {
             return hint
         }
         return max(fallback, 0)
-    }
-}
-
-enum VoiceNoteError: LocalizedError {
-    case permissionDenied
-
-    var errorDescription: String? {
-        switch self {
-        case .permissionDenied:
-            return "Microphone access is required to record voice messages."
-        }
     }
 }

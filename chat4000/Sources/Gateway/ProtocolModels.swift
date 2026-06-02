@@ -321,6 +321,7 @@ enum InnerBody: Codable {
             streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
         }
 
+        // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(text, forKey: .text)
@@ -351,6 +352,7 @@ enum InnerBody: Codable {
             streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
         }
 
+        // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(delta, forKey: .delta)
@@ -421,6 +423,7 @@ enum InnerBody: Codable {
         }
     }
 
+    // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
@@ -476,6 +479,7 @@ extension InnerMessage {
         }
     }
 
+    // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(t, forKey: .t)
