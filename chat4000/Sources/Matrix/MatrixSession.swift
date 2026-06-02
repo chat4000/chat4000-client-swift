@@ -30,6 +30,25 @@ final class MatrixSession {
     }
     private(set) var userId: String?
 
+    /// First-run setup progress, surfaced to the UI as a step indicator until the
+    /// workspace is usable. Monotonic-ish: connect → sync → join the plugin's
+    /// invite → wait for the plugin's control room → ready.
+    enum SetupPhase: Int, Sendable {
+        case connecting, syncing, joiningWorkspace, waitingForPlugin, ready
+        var label: String {
+            switch self {
+            case .connecting: return "Connecting…"
+            case .syncing: return "Syncing…"
+            case .joiningWorkspace: return "Joining your workspace…"
+            case .waitingForPlugin: return "Waiting for your plugin…"
+            case .ready: return "Ready"
+            }
+        }
+        /// 0…1 for a progress bar.
+        var progress: Double { Double(rawValue) / Double(SetupPhase.ready.rawValue) }
+    }
+    private(set) var setupPhase: SetupPhase = .connecting
+
     @ObservationIgnored var onConnectionStateChange: ((ConnectionState) -> Void)?
 
     // MARK: - Rooms (sessions)
@@ -191,6 +210,7 @@ final class MatrixSession {
         controlRoomId = nil
         autoOpenRoomId = nil
         pendingAutoOpen = false
+        setupPhase = .connecting
     }
 
     private func startClient(_ stored: MatrixCredentialStore.Stored) async throws {
@@ -230,6 +250,7 @@ final class MatrixSession {
         self.userId = auth.userId
         self.reconnectAttempts = 0
         self.connectionState = .connected
+        if setupPhase.rawValue < SetupPhase.syncing.rawValue { setupPhase = .syncing }
         AppLog.log("✅ Matrix gateway connected as \(auth.userId) device \(auth.deviceId)")
 
         // Publish our device keys / one-time keys before syncing.
@@ -281,6 +302,7 @@ final class MatrixSession {
         for room in sync.rooms { await processRoom(room) }
         rebuildRoomList()
         applyAutoOpen()
+        updateSetupPhase()
 
         // Durable-ack the cursor (protocol D.1, "Sync cursor & key delivery"):
         // processSync persisted the to-device Megolm keys + crypto state and the
@@ -378,6 +400,17 @@ final class MatrixSession {
         }
         AppLog.log("📋 rebuilt: ordered=%d sessions=%d spaces=%d control=%@",
                    roomOrder.count, rooms.count, spaceRooms.count, controlRoomId ?? "nil")
+    }
+
+    /// Recompute the first-run progress phase from current room state.
+    private func updateSetupPhase() {
+        if controlRoomId != nil || !rooms.isEmpty {
+            setupPhase = .ready
+        } else if !joinedInviteAttempts.isEmpty {
+            setupPhase = .joiningWorkspace          // joined an invite; awaiting the joined re-sync
+        } else {
+            setupPhase = .waitingForPlugin          // connected + synced, but no invite yet
+        }
     }
 
     private func applyAutoOpen() {

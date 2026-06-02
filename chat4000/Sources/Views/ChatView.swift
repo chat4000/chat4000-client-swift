@@ -308,8 +308,13 @@ struct ChatView: View {
     @ViewBuilder
     private var messageListRows: some View {
         if viewModel.messages.isEmpty && !viewModel.isAgentBusy {
-            emptyChatPlaceholder
-                .id("emptyChatPlaceholder")
+            if viewModel.isSettingUp {
+                SetupProgressView(phase: viewModel.setupPhase)
+                    .id("setupProgress")
+            } else {
+                emptyChatPlaceholder
+                    .id("emptyChatPlaceholder")
+            }
         }
 
         ForEach(viewModel.messages, id: \.id) { message in
@@ -1045,6 +1050,11 @@ final class ChatViewModel {
     /// no active room a message has nowhere to go (it would be a local ghost).
     var hasActiveSession: Bool { activeRoomId != nil }
 
+    /// First-run setup progress (connect → sync → join → wait-for-plugin → ready).
+    var setupPhase: MatrixSession.SetupPhase { matrixSession.setupPhase }
+    /// Still bringing the workspace up (show progress, not the empty/New-chat state).
+    var isSettingUp: Bool { matrixSession.setupPhase != .ready }
+
     /// Silent-push wake entry point (A1): connect + drain one sync via the
     /// Matrix session; it posts local notifications for new messages.
     func backgroundWake() async -> Bool {
@@ -1775,5 +1785,78 @@ private extension PlatformImage {
         else { return nil }
         return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality])
         #endif
+    }
+}
+
+/// First-run setup progress, shown in the chat area until the workspace is ready
+/// (control room found). Steps mirror MatrixSession.SetupPhase: connect → sync →
+/// join the plugin's invite → wait for the plugin's control room.
+struct SetupProgressView: View {
+    let phase: MatrixSession.SetupPhase
+
+    private static let steps: [(phase: MatrixSession.SetupPhase, label: String)] = [
+        (.connecting, "Connecting"),
+        (.syncing, "Syncing"),
+        (.joiningWorkspace, "Joining your workspace"),
+        (.waitingForPlugin, "Waiting for your plugin"),
+    ]
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("Setting up")
+                .font(AppFonts.title)
+                .foregroundStyle(AppColors.textPrimary)
+
+            ProgressView(value: phase.progress)
+                .tint(.white)
+                .frame(maxWidth: 220)
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Self.steps, id: \.phase.rawValue) { step in
+                    stepRow(step.phase, step.label)
+                }
+            }
+
+            if phase == .waitingForPlugin {
+                Text("Your plugin is setting things up. Make sure it's running on your computer.")
+                    .font(AppFonts.caption)
+                    .foregroundStyle(AppColors.textTimestamp)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 48)
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.2), value: phase.rawValue)
+    }
+
+    @ViewBuilder
+    private func stepRow(_ stepPhase: MatrixSession.SetupPhase, _ label: String) -> some View {
+        let current = phase.rawValue
+        let isDone = current > stepPhase.rawValue
+        let isActive = current == stepPhase.rawValue
+        HStack(spacing: 12) {
+            Group {
+                if isDone {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppColors.connected)
+                } else if isActive {
+                    ProgressView().controlSize(.small).tint(AppColors.textSecondary)
+                } else {
+                    Image(systemName: "circle")
+                        .foregroundStyle(AppColors.textTimestamp)
+                }
+            }
+            .font(.system(size: 16))
+            .frame(width: 20, height: 20)
+
+            Text(label)
+                .font(AppFonts.body)
+                .foregroundStyle(isActive ? AppColors.textPrimary
+                                 : (isDone ? AppColors.textSecondary : AppColors.textTimestamp))
+            Spacer(minLength: 0)
+        }
     }
 }
