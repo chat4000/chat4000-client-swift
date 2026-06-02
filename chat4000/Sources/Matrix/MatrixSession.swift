@@ -137,6 +137,10 @@ final class MatrixSession {
     // MARK: - Pairing / connect
 
     func pair(code: String) async {
+        // A pairing is a fresh start — clear any previous session's rooms, active
+        // chat, and cached events so we never surface an old session the user is
+        // no longer connected to.
+        resetSessionState()
         connectionState = .connecting
         do {
             let env = MatrixEnvironment.current
@@ -260,6 +264,14 @@ final class MatrixSession {
         }
 
         let auth = try await gateway.connect()
+        // Connected as a DIFFERENT account than the one currently in memory → the
+        // previous session's rooms/active chat/cached events are stale. Clear them
+        // so a reconnect to a new session doesn't surface the old chat. (A plain
+        // reconnect to the SAME user keeps its state and resumes.)
+        if let previous = userId, previous != auth.userId {
+            AppLog.log("🔄 identity changed %@ → %@; clearing stale session state", previous, auth.userId)
+            resetSessionState()
+        }
         let crypto = try CryptoEngine(
             userId: auth.userId,
             deviceId: auth.deviceId,
