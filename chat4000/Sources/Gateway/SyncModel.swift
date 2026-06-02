@@ -46,13 +46,19 @@ struct SyncDeviceLists: Sendable, Equatable {
     static let empty = SyncDeviceLists(changed: [], left: [])
 }
 
-/// `extensions.to_device.events`, re-serialized as the JSON **array string**
-/// `OlmMachine.receiveSyncChanges(events:)` expects.
+/// `extensions.to_device.events`, re-serialized as the JSON object string
+/// `OlmMachine.receiveSyncChanges(events:)` expects: a ruma `ToDevice` object
+/// `{"events":[...]}` — NOT a bare array. The FFI does
+/// `serde_json::from_str::<ToDevice>(events)`, and `ToDevice.events` has
+/// `#[serde(default)]`, so a bare `[]` decodes fine (defaults to empty) but a
+/// bare `[{event}]` is read positionally and throws
+/// "invalid type: map, expected a sequence" — which silently broke ALL inbound
+/// to-device key delivery. Always wrap in `{"events":[...]}`.
 struct ToDeviceBatch: Sendable, Equatable {
     var eventsJSON: String
     var count: Int
 
-    static let empty = ToDeviceBatch(eventsJSON: "[]", count: 0)
+    static let empty = ToDeviceBatch(eventsJSON: #"{"events":[]}"#, count: 0)
 }
 
 /// One room from the sync `rooms` map, with chat4000-relevant fields lifted out
@@ -206,7 +212,8 @@ enum SyncModel {
         guard let events = toDevice?["events"] as? [[String: Any]], !events.isEmpty else {
             return .empty
         }
-        return ToDeviceBatch(eventsJSON: jsonString(events) ?? "[]", count: events.count)
+        // Wrap as a ruma `ToDevice` object `{"events":[...]}` (see ToDeviceBatch).
+        return ToDeviceBatch(eventsJSON: jsonString(["events": events]) ?? #"{"events":[]}"#, count: events.count)
     }
 
     private static func parseDeviceLists(_ e2ee: [String: Any]?) -> SyncDeviceLists {

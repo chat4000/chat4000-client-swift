@@ -52,7 +52,19 @@ final class CryptoEngine {
     /// forever; one or two passes is the normal case.
     private let maxPumpPasses = 20
 
+    /// Set once, globally: pipe matrix-sdk-crypto's internal Rust tracing into
+    /// AppLog so Olm session create/replace, prekey handling, and decrypt
+    /// failures are visible (the detail needed to diagnose an Olm session
+    /// race/wedge). `setLogger` is a module-global, so guard against re-install
+    /// on reconnect (which constructs a fresh CryptoEngine).
+    private static var tracingInstalled = false
+
     init(userId: String, deviceId: String, storePath: String, gateway: GatewayRequesting) throws {
+        // Install crypto tracing BEFORE the machine so its init is captured too.
+        if !Self.tracingInstalled {
+            setLogger(logger: CryptoTracingLogger())
+            Self.tracingInstalled = true
+        }
         // passphrase: nil → the crypto (Olm/Megolm key) store is NOT encrypted
         // at rest. Deliberate: it sits inside the app sandbox under iOS file
         // protection, and an unencrypted store sidesteps the passphrase-mismatch
@@ -71,15 +83,42 @@ final class CryptoEngine {
         AppLog.debug("🔐 processSync to_device=%d changed=%d left=%d otk=%@ fallback=%@",
                      sync.toDevice.count, sync.deviceLists.changed.count, sync.deviceLists.left.count,
                      sync.oneTimeKeyCounts.description, sync.unusedFallbackKeyTypes?.description ?? "nil")
+        // DIAG (Olm intake): log every RAW inbound to-device event (type, sender,
+        // sender_key, algorithm) so we can see exactly what the plugin sent —
+        // including its m.olm key-share — before the machine consumes it.
+        if sync.toDevice.count > 0 { logToDeviceBatch("⬇️ raw", sync.toDevice.eventsJSON) }
+
         let deviceChanges = DeviceLists(changed: sync.deviceLists.changed, left: sync.deviceLists.left)
-        _ = try machine.receiveSyncChanges(
-            events: sync.toDevice.eventsJSON,
-            deviceChanges: deviceChanges,
-            keyCounts: sync.oneTimeKeyCounts,
-            unusedFallbackKeys: sync.unusedFallbackKeyTypes,
-            nextBatchToken: sync.pos ?? "",
-            decryptionSettings: decryptionSettings
-        )
+        let result: SyncChangesResult
+        do {
+            result = try machine.receiveSyncChanges(
+                events: sync.toDevice.eventsJSON,
+                deviceChanges: deviceChanges,
+                keyCounts: sync.oneTimeKeyCounts,
+                unusedFallbackKeys: sync.unusedFallbackKeyTypes,
+                nextBatchToken: sync.pos ?? "",
+                decryptionSettings: decryptionSettings
+            )
+        } catch {
+            // The machine REJECTED the whole batch (a thrown error, not a silent
+            // UTD) — e.g. "invalid type: map, expected a sequence". When this
+            // happens the plugin's m.room_key in this batch is never imported.
+            // Kept at INFO as a hard error signal; the raw bytes (which contain
+            // ciphertext) go to DEBUG only.
+            AppLog.log("🔑 ⛔ receiveSyncChanges threw on a %d-event batch: %@", sync.toDevice.count, String(describing: error))
+            AppLog.debug("🔑 ⛔ events_json_prefix=%@", String(sync.toDevice.eventsJSON.prefix(280)))
+            throw error
+        }
+
+        // What did the machine DECRYPT out of that batch? An m.room_key here means
+        // the key landed. (key-revealing → DEBUG)
+        if !result.toDeviceEvents.isEmpty {
+            AppLog.debug("🔑 receiveSyncChanges decrypted %d to-device event(s):", result.toDeviceEvents.count)
+            for ev in result.toDeviceEvents { logToDeviceEvent("✅ decrypted", ev) }
+        } else if sync.toDevice.count > 0 {
+            // Non-revealing signal that a batch yielded nothing — keep at INFO.
+            AppLog.log("🔑 ⚠️ batch of %d to-device produced 0 decrypted events", sync.toDevice.count)
+        }
         try await runOutgoingRequests()
     }
 
@@ -108,6 +147,11 @@ final class CryptoEngine {
         case let .keysUpload(requestId, body):
             let resp = try await post("/_matrix/client/v3/keys/upload", jsonBody: body)
             try machine.markRequestAsSent(requestId: requestId, requestType: .keysUpload, responseBody: resp)
+            // DIAG (D): how many one-time keys does the server hold for us now?
+            // If this drops to 0, the plugin may claim an OTK we've discarded →
+            // its prekey Olm message becomes undecryptable.
+            let otkCounts = (try? dict(fromJSON: resp))?["one_time_key_counts"]
+            AppLog.debug("🔑 keysUpload ok server_otk_counts=%@", String(describing: otkCounts ?? "-"))
 
         case let .keysQuery(requestId, users):
             // The FFI hands us the user list; the C-S body is `{device_keys:{u:[]}}`.
@@ -115,10 +159,19 @@ final class CryptoEngine {
             for user in users { deviceKeys[user] = [String]() }
             let resp = try await post("/_matrix/client/v3/keys/query", dictBody: ["device_keys": deviceKeys])
             try machine.markRequestAsSent(requestId: requestId, requestType: .keysQuery, responseBody: resp)
+            // DIAG (C): which devices + curve25519 keys did we learn for each
+            // queried user? Confirms we actually see the plugin's device (and the
+            // curve25519 it shares room keys from).
+            AppLog.debug("🔑 keysQuery users=[%@] → %@", users.joined(separator: ","), summarizeDeviceKeys(resp))
 
         case let .keysClaim(requestId, oneTimeKeys):
+            // DIAG (C): which user/device/algorithm are we claiming an OTK for?
+            AppLog.debug("🔑 keysClaim targets=\(oneTimeKeys)")
             let resp = try await post("/_matrix/client/v3/keys/claim", dictBody: ["one_time_keys": oneTimeKeys])
             try machine.markRequestAsSent(requestId: requestId, requestType: .keysClaim, responseBody: resp)
+            // DIAG (C): did the homeserver actually hand back the plugin's OTK
+            // (so we can establish the Olm session), or did it `failures` out?
+            AppLog.debug("🔑 keysClaim result %@", summarizeKeysClaim(resp))
 
         case let .toDevice(requestId, eventType, body):
             // The FFI `body` is the messages map ({user:{device:content}}); the
@@ -227,7 +280,14 @@ final class CryptoEngine {
         let pair = try machine.requestRoomKey(event: eventJSON, roomId: roomId)
         if let cancellation = pair.cancellation { try await send(cancellation) }
         try await send(pair.keyRequest)
-        AppLog.debug("🔐 requested room key for an undecryptable event in %@", roomId)
+        // DIAG (E): log the megolm session + sender_key we're asking for so the
+        // plugin can confirm the request targets its device/session.
+        var session = "-", senderKey = "-"
+        if let content = parseContent(eventJSON) {
+            session = content["session_id"] as? String ?? "-"
+            senderKey = content["sender_key"] as? String ?? "-"
+        }
+        AppLog.debug("🔐 requested room key room=%@ session=%@ sender_key=%@", roomId, session, senderKey)
     }
 
     // MARK: - Settings
@@ -307,5 +367,99 @@ final class CryptoEngine {
         let allowed = CharacterSet(charactersIn:
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         return segment.addingPercentEncoding(withAllowedCharacters: allowed) ?? segment
+    }
+
+    // MARK: - Key-exchange diagnostics
+
+    /// One-line summary of a `/keys/query` response: each user's devices and the
+    /// curve25519 key the machine now knows for them.
+    private func summarizeDeviceKeys(_ resp: String) -> String {
+        guard let obj = try? dict(fromJSON: resp),
+              let deviceKeys = obj["device_keys"] as? [String: Any] else { return "no device_keys" }
+        var parts: [String] = []
+        for (user, devices) in deviceKeys {
+            guard let devices = devices as? [String: Any] else { continue }
+            for (deviceId, dk) in devices {
+                let keys = (dk as? [String: Any])?["keys"] as? [String: Any] ?? [:]
+                let curve = keys.first { $0.key.hasPrefix("curve25519:") }?.value as? String ?? "?"
+                parts.append("\(deviceId)(\(curve))")
+            }
+        }
+        return parts.isEmpty ? "0 devices" : parts.joined(separator: ",")
+    }
+
+    /// One-line summary of a `/keys/claim` response: which devices yielded an OTK
+    /// (so an Olm session can be built) and which users hard-failed.
+    private func summarizeKeysClaim(_ resp: String) -> String {
+        guard let obj = try? dict(fromJSON: resp) else { return "unparseable" }
+        var claimed: [String] = []
+        if let otk = obj["one_time_keys"] as? [String: Any] {
+            for (_, devices) in otk {
+                if let devices = devices as? [String: Any] { claimed.append(contentsOf: devices.keys) }
+            }
+        }
+        let failures = (obj["failures"] as? [String: Any])?.keys.sorted().joined(separator: ",")
+        return "claimed=[\(claimed.joined(separator: ","))] failures=\(failures?.isEmpty == false ? failures! : "none")"
+    }
+
+    // MARK: - To-device diagnostics
+
+    /// Parse a single event JSON and return its `content` object.
+    private func parseContent(_ eventJSON: String) -> [String: Any]? {
+        guard let data = eventJSON.data(using: .utf8),
+              let ev = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return ev["content"] as? [String: Any]
+    }
+
+    /// Log each event in a to-device batch. `eventsJSON` is a ruma `ToDevice`
+    /// object `{"events":[...]}` (see ToDeviceBatch); tolerate a bare array too.
+    private func logToDeviceBatch(_ tag: String, _ eventsJSON: String) {
+        guard let data = eventsJSON.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) else { return }
+        let arr = (obj as? [String: Any])?["events"] as? [[String: Any]]
+            ?? obj as? [[String: Any]] ?? []
+        for ev in arr { logToDeviceFields(tag, ev) }
+    }
+
+    /// Log a single to-device event (JSON object string).
+    private func logToDeviceEvent(_ tag: String, _ eventJSON: String) {
+        guard let data = eventJSON.data(using: .utf8),
+              let ev = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+        logToDeviceFields(tag, ev)
+    }
+
+    /// Common field dump: type/sender plus the crypto-relevant content fields.
+    /// `alg`/`sender_key` identify an inbound m.olm key-share; `room`/`session`
+    /// identify a decrypted m.room_key.
+    private func logToDeviceFields(_ tag: String, _ ev: [String: Any]) {
+        let type = ev["type"] as? String ?? "?"
+        let sender = ev["sender"] as? String ?? "?"
+        let content = ev["content"] as? [String: Any]
+        // key-revealing (sender_key / session_id) → DEBUG (verbose/dev only).
+        AppLog.debug("🔑 %@ type=%@ sender=%@ alg=%@ sender_key=%@ room=%@ session=%@",
+                   tag, type, sender,
+                   content?["algorithm"] as? String ?? "-",
+                   content?["sender_key"] as? String ?? "-",
+                   content?["room_id"] as? String ?? "-",
+                   content?["session_id"] as? String ?? "-")
+    }
+}
+
+/// Pipes matrix-sdk-crypto's internal Rust tracing into AppLog. Filtered to
+/// Olm/Megolm/session/key/decrypt lines so the high-volume trace can't evict
+/// our own log lines from the rotating file — exactly the events needed to
+/// diagnose an Olm session race/wedge (prekey handling, session create/replace,
+/// decrypt failures). Installed once via `CryptoEngine`'s `setLogger`.
+private final class CryptoTracingLogger: Logger {
+    func log(logLine: String) {
+        let l = logLine.lowercased()
+        guard l.contains("olm") || l.contains("megolm") || l.contains("session")
+            || l.contains("room_key") || l.contains("room key") || l.contains("decrypt")
+            || l.contains("prekey") || l.contains("pre-key") || l.contains("one-time")
+            || l.contains("wedg") || l.contains("withheld")
+        else { return }
+        AppLog.debug("🦀 %@", logLine)
     }
 }

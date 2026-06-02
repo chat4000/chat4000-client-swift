@@ -354,16 +354,23 @@ final class MatrixSession {
         if room.isSpace { spaceRooms.insert(room.id); return } // the plugin's space; never a chat
 
         // Membership → crypto: mark encrypted + track + remember recipients.
+        // These were silently `try?`'d; a failure here breaks key sharing
+        // (no algorithm set / untracked users → no Olm session → UTD), so log it.
         if room.isEncrypted, !encryptedRooms.contains(room.id) {
-            try? crypto?.markRoomEncrypted(room.id)
-            encryptedRooms.insert(room.id)
+            do { try crypto?.markRoomEncrypted(room.id); encryptedRooms.insert(room.id) }
+            catch { AppLog.log("⚙️ markRoomEncrypted failed for %@: %@", room.id, error.localizedDescription) }
         }
         if !room.members.isEmpty {
             roomMembers[room.id] = room.members
             let newUsers = room.members.filter { !trackedUsers.contains($0) }
             if !newUsers.isEmpty {
-                try? crypto?.updateTrackedUsers(newUsers)
-                trackedUsers.formUnion(newUsers)
+                do {
+                    try crypto?.updateTrackedUsers(newUsers)
+                    trackedUsers.formUnion(newUsers)
+                    AppLog.debug("🔑 tracking %d new user(s) for key queries: %@", newUsers.count, newUsers.joined(separator: ","))
+                } catch {
+                    AppLog.log("⚙️ updateTrackedUsers failed for %@: %@", room.id, error.localizedDescription)
+                }
             }
         }
 

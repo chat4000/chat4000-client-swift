@@ -122,6 +122,13 @@ struct chat4000App: App {
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
+                    // Log the running version on every foreground (not just cold
+                    // launch) so a pulled log always identifies the exact build,
+                    // even when the app was only resumed.
+                    AppLog.log("📲 foregrounded — chat4000 v%@ (build %@) env=%@",
+                               AppRegistrationIdentity.currentAppVersion,
+                               Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?",
+                               MatrixEnvironment.isStage ? "stage" : "prod")
                     Haptics.prime()
                     activeSessionStartedAt = .now
                     chatViewModel.refreshMessages()
