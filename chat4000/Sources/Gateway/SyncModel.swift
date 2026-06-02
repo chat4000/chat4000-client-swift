@@ -26,6 +26,16 @@ struct GatewaySync: Sendable {
     /// absent (distinct from an empty list, which the machine treats as "all
     /// fallback keys used").
     var unusedFallbackKeyTypes: [String]?
+    /// `extensions.receipts` — m.read / m.read.private markers, used to drive the
+    /// "read" tick on our outbound messages.
+    var receipts: [ReadReceipt]
+}
+
+/// One read marker: `userId` read up to `eventId` in `roomId`.
+struct ReadReceipt: Sendable, Equatable {
+    var roomId: String
+    var userId: String
+    var eventId: String
 }
 
 /// `extensions.e2ee.device_lists` — users whose device list changed / who left.
@@ -108,7 +118,8 @@ enum SyncModel {
             toDevice: parseToDevice(extensions["to_device"] as? [String: Any]),
             deviceLists: parseDeviceLists(extensions["e2ee"] as? [String: Any]),
             oneTimeKeyCounts: parseOTKCounts(extensions["e2ee"] as? [String: Any]),
-            unusedFallbackKeyTypes: parseFallbackKeyTypes(extensions["e2ee"] as? [String: Any])
+            unusedFallbackKeyTypes: parseFallbackKeyTypes(extensions["e2ee"] as? [String: Any]),
+            receipts: parseReceipts(extensions["receipts"] as? [String: Any])
         )
     }
 
@@ -218,6 +229,28 @@ enum SyncModel {
     private static func parseFallbackKeyTypes(_ e2ee: [String: Any]?) -> [String]? {
         // Absent → nil (machine: "unknown"); present (even empty) → the list.
         e2ee?["device_unused_fallback_key_types"] as? [String]
+    }
+
+    /// `extensions.receipts.rooms[roomId]` is an `m.receipt` EDU:
+    /// `{ content: { "<eventId>": { "m.read"|"m.read.private": { "<user>": {ts} } } } }`.
+    /// Some servers nest under `content`, some put the map directly — handle both.
+    private static func parseReceipts(_ receipts: [String: Any]?) -> [ReadReceipt] {
+        guard let rooms = receipts?["rooms"] as? [String: Any] else { return [] }
+        var out: [ReadReceipt] = []
+        for (roomId, value) in rooms {
+            let edu = value as? [String: Any] ?? [:]
+            let content = (edu["content"] as? [String: Any]) ?? edu
+            for (eventId, receiptTypes) in content {
+                guard eventId.hasPrefix("$"), let types = receiptTypes as? [String: Any] else { continue }
+                for kind in ["m.read", "m.read.private"] {
+                    guard let users = types[kind] as? [String: Any] else { continue }
+                    for userId in users.keys {
+                        out.append(ReadReceipt(roomId: roomId, userId: userId, eventId: eventId))
+                    }
+                }
+            }
+        }
+        return out
     }
 
     // MARK: - Small helpers

@@ -25,6 +25,8 @@ final class MatrixMessageTransport: MessageTransport {
     var onStatus: ((MessageStatusUpdate) -> Void)?
     var onConnectionState: ((ConnectionState) -> Void)?
     var onTermsVersionUpdate: ((Int) -> Void)?
+    var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
+    var onRead: ((_ eventId: String) -> Void)?
 
     var state: ConnectionState { session.connectionState }
     var currentGroupId: String? { session.userId }
@@ -51,6 +53,12 @@ final class MatrixMessageTransport: MessageTransport {
         session.onActiveRoomStatus = { [weak self] state in
             self?.emitStatus(state)
         }
+        session.onSentEventId = { [weak self] localId, eventId in
+            self?.onSentEventId?(localId, eventId)
+        }
+        session.onReadReceipt = { [weak self] eventId in
+            self?.onRead?(eventId)
+        }
     }
 
     // MARK: - MessageTransport
@@ -74,19 +82,19 @@ final class MatrixMessageTransport: MessageTransport {
                 AppLog.log("⚠️ Matrix send dropped — no active room yet")
                 return localId
             }
-            Task { await session.sendText(text, roomId: roomId) }
+            Task { await session.sendText(text, roomId: roomId, localId: localId) }
         case let .image(data, mimeType):
             guard let roomId = session.activeRoomId else {
                 AppLog.log("⚠️ Matrix image send dropped — no active room")
                 return localId
             }
-            Task { await session.sendImage(data, mimeType: mimeType, roomId: roomId) }
+            Task { await session.sendImage(data, mimeType: mimeType, roomId: roomId, localId: localId) }
         case let .audio(data, mimeType, durationMs, _):
             guard let roomId = session.activeRoomId else {
                 AppLog.log("⚠️ Matrix audio send dropped — no active room")
                 return localId
             }
-            Task { await session.sendAudio(data, mimeType: mimeType, durationMs: durationMs, roomId: roomId) }
+            Task { await session.sendAudio(data, mimeType: mimeType, durationMs: durationMs, roomId: roomId, localId: localId) }
         case .textDelta, .textEnd, .status, .ack:
             break // inbound-only in v2
         }

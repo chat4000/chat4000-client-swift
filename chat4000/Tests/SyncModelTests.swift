@@ -111,6 +111,25 @@ struct SyncModelTests {
         #expect(sync.unusedFallbackKeyTypes == ["signed_curve25519"])
     }
 
+    /// Worth 8 — read receipts drive the "read" tick; a parse miss = no tick.
+    @Test
+    func parsesReadReceipts() throws {
+        let frame: [String: Any] = [
+            "rooms": [:],
+            "extensions": ["receipts": ["rooms": [
+                "!r:x": ["type": "m.receipt", "content": [
+                    "$evt1": ["m.read": ["@plugin:x": ["ts": 1]]],
+                ]],
+            ]]],
+        ]
+        let receipts = SyncModel.parse(frame).receipts
+        let r = try #require(receipts.first)
+        #expect(receipts.count == 1)
+        #expect(r.roomId == "!r:x")
+        #expect(r.userId == "@plugin:x")
+        #expect(r.eventId == "$evt1")
+    }
+
     /// Worth 6 — a malformed/empty frame must degrade to empty, never crash.
     @Test
     func toleratesEmptyAndGarbageFrames() {

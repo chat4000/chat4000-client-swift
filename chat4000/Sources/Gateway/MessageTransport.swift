@@ -53,6 +53,16 @@ protocol MessageTransport: AnyObject {
     /// itself does not interpret the policy.
     var onTermsVersionUpdate: ((Int) -> Void)? { get set }
 
+    /// Fired when an outbound message's wire-level send completes and the
+    /// homeserver assigns it an `event_id`. `localId` is the value `send`
+    /// returned; the consumer correlates it to its local row and stores the
+    /// `eventId` so a later read receipt can be matched.
+    var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)? { get set }
+
+    /// Fired when a peer (the plugin) read up to `eventId` — drives the "read"
+    /// tick. The consumer flips the matching outbound row (by stored event_id).
+    var onRead: ((_ eventId: String) -> Void)? { get set }
+
     func connect()
     func disconnect()
 

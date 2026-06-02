@@ -52,6 +52,11 @@ final class ChatMessage {
     /// active room on load). New rows always set this.
     var roomId: String?
 
+    /// v2: the homeserver `event_id` assigned to this (outbound) message once the
+    /// send returns. Used to match inbound read receipts → "read" tick. nil until
+    /// the send completes / for inbound rows. Additive (old rows decode as nil).
+    var matrixEventId: String?
+
     // MARK: - Hermes tool-call fields
     //
     // All optional / nilable so they remain additive against persisted
@@ -137,6 +142,7 @@ final class ChatMessage {
         self.timestamp = timestamp
         self.status = status
         self.roomId = roomId
+        self.matrixEventId = nil
         self.kindRaw = kind.rawValue
         self.toolId = toolId
         self.toolName = toolName

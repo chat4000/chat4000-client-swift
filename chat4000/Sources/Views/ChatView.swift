@@ -987,6 +987,24 @@ final class ChatViewModel {
         transport.onTermsVersionUpdate = { [weak self] currentTermsVersion in
             self?.onTermsVersionUpdate?(currentTermsVersion)
         }
+        // Send completed → remember the message's real Matrix event_id so a
+        // later read receipt can be matched to it.
+        transport.onSentEventId = { [weak self] localId, eventId in
+            guard let self, let row = self.messages.first(where: { $0.msgId == localId }) else { return }
+            row.matrixEventId = eventId
+            try? self.modelContext?.save()
+        }
+        // The plugin read up to this event → flip the matching row to the read
+        // tick (.delivered renders as the double check). Never demote.
+        transport.onRead = { [weak self] eventId in
+            guard let self,
+                  let row = self.messages.first(where: { $0.matrixEventId == eventId }) else { return }
+            if row.status == .sending || row.status == .sent {
+                row.status = .delivered
+                try? self.modelContext?.save()
+                AppLog.log("👁️ read tick for %@", eventId)
+            }
+        }
     }
 
     func attach(modelContext: ModelContext) {

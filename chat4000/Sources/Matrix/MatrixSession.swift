@@ -75,6 +75,11 @@ final class MatrixSession {
     @ObservationIgnored var onRoomEvent: ((_ roomId: String, _ event: DecryptedRoomEvent, _ live: Bool) -> Void)?
     /// Latest `chat4000.status` for the active room (drives the busy indicator).
     @ObservationIgnored var onActiveRoomStatus: ((_ state: String) -> Void)?
+    /// An outbound message's send completed → its homeserver event_id (for
+    /// correlating later read receipts). `localId` is what `sendText`'s caller used.
+    @ObservationIgnored var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
+    /// A peer (the plugin) read up to `eventId` → drives the "read" tick.
+    @ObservationIgnored var onReadReceipt: ((_ eventId: String) -> Void)?
 
     // MARK: - Internals
 
@@ -313,6 +318,12 @@ final class MatrixSession {
         applyAutoOpen()
         updateSetupPhase()
 
+        // Read receipts from anyone but us → advance our "read" ticks.
+        for receipt in sync.receipts where receipt.userId != userId {
+            AppLog.debug("👁️ read receipt from %@ up to %@", receipt.userId, receipt.eventId)
+            onReadReceipt?(receipt.eventId)
+        }
+
         // Durable-ack the cursor (protocol D.1, "Sync cursor & key delivery"):
         // processSync persisted the to-device Megolm keys + crypto state and the
         // dispatch above persisted messages, so it's now safe to let the gateway
@@ -474,15 +485,17 @@ final class MatrixSession {
 
     // MARK: - Sending (called by the transport)
 
-    /// Encrypt + send a plain-text message into a room.
-    func sendText(_ text: String, roomId: String) async {
+    /// Encrypt + send a plain-text message into a room. `localId` correlates the
+    /// returned event_id back to the caller's local row (for read ticks).
+    func sendText(_ text: String, roomId: String, localId: String) async {
         let recipients = roomMembers[roomId] ?? []
         do {
-            _ = try await crypto?.encryptAndSend(
+            let eventId = try await crypto?.encryptAndSend(
                 roomId: roomId,
                 recipients: recipients,
                 content: ["msgtype": "m.text", "body": text]
             )
+            if let eventId { onSentEventId?(localId, eventId) }
         } catch {
             AppLog.log("⚠️ Matrix sendText failed: \(error)")
         }
@@ -490,20 +503,20 @@ final class MatrixSession {
 
     /// Encrypt the blob, upload the ciphertext (protocol D.3), and send an
     /// `m.image` referencing the resulting `mxc://` + decryption key.
-    func sendImage(_ data: Data, mimeType: String, roomId: String) async {
-        await sendMedia(data, mimeType: mimeType, roomId: roomId,
+    func sendImage(_ data: Data, mimeType: String, roomId: String, localId: String) async {
+        await sendMedia(data, mimeType: mimeType, roomId: roomId, localId: localId,
                         msgtype: "m.image", filename: "image.jpg", info: ["mimetype": mimeType, "size": data.count])
     }
 
     /// Same as `sendImage` for a voice note (`m.audio` + duration).
-    func sendAudio(_ data: Data, mimeType: String, durationMs: Int, roomId: String) async {
-        await sendMedia(data, mimeType: mimeType, roomId: roomId,
+    func sendAudio(_ data: Data, mimeType: String, durationMs: Int, roomId: String, localId: String) async {
+        await sendMedia(data, mimeType: mimeType, roomId: roomId, localId: localId,
                         msgtype: "m.audio", filename: "voice.m4a",
                         info: ["mimetype": mimeType, "size": data.count, "duration": durationMs])
     }
 
     private func sendMedia(
-        _ data: Data, mimeType: String, roomId: String,
+        _ data: Data, mimeType: String, roomId: String, localId: String,
         msgtype: String, filename: String, info: [String: Any]
     ) async {
         guard let creds, let mediaBase = mediaBaseURL else {
@@ -514,8 +527,9 @@ final class MatrixSession {
             let file = try await MatrixMedia.encryptAndUpload(
                 data, mediaBaseURL: mediaBase, accessToken: creds.accessToken, filename: filename)
             let content: [String: Any] = ["msgtype": msgtype, "body": filename, "file": file, "info": info]
-            _ = try await crypto?.encryptAndSend(
+            let eventId = try await crypto?.encryptAndSend(
                 roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content)
+            if let eventId { onSentEventId?(localId, eventId) }
         } catch {
             AppLog.log("⚠️ Matrix media send failed: \(error)")
         }
