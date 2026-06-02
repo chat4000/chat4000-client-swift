@@ -93,6 +93,12 @@ final class MatrixSession {
     /// Rooms we've already fired a join for (invite auto-accept), so we don't
     /// re-POST /join on every sync while the join settles.
     @ObservationIgnored private var joinedInviteAttempts: Set<String> = []
+    /// Event ids we've already gossip-requested a key for, so we don't re-request
+    /// the same undecryptable event on every sync.
+    @ObservationIgnored private var requestedKeyFor: Set<String> = []
+    /// Encrypted events we couldn't decrypt yet, kept so we can retry once the
+    /// missing Megolm key arrives (it won't re-appear in a later sync timeline).
+    @ObservationIgnored private var undecrypted: [String: (roomId: String, outer: SyncEvent)] = [:]
     @ObservationIgnored private var trackedUsers: Set<String> = []
     @ObservationIgnored private var seenEventIds: Set<String> = []
     @ObservationIgnored private var roomEventCache: [String: [DecryptedRoomEvent]] = [:]
@@ -210,6 +216,8 @@ final class MatrixSession {
         controlRoomId = nil
         autoOpenRoomId = nil
         pendingAutoOpen = false
+        requestedKeyFor = []
+        undecrypted = [:]
         setupPhase = .connecting
     }
 
@@ -300,6 +308,7 @@ final class MatrixSession {
         catch { AppLog.log("⚙️ crypto.processSync failed: \(error)") }
 
         for room in sync.rooms { await processRoom(room) }
+        retryUndecrypted()
         rebuildRoomList()
         applyAutoOpen()
         updateSetupPhase()
@@ -358,11 +367,19 @@ final class MatrixSession {
 
             let clear: String?
             if outer.type == "m.room.encrypted" {
-                clear = try? crypto?.decrypt(eventJSON: outer.rawJSON, roomId: room.id)
-                if clear == nil {
-                    AppLog.log("🔒 undecryptable event %@ in %@ (key may arrive later)", eid, room.id)
-                } else {
-                    AppLog.debug("🔓 decrypted %@ in %@", eid, room.id)
+                do {
+                    clear = try crypto?.decrypt(eventJSON: outer.rawJSON, roomId: room.id)
+                    if clear != nil { AppLog.debug("🔓 decrypted %@ in %@", eid, room.id) }
+                } catch {
+                    clear = nil
+                    AppLog.log("🔒 decrypt failed %@ in %@: %@ — requesting key", eid, room.id, error.localizedDescription)
+                    // Buffer for retry once the key arrives (the event won't be
+                    // in a future sync timeline), and gossip-request it once.
+                    undecrypted[eid] = (room.id, outer)
+                    if requestedKeyFor.insert(eid).inserted {
+                        let raw = outer.rawJSON, rid = room.id
+                        Task { [weak self] in try? await self?.crypto?.requestRoomKey(forEvent: raw, roomId: rid) }
+                    }
                 }
             } else {
                 clear = outer.rawJSON
@@ -384,6 +401,26 @@ final class MatrixSession {
         if isActive, !isControl, let state = room.statusState, lastStatusByRoom[room.id] != state {
             lastStatusByRoom[room.id] = state
             onActiveRoomStatus?(state)
+        }
+    }
+
+    /// Re-decrypt buffered UTD events — a sync may have just delivered the key
+    /// (via gossip response or a fresh share). On success, deliver them like any
+    /// freshly-synced event (control-room results are parsed; session events go
+    /// to the active room's mapper).
+    private func retryUndecrypted() {
+        guard !undecrypted.isEmpty, let crypto else { return }
+        for (eid, entry) in undecrypted {
+            guard let clear = try? crypto.decrypt(eventJSON: entry.outer.rawJSON, roomId: entry.roomId) else { continue }
+            undecrypted.removeValue(forKey: eid)
+            AppLog.log("🔓 late-decrypted %@ in %@", eid, entry.roomId)
+            if roomKinds[entry.roomId] == "control" {
+                handleControlEvent(clear: clear)
+                continue
+            }
+            let event = DecryptedRoomEvent(outer: entry.outer, clear: clear, isOwn: entry.outer.sender == userId)
+            roomEventCache[entry.roomId, default: []].append(event)
+            if activeRoomId == entry.roomId { onRoomEvent?(entry.roomId, event, false) }
         }
     }
 

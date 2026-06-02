@@ -219,6 +219,17 @@ final class CryptoEngine {
         return result.clearEvent
     }
 
+    /// Gossip-request the Megolm key for an event we couldn't decrypt
+    /// (`m.room_key_request`). Other devices in the room — including the plugin —
+    /// may respond with the key, after which a later re-decrypt succeeds. Sends
+    /// the cancellation (if any) + the request as to-device messages.
+    func requestRoomKey(forEvent eventJSON: String, roomId: String) async throws {
+        let pair = try machine.requestRoomKey(event: eventJSON, roomId: roomId)
+        if let cancellation = pair.cancellation { try await send(cancellation) }
+        try await send(pair.keyRequest)
+        AppLog.debug("🔐 requested room key for an undecryptable event in %@", roomId)
+    }
+
     // MARK: - Settings
 
     private var encryptionSettings: EncryptionSettings {
