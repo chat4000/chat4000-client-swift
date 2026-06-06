@@ -811,9 +811,12 @@ struct RoomMessagesView: View {
     private func scrollToBottomButton(_ proxy: ScrollViewProxy) -> some View {
         Button {
             Haptics.impact()
-            withAnimation(.easeOut(duration: 0.25)) {
-                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            }
+            AppLog.log("🔽 scroll-button tap pinned=%@ viewportH=%.0f msgs=%d",
+                       String(isPinnedToBottom), viewportHeight, room.messages.count)
+            // Route through the robust multi-pass scroll (NOT a single inline
+            // scrollTo): a lone pass lands short ~20% when content is still
+            // settling (busy row / image decode / markdown reflow) at tap time.
+            scrollToBottom(using: proxy, animated: true)
         } label: {
             Image(systemName: "chevron.down")
                 .font(.system(size: 15, weight: .semibold))
@@ -933,19 +936,32 @@ struct RoomMessagesView: View {
         }
     }
 
-    private func scrollToBottom(using proxy: ScrollViewProxy) {
+    /// Scroll to the bottom anchor, robust against a layout pass that's still
+    /// settling. A SINGLE scrollTo lands short ~20% of the time when content grows
+    /// right after the call (async image decode, the busy row appearing, markdown
+    /// reflow) — it scrolls to the bottom-as-it-was, then more content pushes the
+    /// real bottom further down. So we make one initial pass (animated for the
+    /// button's smooth jump) then two short non-animated nudges that snap to the
+    /// now-final bottom. Idempotent once pinned (each nudge is a no-op at bottom).
+    private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool = false) {
+        AppLog.log("↕️ scrollToBottom msgs=%d pinned=%@ animated=%@ busy=%@",
+                   room.messages.count, String(isPinnedToBottom), String(animated), String(room.isAgentBusy))
         pendingScrollTask?.cancel()
         pendingScrollTask = Task { @MainActor in
             await Task.yield()
             guard !Task.isCancelled else { return }
-            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            #if os(iOS)
-            try? await Task.sleep(for: .milliseconds(24))
-            guard !Task.isCancelled else { return }
-            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            #else
-            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            #endif
+            if animated {
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("chatBottomAnchor", anchor: .bottom) }
+            } else {
+                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+            }
+            // Follow-up nudges to reach the FINAL bottom after late content settles.
+            for delay in [Duration.milliseconds(50), .milliseconds(150)] {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+                AppLog.log("↕️ scrollToBottom nudge after %@", String(describing: delay))
+            }
         }
     }
 }
