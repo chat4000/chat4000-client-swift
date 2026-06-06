@@ -26,8 +26,18 @@ enum AnalyticsEvent: String {
     case founderChatPromptShown = "founder_chat_prompt_shown"
     case founderChatPromptAction = "founder_chat_prompt_action"
 
+    /// The user opened the canonical web install page from in-app help, with an
+    /// attribution `ref` on the URL so the website can match this app-originated
+    /// visit. Gated on diagnostics like every other event.
+    case installRefOpened = "install_ref_opened"
+
     // APNS / push
     case apnsTokenRegistered = "apns_token_registered"
+    /// Liveness ping: the backend sends a silent "alive check" push to confirm
+    /// the app is still installed; on receipt we emit this (gated on diagnostics
+    /// being enabled, like every other event). Its mere presence in PostHog is
+    /// the install signal.
+    case alive
 }
 
 enum AnalyticsBuckets {

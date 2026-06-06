@@ -2,11 +2,11 @@ import Foundation
 
 /// Pure, testable core of the Matrix timeline → `InnerMessage` mapping.
 ///
-/// `MatrixMessageTransport` extracts primitives from SDK timeline items
-/// (`eventId`, `body`, `senderId`, `isOwn`, `live`) and feeds them here; this
-/// type decides what to emit (finalized text vs streaming delta/end) and the
-/// transport converts the decisions into `InnerMessage`s. Keeping the decision
-/// logic free of SDK types makes the tricky streaming behaviour unit-testable.
+/// Each room's `RoomViewModel` extracts primitives from decrypted timeline
+/// events (`eventId`, `body`, `senderId`, `isOwn`, `live`) and feeds them here;
+/// this type decides what to emit (finalized text vs streaming delta/end) and the
+/// room view model converts the decisions into `InnerMessage`s. Keeping the
+/// decision logic free of transport types makes the streaming behaviour unit-testable.
 struct MatrixTimelineMapper {
     enum Emit: Equatable {
         /// A complete (non-streaming) message — history or our own echo.

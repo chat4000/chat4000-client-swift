@@ -17,6 +17,24 @@ packages:
   Intercom:
     url: https://github.com/intercom/intercom-ios.git
     from: "19.0.0"
+  # TEMPORARY — confetti comparison harness (ConfettiLab). Remove these three
+  # packages + ConfettiLab.swift + the Settings "Confetti Lab" row once a style
+  # is picked.
+  ConfettiSwiftUI:
+    url: https://github.com/simibac/ConfettiSwiftUI.git
+    from: "1.0.0"
+  Vortex:
+    url: https://github.com/twostraws/Vortex.git
+    from: "1.0.0"
+  SPConfetti:
+    url: https://github.com/ivanvorobei/SPConfetti.git
+    from: "1.0.0"
+  # TEMPORARY — haptics audition harness (HapticsLab). Remove this package +
+  # the Pulsar section of HapticsLab.swift + the iOSApp dependency once a
+  # celebration haptic is picked.
+  Pulsar:
+    url: https://github.com/software-mansion-labs/pulsar-ios.git
+    from: "1.0.0"
   MatrixSDKCrypto:
     # Local vendored package: standalone Olm/Megolm crypto FFI
     # (matrix-sdk-crypto-ffi). The full MatrixRustSDK was removed — the
@@ -75,6 +93,12 @@ targetTemplates:
       - package: PostHog
       - package: Intercom
       - package: MatrixSDKCrypto
+      # TEMPORARY — ConfettiLab harness (iOS only; mac code is #if canImport-guarded).
+      - package: ConfettiSwiftUI
+      - package: Vortex
+      - package: SPConfetti
+      # TEMPORARY — HapticsLab audition harness (iOS only; #if canImport-guarded).
+      - package: Pulsar
     preBuildScripts:
       - name: SwiftLint
         basedOnDependencyAnalysis: false

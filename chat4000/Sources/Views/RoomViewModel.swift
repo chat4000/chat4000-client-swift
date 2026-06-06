@@ -1,0 +1,616 @@
+import Foundation
+import SwiftData
+import SwiftUI
+
+/// One always-mounted view model per Matrix room (session). It owns THAT room's
+/// messages, its own streaming/tool mapping pipeline, its own busy/status clock,
+/// and persists every row with its OWN fixed `roomId` — never a shared mutable
+/// `activeRoomId`. Because the `roomId` is immutable for the lifetime of the
+/// instance, the active-room race that used to file one room's tool chips into
+/// another room's timeline (the "tool-bleed") cannot happen here.
+///
+/// A background room keeps cooking + saving its widgets live (the active gate is
+/// gone in `MatrixSession`), so its mounted-but-hidden view is already correct
+/// the instant you bring it to front — no replay, no re-cook, no teardown.
+@MainActor
+@Observable
+final class RoomViewModel {
+    let roomId: String
+
+    // Rendered state (observed by the room's view).
+    var messages: [ChatMessage] = []
+    var isAgentBusy = false
+    var busyStartTime: Date?
+    var busyPhase: String = "Thinking"
+    var scrollRevision = 0
+
+    @ObservationIgnored private let session: MatrixSession
+    @ObservationIgnored private var modelContext: ModelContext?
+    @ObservationIgnored private var didLoadHistory = false
+
+    // Streaming assembly (one in-flight agent stream at a time).
+    @ObservationIgnored private var currentStreamId: String?
+    @ObservationIgnored private var currentStreamText = ""
+    @ObservationIgnored private var currentStreamMessageId: UUID?
+
+    // Per-room event → InnerMessage mapping pipeline (was the single shared
+    // transport's state; now owned per room so two rooms never share a mapper).
+    @ObservationIgnored private var mapper = MatrixTimelineMapper()
+    @ObservationIgnored private var emittedToolStarts: Set<String> = []
+    @ObservationIgnored private var finalizeTask: Task<Void, Never>?
+    /// Newest event id seen in this room (for the read receipt).
+    @ObservationIgnored private var lastEventId: String?
+
+    /// Latest applied `chat4000.status` origin_server_ts — the gate that makes the
+    /// label a pure function of the NEWEST status (protocol E). Older/redelivered
+    /// status (ts ≤ this) is ignored: no label change, no TTL re-arm.
+    @ObservationIgnored private var latestStatusTs: Int64 = 0
+    /// Protocol E stuck-spinner guard: if no fresh status arrives within 10s, the
+    /// label self-clears. Reset on every status, cancelled on `idle`.
+    @ObservationIgnored private var busyTTLTask: Task<Void, Never>?
+
+    init(roomId: String, session: MatrixSession) {
+        self.roomId = roomId
+        self.session = session
+    }
+
+    // MARK: - Lifecycle
+
+    /// Bind persistence and load this room's history once (scoped to `roomId`).
+    func attach(modelContext: ModelContext) {
+        self.modelContext = modelContext
+        guard !didLoadHistory else { return }
+        didLoadHistory = true
+        loadHistory()
+    }
+
+    /// Re-fetch this room's stored rows, merging any in-memory-only transient rows
+    /// (e.g. a just-sent `.sending` row). All rows are this room's (`roomId` is
+    /// fixed), so there is no cross-room merge to leak another session's messages.
+    func reloadHistory() {
+        guard modelContext != nil else { return }
+        loadHistory()
+    }
+
+    private func loadHistory() {
+        guard let modelContext else { return }
+        let rid = roomId
+        let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == rid },
+            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+        )
+        let stored = (try? modelContext.fetch(descriptor)) ?? []
+        let storedIds = Set(stored.map(\.id))
+        var merged = stored
+        for message in messages where !storedIds.contains(message.id) {
+            modelContext.insert(message)
+            merged.append(message)
+        }
+        merged.sort { $0.timestamp < $1.timestamp }
+        persistContext()
+        messages = merged
+        requestScrollToBottom()
+    }
+
+    private func persistContext() {
+        guard let modelContext else { return }
+        do {
+            try modelContext.save()
+        } catch {
+            ErrorReporter.capture(error, context: "RoomViewModel.persistContext")
+        }
+    }
+
+    private func requestScrollToBottom() {
+        scrollRevision &+= 1
+    }
+
+    // MARK: - Inbound event ingest (this room only)
+
+    /// Map one decrypted room event onto the timeline. No active-room check is
+    /// needed: this instance only ever receives its own room's events, and every
+    /// row it persists is stamped with the fixed `roomId`.
+    func ingest(_ event: DecryptedRoomEvent, live: Bool) {
+        if let eid = event.outer.eventId { lastEventId = eid }
+        guard let clear = event.clear, let clearObj = json(clear) else {
+            AppLog.debug("📥 ingest skip (no cleartext) room=%@ outerType=%@ eid=%@",
+                         roomId, event.outer.type, event.outer.eventId ?? "nil")
+            return
+        }
+        let content = clearObj["content"] as? [String: Any] ?? [:]
+        let ts = event.outer.originServerTs ?? 0
+        let relation = relatesTo(event.outer)
+        AppLog.debug("📥 ingest room=%@ type=%@ msgtype=%@ own=%@ live=%@",
+                     roomId, clearObj["type"] as? String ?? "nil",
+                     content["msgtype"] as? String ?? "nil", String(event.isOwn), String(live))
+
+        if clearObj["type"] as? String == "chat4000.status" {
+            handleStatus(content: content, ts: ts)
+            return
+        }
+
+        switch content["msgtype"] as? String {
+        case "m.text", "m.notice", "m.emote":
+            handleText(content: content, relation: relation, outer: event.outer, isOwn: event.isOwn, live: live, ts: ts)
+        case "chat4000.tool":
+            handleTool(content: content, sender: event.outer.sender, ts: ts)
+        case "m.image":
+            handleMedia(content: content, outer: event.outer, isOwn: event.isOwn, kind: .image, ts: ts)
+        case "m.audio":
+            handleMedia(content: content, outer: event.outer, isOwn: event.isOwn, kind: .audio, ts: ts)
+        default:
+            AppLog.log("🗑️ ingest DROPPED room=%@ type=%@ msgtype=%@ own=%@ clear=%@",
+                       roomId, clearObj["type"] as? String ?? "nil",
+                       content["msgtype"] as? String ?? "nil", String(event.isOwn), clear)
+        }
+    }
+
+    private enum MediaKind { case image, audio }
+
+    private func handleMedia(content: [String: Any], outer: SyncEvent, isOwn: Bool, kind: MediaKind, ts: Int64) {
+        guard !isOwn, let file = content["file"] as? [String: Any] else { return }
+        let info = content["info"] as? [String: Any] ?? [:]
+        let mimeType = info["mimetype"] as? String ?? (kind == .image ? "image/jpeg" : VoiceNoteConstants.mimeType)
+        let durationMs = intValue(info["duration"]) ?? 0
+        let id = outer.eventId ?? UUID().uuidString
+        let from = MatrixTimelineMapper.sender(matrixUserId: outer.sender ?? "", isOwn: false)
+
+        Task { [weak self] in
+            guard let self, let data = await self.session.downloadMedia(file: file) else { return }
+            let base64 = data.base64EncodedString()
+            switch kind {
+            case .image:
+                self.handleInnerMessage(InnerMessage(
+                    t: .image, id: id, from: from,
+                    body: .image(.init(dataBase64: base64, mimeType: mimeType)), ts: ts))
+            case .audio:
+                let waveform = VoiceWaveformBuilder.decodeWaveform(from: data)
+                self.handleInnerMessage(InnerMessage(
+                    t: .audio, id: id, from: from,
+                    body: .audio(.init(dataBase64: base64, mimeType: mimeType, durationMs: durationMs, waveform: waveform)), ts: ts))
+            }
+        }
+    }
+
+    private func handleText(
+        content: [String: Any],
+        relation: (relType: String, eventId: String)?,
+        outer: SyncEvent,
+        isOwn: Bool,
+        live: Bool,
+        ts: Int64
+    ) {
+        let isEdit = relation?.relType == "m.replace"
+        let body: String
+        if isEdit, let newContent = content["m.new_content"] as? [String: Any],
+           let edited = newContent["body"] as? String {
+            body = edited
+        } else {
+            body = content["body"] as? String ?? ""
+        }
+        guard !body.isEmpty else { return }
+
+        let streamKey = (isEdit ? relation?.eventId : outer.eventId) ?? outer.eventId ?? UUID().uuidString
+        let emits = mapper.ingest(eventId: streamKey, body: body, senderId: outer.sender ?? "", isOwn: isOwn, live: live)
+        for emit in emits { applyEmit(emit, ts: ts) }
+        if mapper.activeStreamId != nil { scheduleFinalize(ts: ts) }
+    }
+
+    /// chat4000.tool (protocol E, START-ONLY): one static chip per tool_id.
+    private func handleTool(content: [String: Any], sender: String?, ts: Int64) {
+        guard let tool = content["chat4000.tool"] as? [String: Any] else { return }
+        let toolId = tool["tool_id"] as? String ?? UUID().uuidString
+        let from = MatrixTimelineMapper.sender(matrixUserId: sender ?? "", isOwn: false)
+        AppLog.log("🔧 tool room=%@ name=%@ id=%@ icon=%@",
+                   roomId, tool["name"] as? String ?? "?", toolId, tool["icon"] as? String ?? "-")
+        guard emittedToolStarts.insert(toolId).inserted else { return }
+        handleInnerMessage(InnerMessage(
+            t: .toolStart, id: UUID().uuidString, from: from,
+            body: .toolStart(.init(
+                toolId: toolId,
+                name: tool["name"] as? String ?? "tool",
+                args: "",
+                icon: tool["icon"] as? String)), ts: ts))
+    }
+
+    private func handleStatus(content: [String: Any], ts: Int64) {
+        guard let state = content["state"] as? String else { return }
+        let mapped: String
+        switch state {
+        case "idle", "typing", "thinking": mapped = state
+        default: mapped = "thinking"
+        }
+        AppLog.log("📊 status room=%@ state=%@ mapped=%@ ts=%@", roomId, state, mapped, String(ts))
+        handleInnerMessage(InnerMessage(
+            t: .status, id: UUID().uuidString,
+            from: SenderInfo(role: .plugin, deviceId: "", deviceName: ""),
+            body: .status(.init(status: mapped)), ts: ts))
+    }
+
+    private func applyEmit(_ emit: MatrixTimelineMapper.Emit, ts: Int64) {
+        switch emit {
+        case let .text(id, body, senderId, isOwn):
+            handleInnerMessage(InnerMessage(
+                t: .text, id: id,
+                from: MatrixTimelineMapper.sender(matrixUserId: senderId, isOwn: isOwn),
+                body: .text(.init(text: body)), ts: ts))
+        case let .delta(streamId, delta, senderId):
+            handleInnerMessage(InnerMessage(
+                t: .textDelta, id: UUID().uuidString,
+                from: MatrixTimelineMapper.sender(matrixUserId: senderId, isOwn: false),
+                body: .textDelta(.init(delta: delta, streamId: streamId)), ts: ts))
+        case let .end(streamId, body, senderId):
+            handleInnerMessage(InnerMessage(
+                t: .textEnd, id: UUID().uuidString,
+                from: MatrixTimelineMapper.sender(matrixUserId: senderId, isOwn: false),
+                body: .textEnd(.init(text: body, reset: nil, streamId: streamId)), ts: ts))
+        }
+    }
+
+    /// Matrix has no explicit "stream finished" signal beyond the final edit, so
+    /// settle the active stream after a quiet period.
+    private func scheduleFinalize(ts: Int64) {
+        finalizeTask?.cancel()
+        finalizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard let self, !Task.isCancelled else { return }
+            if let emit = self.mapper.finalizeActiveStream() { self.applyEmit(emit, ts: ts) }
+        }
+    }
+
+    // MARK: - InnerMessage → ChatMessage rendering
+
+    private func handleInnerMessage(_ inner: InnerMessage) {
+        if let from = inner.from,
+           from.role == .app,
+           from.deviceId == DeviceIdentity.currentDeviceId {
+            // Self-echo: our own send already rendered locally.
+            return
+        }
+
+        let sender = messageSender(for: inner)
+        switch inner.body {
+        case .text(let b):
+            receiveText(b.text, id: inner.id, sender: sender)
+        case .image(let b):
+            receiveImage(dataBase64: b.dataBase64, id: inner.id, sender: sender)
+        case .audio(let b):
+            receiveAudio(dataBase64: b.dataBase64, mimeType: b.mimeType, durationMs: b.durationMs,
+                         waveform: b.waveform, id: inner.id, sender: sender)
+        case .textDelta(let b):
+            let streamId = b.streamId ?? inner.id
+            if currentStreamId != streamId { beginStreamingMessage(streamId: streamId, sender: sender) }
+            currentStreamText += b.delta
+            updateCurrentStreamingMessage(text: currentStreamText, sender: sender)
+        case .textEnd(let b):
+            let streamId = b.streamId ?? inner.id
+            if b.reset == true {
+                cancelCurrentStreamingMessage(streamId: streamId)
+            } else if currentStreamId == streamId {
+                finalizeCurrentStreamingMessage(text: b.text, sender: sender)
+            } else if currentStreamId == nil {
+                receiveText(b.text, id: inner.id, sender: sender)
+            }
+        case .status(let s):
+            guard sender == .agent else { break }
+            guard inner.ts > latestStatusTs else { break }
+            latestStatusTs = inner.ts
+            switch s.status {
+            case "thinking": markBusy(phase: "Thinking", startTs: inner.ts)
+            case "typing": markBusy(phase: "Typing", startTs: inner.ts)
+            case "idle": clearBusy()
+            default: break
+            }
+        case .ack(let a):
+            if let from = inner.from, from.role == .plugin { handleInnerAck(refs: a.refs) }
+        case .toolStart(let b):
+            beginToolCallBubble(toolId: b.toolId, toolName: b.name, icon: b.icon, sender: sender)
+        case .toolDelta, .toolEnd:
+            break // removed in the START-only model
+        }
+    }
+
+    private func receiveText(_ text: String, id: String, sender: MessageSender) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if isDuplicateInnerId(id) { return }
+        Haptics.success()
+        let message = ChatMessage(msgId: id, text: text, sender: sender, roomId: roomId)
+        messages.append(message)
+        modelContext?.insert(message)
+        persistContext()
+        requestScrollToBottom()
+    }
+
+    private func receiveImage(dataBase64: String, id: String, sender: MessageSender) {
+        guard let imageData = Data(base64Encoded: dataBase64) else { return }
+        if isDuplicateInnerId(id) { return }
+        Haptics.success()
+        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: roomId)
+        messages.append(message)
+        modelContext?.insert(message)
+        persistContext()
+        requestScrollToBottom()
+    }
+
+    private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender) {
+        guard let audioData = Data(base64Encoded: dataBase64) else { return }
+        if isDuplicateInnerId(id) { return }
+        Haptics.success()
+        let message = ChatMessage(
+            msgId: id, audioData: audioData, audioMimeType: mimeType,
+            audioDuration: Double(durationMs) / 1000, audioWaveform: waveform,
+            sender: sender, roomId: roomId)
+        messages.append(message)
+        modelContext?.insert(message)
+        persistContext()
+        requestScrollToBottom()
+    }
+
+    private func beginStreamingMessage(streamId: String, sender: MessageSender) {
+        currentStreamId = streamId
+        currentStreamText = ""
+        if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
+            existing.text = ""
+            existing.msgId = streamId
+        } else if isDuplicateInnerId(streamId) {
+            AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
+        } else {
+            let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending, roomId: roomId)
+            messages.append(message)
+            modelContext?.insert(message)
+            currentStreamMessageId = message.id
+        }
+        requestScrollToBottom()
+    }
+
+    private func updateCurrentStreamingMessage(text: String, sender: MessageSender) {
+        if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
+            existing.text = text
+        } else {
+            let message = ChatMessage(msgId: currentStreamId, text: text, sender: sender, status: .sending, roomId: roomId)
+            messages.append(message)
+            modelContext?.insert(message)
+            currentStreamMessageId = message.id
+        }
+        requestScrollToBottom()
+    }
+
+    private func finalizeCurrentStreamingMessage(text: String, sender: MessageSender) {
+        Haptics.success()
+        if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
+            existing.text = text
+            existing.status = .sent
+        } else if let streamId = currentStreamId, isDuplicateInnerId(streamId) {
+            AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
+        } else {
+            let message = ChatMessage(msgId: currentStreamId, text: text, sender: sender, roomId: roomId)
+            messages.append(message)
+            modelContext?.insert(message)
+        }
+        currentStreamId = nil
+        currentStreamText = ""
+        currentStreamMessageId = nil
+        persistContext()
+        requestScrollToBottom()
+    }
+
+    private func cancelCurrentStreamingMessage(streamId: String) {
+        if currentStreamId == streamId, let existing = currentStreamingMessage() {
+            withAnimation(.easeOut(duration: 0.2)) {
+                if let index = messages.firstIndex(where: { $0.id == existing.id }) {
+                    messages.remove(at: index)
+                }
+            }
+            modelContext?.delete(existing)
+            persistContext()
+        }
+        if currentStreamId == streamId {
+            currentStreamId = nil
+            currentStreamText = ""
+            currentStreamMessageId = nil
+        }
+        requestScrollToBottom()
+    }
+
+    private func currentStreamingMessage() -> ChatMessage? {
+        guard let currentStreamMessageId else { return nil }
+        return messages.first(where: { $0.id == currentStreamMessageId })
+    }
+
+    private func beginToolCallBubble(toolId: String, toolName: String, icon: String?, sender: MessageSender) {
+        AppLog.log("🔧 toolCall chip room=%@ id=%@ name=%@", roomId, toolId, toolName)
+        guard !messages.contains(where: { $0.kind == .toolCall && $0.toolId == toolId }) else { return }
+        // roomId is FIXED to this view model — never a shared activeRoomId. This
+        // is the structural fix for the tool-bleed: a chip can only ever land in
+        // its own room.
+        let bubble = ChatMessage(
+            sender: sender, roomId: roomId, kind: .toolCall,
+            toolId: toolId, toolName: toolName, toolIcon: icon)
+        messages.append(bubble)
+        modelContext?.insert(bubble)
+        persistContext()
+        requestScrollToBottom()
+    }
+
+    private func messageSender(for inner: InnerMessage) -> MessageSender {
+        guard let from = inner.from else { return .agent }
+        switch from.role {
+        case .app: return .user
+        case .plugin, .unknown: return .agent
+        }
+    }
+
+    private func isDuplicateInnerId(_ id: String) -> Bool {
+        if messages.contains(where: { $0.msgId == id }) { return true }
+        guard let modelContext else { return false }
+        var descriptor = FetchDescriptor<ChatMessage>(predicate: #Predicate { $0.msgId == id })
+        descriptor.fetchLimit = 1
+        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { return true }
+        return false
+    }
+
+    // MARK: - Ack / read routing (broadcast from the global model)
+
+    /// The send completed → remember the homeserver event_id on the matching row.
+    func handleSentEventId(localId: String, eventId: String) {
+        guard let row = messages.first(where: { $0.msgId == localId }) else { return }
+        row.matrixEventId = eventId
+        persistContext()
+    }
+
+    /// A peer read up to `eventId` → flip the matching outbound row's tick.
+    func handleRead(eventId: String) {
+        guard let row = messages.first(where: { $0.matrixEventId == eventId }) else { return }
+        if row.status == .sending || row.status == .sent {
+            row.status = .delivered
+            persistContext()
+        }
+    }
+
+    /// Plugin emitted an end-to-end ack for an outbound message → "delivered" tick.
+    private func handleInnerAck(refs: String) {
+        guard let match = messages.first(where: { $0.msgId == refs }) else { return }
+        if match.status == .sending || match.status == .sent {
+            match.status = .delivered
+            persistContext()
+        }
+    }
+
+    // MARK: - JSON helpers
+
+    private func json(_ string: String) -> [String: Any]? {
+        guard let data = string.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// Read `m.relates_to` from the cleartext envelope (the outer event).
+    private func relatesTo(_ outer: SyncEvent) -> (relType: String, eventId: String)? {
+        guard let obj = json(outer.rawJSON),
+              let content = obj["content"] as? [String: Any],
+              let relates = content["m.relates_to"] as? [String: Any],
+              let relType = relates["rel_type"] as? String,
+              let eventId = relates["event_id"] as? String
+        else { return nil }
+        return (relType, eventId)
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        switch value {
+        case let i as Int: return i
+        case let n as NSNumber: return n.intValue
+        case let d as Double: return Int(d)
+        default: return nil
+        }
+    }
+
+    // MARK: - Busy clock (per room; no shared dictionary)
+
+    private func markBusy(phase: String, startTs: Int64) {
+        // Anchor the elapsed clock to the turn's true start (status
+        // origin_server_ts), keeping the earliest seen — stable across switches.
+        let eventStart = startTs > 0 ? Date(timeIntervalSince1970: Double(startTs) / 1000) : .now
+        let start = busyStartTime.map { min($0, eventStart) } ?? eventStart
+        busyStartTime = start
+        busyPhase = phase
+        isAgentBusy = true
+        scheduleBusyTTL(statusTs: startTs)
+    }
+
+    private func clearBusy() {
+        busyTTLTask?.cancel()
+        busyTTLTask = nil
+        isAgentBusy = false
+        busyStartTime = nil
+    }
+
+    /// Stuck-spinner guard keyed on origin_server_ts: clears 10s after the latest
+    /// status's SERVER timestamp, so a late/batched status already ≥10s old clears
+    /// immediately and a redelivered old status can never extend the label.
+    private func scheduleBusyTTL(statusTs: Int64) {
+        busyTTLTask?.cancel()
+        busyTTLTask = nil
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        let delay = (Double(statusTs) + 10_000 - nowMs) / 1000
+        guard delay > 0 else {
+            clearBusy()
+            return
+        }
+        busyTTLTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            self.clearBusy()
+        }
+    }
+
+    // MARK: - Outbound (only the front room sends; each uses its own roomId)
+
+    func send(text: String) {
+        let message = ChatMessage(text: text, sender: .user, status: .sending, roomId: roomId)
+        messages.append(message)
+        modelContext?.insert(message)
+        persistContext()
+        requestScrollToBottom()
+
+        let localId = UUID().uuidString
+        message.msgId = localId
+        persistContext()
+        Task { await session.sendText(text, roomId: roomId, localId: localId) }
+        TelemetryManager.shared.track(
+            .messageSentText,
+            properties: ["source": "keyboard", "length_bucket": AnalyticsBuckets.lengthBucket(for: text)]
+        )
+        if message.status == .sending { message.status = .sent }
+    }
+
+    func sendImage(data: Data, mimeType: String) {
+        let message = ChatMessage(imageData: data, sender: .user, status: .sending, roomId: roomId)
+        messages.append(message)
+        modelContext?.insert(message)
+        persistContext()
+        requestScrollToBottom()
+
+        let localId = UUID().uuidString
+        message.msgId = localId
+        persistContext()
+        Task { await session.sendImage(data, mimeType: mimeType, roomId: roomId, localId: localId) }
+        TelemetryManager.shared.track(.messageSentImage, properties: ["source": "camera", "count": 1])
+        if message.status == .sending { message.status = .sent }
+        Haptics.impact()
+    }
+
+    func sendAudio(data: Data, mimeType: String, duration: TimeInterval, waveform: [Float], source: String) {
+        let message = ChatMessage(
+            audioData: data, audioMimeType: mimeType, audioDuration: duration,
+            audioWaveform: waveform, sender: .user, status: .sending, roomId: roomId)
+        messages.append(message)
+        modelContext?.insert(message)
+        persistContext()
+        requestScrollToBottom()
+
+        let localId = UUID().uuidString
+        message.msgId = localId
+        persistContext()
+        Task {
+            await session.sendAudio(
+                data, mimeType: mimeType, durationMs: Int((duration * 1000).rounded()),
+                roomId: roomId, localId: localId)
+        }
+        TelemetryManager.shared.track(
+            .messageSentAudio,
+            properties: ["source": source, "duration_bucket": AnalyticsBuckets.durationBucket(for: duration)]
+        )
+        if message.status == .sending { message.status = .sent }
+    }
+
+    func markRead() {
+        guard let eventId = lastEventId else { return }
+        Task { await session.sendReadReceipt(roomId: roomId, eventId: eventId) }
+    }
+
+    func clearHistory() {
+        for message in messages { modelContext?.delete(message) }
+        persistContext()
+        messages.removeAll()
+        requestScrollToBottom()
+    }
+}

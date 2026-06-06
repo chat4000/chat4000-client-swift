@@ -29,7 +29,6 @@ enum SlidingSync {
                         // small (user + plugin), so the wildcard is cheap.
                         ["m.room.member", "*"],
                         ["chat4000.room_kind", ""],
-                        ["chat4000.status", ""],
                         ["m.space.child", "*"],
                         ["m.space.parent", "*"]
                     ],

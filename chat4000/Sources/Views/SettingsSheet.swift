@@ -38,6 +38,8 @@ struct SettingsSheet: View {
     @State private var diagnosticStatusMessage: String?
     @State private var showDiagnosticAlert = false
     @State private var showAddDeviceInfo = false
+    @State private var showConfettiLab = false   // TEMPORARY — confetti comparison harness
+    @State private var showHapticsLab = false    // TEMPORARY — haptics picker
 
     var body: some View {
         ScrollView {
@@ -68,6 +70,58 @@ struct SettingsSheet: View {
                 VStack(spacing: 20) {
                     deviceSection
                     telemetrySection
+                    feedbackSection
+
+                    // TEMPORARY — confetti comparison harness. Delete this button +
+                    // the cover + ConfettiLab.swift + the 3 SPM packages once picked.
+                    Button {
+                        showConfettiLab = true
+                    } label: {
+                        Text("🎊 Confetti Lab (temp)")
+                            .font(AppFonts.button)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    // fullScreenCover is iOS-only; sheet on macOS keeps both building.
+                    #if os(iOS)
+                    .fullScreenCover(isPresented: $showConfettiLab) {
+                        ConfettiLabView()
+                    }
+                    #else
+                    .sheet(isPresented: $showConfettiLab) {
+                        ConfettiLabView()
+                    }
+                    #endif
+
+                    // TEMPORARY — haptics picker. Delete this button + the cover +
+                    // HapticsLab.swift once a vibration is picked.
+                    Button {
+                        showHapticsLab = true
+                    } label: {
+                        Text("📳 Haptics Lab (temp)")
+                            .font(AppFonts.button)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    #if os(iOS)
+                    .fullScreenCover(isPresented: $showHapticsLab) {
+                        HapticsLabView()
+                    }
+                    #else
+                    .sheet(isPresented: $showHapticsLab) {
+                        HapticsLabView()
+                    }
+                    #endif
 
                     Button {
                         onDisconnect()
@@ -263,6 +317,49 @@ struct SettingsSheet: View {
                 RoundedRectangle(cornerRadius: AppRadius.input)
                     .stroke(AppColors.inputBorder, lineWidth: 1)
             )
+        }
+    }
+
+    /// Discoverable, shippable preview of the celebratory haptic that fires when a
+    /// new session is created (so the user can find + feel it without creating a
+    /// session). Tapping the row plays the real `Haptics.celebrate()` pattern.
+    private var feedbackSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Feedback")
+                .font(AppFonts.sectionTitle)
+                .foregroundStyle(AppColors.textSecondary)
+
+            Button {
+                Haptics.celebrate()
+            } label: {
+                HStack(spacing: 12) {
+                    Text("✨")
+                        .font(.system(size: 18))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Celebration haptic")
+                            .font(AppFonts.label)
+                            .foregroundStyle(AppColors.textPrimary)
+                        Text("Plays when a new session is created — tap to feel it.")
+                            .font(AppFonts.caption)
+                            .foregroundStyle(AppColors.textSecondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(AppColors.textSecondary)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppColors.inputBackground)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.input))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppRadius.input)
+                        .stroke(AppColors.inputBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 

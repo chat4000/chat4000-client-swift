@@ -11,6 +11,12 @@ struct ChatShell: View {
 
     @State private var showSidebar: Bool = ChatShell.defaultSidebarVisible
 
+    /// Room ids we've already seen, so a NEW session appearing fires a celebratory
+    /// haptic. We only start watching once the workspace is ready (the initial
+    /// room list arrives in batches during setup — those aren't "new sessions").
+    @State private var knownRoomIds: Set<String> = []
+    @State private var armedForNewRoomHaptic = false
+
     private static var defaultSidebarVisible: Bool {
         #if os(macOS)
         true
@@ -51,6 +57,22 @@ struct ChatShell: View {
             } message: {
                 Text(viewModel.matrixSession.lastCommandError ?? "")
             }
+            // Arm new-session detection once the workspace is ready: seed the
+            // baseline so the rooms already present at setup don't each buzz.
+            .onChange(of: viewModel.matrixSession.isWorkspaceReady) { _, ready in
+                guard ready, !armedForNewRoomHaptic else { return }
+                knownRoomIds = Set(viewModel.matrixSession.rooms.map(\.id))
+                armedForNewRoomHaptic = true
+            }
+            // A room id appearing after we're armed = a brand-new session was
+            // created (by the user or the plugin) → celebratory haptic.
+            .onChange(of: viewModel.matrixSession.rooms) { _, rooms in
+                let ids = Set(rooms.map(\.id))
+                guard armedForNewRoomHaptic else { knownRoomIds = ids; return }
+                let added = ids.subtracting(knownRoomIds)
+                knownRoomIds = ids
+                if !added.isEmpty { Haptics.celebrate() }
+            }
     }
 
     @ViewBuilder
@@ -83,6 +105,25 @@ struct ChatShell: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showSidebar)
+        // Standard drawer gesture: swipe right reveals the session list, swipe
+        // left dismisses it. `simultaneousGesture` so it never blocks the chat's
+        // vertical scroll or button taps; we only act on a horizontal-dominant
+        // swipe past a threshold.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    guard abs(dx) > abs(dy), abs(dx) > 60 else { return }
+                    if dx > 0, !showSidebar {
+                        Haptics.impact()
+                        withAnimation(.easeInOut(duration: 0.2)) { showSidebar = true }
+                    } else if dx < 0, showSidebar {
+                        Haptics.impact()
+                        withAnimation(.easeInOut(duration: 0.2)) { showSidebar = false }
+                    }
+                }
+        )
         #endif
     }
 
@@ -130,23 +171,27 @@ struct SessionsSidebar: View {
             .padding(.top, 16)
             .padding(.bottom, 12)
 
-            Button(action: onNewChat) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("New chat")
-                        .font(AppFonts.label)
-                    Spacer()
+            // I2: hide the new-session button until the plugin is keyed, so a tap
+            // can't fire a command encrypted to 0 recipients (the 3-tap bug).
+            if session.isWorkspaceReady {
+                Button(action: onNewChat) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("New chat")
+                            .font(AppFonts.label)
+                        Spacer()
+                    }
+                    .foregroundStyle(AppColors.textPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(AppColors.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .foregroundStyle(AppColors.textPrimary)
+                .buttonStyle(.plain)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(AppColors.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(.bottom, 8)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
 
             Divider().background(AppColors.inputBorder)
 

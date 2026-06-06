@@ -290,6 +290,29 @@ final class CryptoEngine {
         return eventId
     }
 
+    /// Read-only readiness probe — does NOT query the network, claim, share, or
+    /// send. Returns true when every non-self recipient has at least one KNOWN
+    /// device (its device list has been fetched). That is the exact condition the
+    /// new-session bug needed: when devices ARE known, the next encrypted send
+    /// claims one-time keys, establishes the Olm session, and shares the room key
+    /// to those devices (>0). We deliberately do NOT also require an existing Olm
+    /// session — that only gets built BY a send, so gating on it would deadlock
+    /// (button hidden → never sends → never keyed). Used to gate UI readiness/
+    /// visibility (I2); the send path is unchanged. Fail-closed: any error, or a
+    /// peer whose devices aren't known yet, → not ready.
+    func isRoomReachable(recipients: [String], selfUserId: String) -> Bool {
+        let peers = recipients.filter { $0 != selfUserId }
+        guard !peers.isEmpty else { return false }
+        do {
+            for user in peers where try machine.getUserDevices(userId: user, timeout: 0).isEmpty {
+                return false
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Decrypt an inbound `m.room.encrypted` event (the full event JSON) to its
     /// cleartext event JSON. Throws if the session is missing/undecryptable —
     /// callers should tolerate that (the key may arrive on a later sync).

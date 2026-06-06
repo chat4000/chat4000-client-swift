@@ -71,6 +71,11 @@ final class GatewayClient: GatewayRequesting {
     /// Last sliding-sync request body + cursor (replayed on reconnect/resume).
     private var syncBody: [String: Any]?
     private var syncPos: String?
+    /// The to-device cursor (protocol D.1 two-cursor sliding sync) — a SEPARATE
+    /// counter from `pos`, NEVER derived from it. Carries the Olm-wrapped Megolm
+    /// room keys; replayed in `sync_start`/`sync_ack` so un-acked keys are never
+    /// deleted before the device persists them.
+    private var syncToDevicePos: String?
 
     /// Pushes each `sync` frame's top-level object (pos/rooms/extensions).
     var onSync: (([String: Any]) -> Void)?
@@ -157,15 +162,28 @@ final class GatewayClient: GatewayRequesting {
 
     // MARK: - Sync
 
-    /// Start/resume the sliding-sync loop. `pos` is the device's last
-    /// durably-persisted position (protocol D.1) — pass it on reconnect so the
-    /// gateway resumes upstream from there; omit for a fresh sync.
-    func startSync(body: [String: Any], pos: String? = nil) {
+    /// Start/resume the sliding-sync loop. `pos` (the room cursor) and
+    /// `toDevicePos` (the to-device cursor) are the device's last
+    /// durably-persisted positions (protocol D.1) — pass them on reconnect so the
+    /// gateway resumes BOTH upstream cursors from there; omit either only on a
+    /// genuinely fresh sync with no acked cursor of that kind yet.
+    func startSync(body: [String: Any], pos: String? = nil, toDevicePos: String? = nil) {
         syncBody = body
         if let pos { syncPos = pos }
+        if let toDevicePos { syncToDevicePos = toDevicePos }
+        send(Self.syncStartFrame(body: body, pos: syncPos, toDevicePos: syncToDevicePos))
+    }
+
+    /// Build the `sync_start` frame (protocol D.1). Pure + `nonisolated` so the
+    /// two-cursor wire contract is unit-testable. Each cursor is included only
+    /// when present; omitting either is "fresh sync for that cursor" — the gateway
+    /// then leaves that cursor at the start. The to-device cursor is resumed
+    /// independently of `pos` (the two are separate counters).
+    nonisolated static func syncStartFrame(body: [String: Any], pos: String?, toDevicePos: String?) -> [String: Any] {
         var frame: [String: Any] = ["t": "sync_start", "body": body]
-        if let syncPos { frame["pos"] = syncPos }
-        send(frame)
+        if let pos { frame["pos"] = pos }
+        if let toDevicePos { frame["to_device_pos"] = toDevicePos }
+        return frame
     }
 
     func updateSync(body: [String: Any]) {
@@ -173,14 +191,30 @@ final class GatewayClient: GatewayRequesting {
         send(["t": "sync_update", "body": body])
     }
 
-    /// Acknowledge that the device has DURABLY persisted everything in the sync
-    /// up to `pos` (incl. to-device Megolm keys + crypto state). The gateway
-    /// gates the upstream cursor on this — it will not advance (and the
-    /// homeserver will not delete the acked to-device messages) until it
-    /// arrives (protocol D.1, "Sync cursor & key delivery").
-    func syncAck(pos: String) {
+    /// Acknowledge that the device has DURABLY persisted everything in the acked
+    /// frame: the timeline up to `pos` AND any to-device Megolm keys + crypto
+    /// state, with the to-device cursor at `toDevicePos`. The gateway gates BOTH
+    /// upstream cursors on this — it advances the room cursor to `pos` and the
+    /// to-device cursor to `toDevicePos`, after which the homeserver may delete
+    /// the acked to-device messages (protocol D.1, "Sync cursor & key delivery").
+    /// `toDevicePos` is the latest to-device cursor on durable storage (the caller
+    /// carries it forward on frames with no to-device section); absent leaves the
+    /// to-device cursor unchanged.
+    func syncAck(pos: String, toDevicePos: String? = nil) {
         syncPos = pos
-        send(["t": "sync_ack", "pos": pos])
+        if let toDevicePos { syncToDevicePos = toDevicePos }
+        send(Self.syncAckFrame(pos: pos, toDevicePos: toDevicePos))
+    }
+
+    /// Build the `sync_ack` frame (protocol D.1). Pure + `nonisolated` so the
+    /// two-cursor wire contract is unit-testable. `to_device_pos` is included only
+    /// when the caller has one on durable storage (carried forward on frames with
+    /// no to-device section); absent leaves the gateway's to-device cursor
+    /// unchanged.
+    nonisolated static func syncAckFrame(pos: String, toDevicePos: String?) -> [String: Any] {
+        var frame: [String: Any] = ["t": "sync_ack", "pos": pos]
+        if let toDevicePos { frame["to_device_pos"] = toDevicePos }
+        return frame
     }
 
     func stopSync() { send(["t": "sync_stop"]) }
@@ -306,8 +340,13 @@ final class GatewayClient: GatewayRequesting {
             AppLog.log("⚙️ gateway error frame: \(obj["reason"] as? String ?? "")")
         case "sync":
             if let pos = obj["pos"] as? String { syncPos = pos }
+            // D.1: top-level `to_device_pos`, present only when this batch advanced
+            // the to-device cursor. MatrixSession persists it with the keys and
+            // echoes it in `sync_ack`; here we only track the latest seen.
+            if let tdp = obj["to_device_pos"] as? String { syncToDevicePos = tdp }
             let rooms = (obj["rooms"] as? [String: Any])?.count ?? 0
-            AppLog.debug("🛰️← sync pos=%@ rooms=%d", obj["pos"] as? String ?? "nil", rooms)
+            AppLog.debug("🛰️← sync pos=%@ to_device_pos=%@ rooms=%d", obj["pos"] as? String ?? "nil",
+                         obj["to_device_pos"] as? String ?? "nil", rooms)
             onSync?(obj)
         default:
             AppLog.debug("🛰️← UNHANDLED frame t=%@", type)

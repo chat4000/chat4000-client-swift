@@ -34,7 +34,11 @@ final class MatrixSession {
     /// workspace is usable. Monotonic-ish: connect → sync → join the plugin's
     /// invite → wait for the plugin's control room → ready.
     enum SetupPhase: Int, Sendable {
-        case connecting, syncing, joiningWorkspace, waitingForPlugin, ready
+        // Order = real progress order (rawValue drives the progress bar), so it only
+        // ever moves FORWARD: you wait for the plugin's invite first, THEN join the
+        // workspace. The old order had these two swapped, so the bar jumped backward
+        // (0.75 → 0.50) when the invite arrived.
+        case connecting, syncing, waitingForPlugin, joiningWorkspace, ready
         var label: String {
             switch self {
             case .connecting: return "Connecting…"
@@ -48,6 +52,11 @@ final class MatrixSession {
         var progress: Double { Double(rawValue) / Double(SetupPhase.ready.rawValue) }
     }
     private(set) var setupPhase: SetupPhase = .connecting
+    /// I2: true once the plugin is KEYED in the control room (its device is known
+    /// and has an Olm session), so a control command actually reaches it instead of
+    /// sharing the key to 0 devices. Gates the "connected"/ready UI and the
+    /// new-session button. Recomputed each sync from the crypto store (cached read).
+    private(set) var isWorkspaceReady = false
 
     @ObservationIgnored var onConnectionStateChange: ((ConnectionState) -> Void)?
 
@@ -73,8 +82,6 @@ final class MatrixSession {
     /// Per-event delivery to the timeline mapper (active room only, plus replay
     /// on room switch). `live` is false for backfilled/replayed history.
     @ObservationIgnored var onRoomEvent: ((_ roomId: String, _ event: DecryptedRoomEvent, _ live: Bool) -> Void)?
-    /// Latest `chat4000.status` for the active room (drives the busy indicator).
-    @ObservationIgnored var onActiveRoomStatus: ((_ state: String) -> Void)?
     /// An outbound message's send completed → its homeserver event_id (for
     /// correlating later read receipts). `localId` is what `sendText`'s caller used.
     @ObservationIgnored var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
@@ -106,13 +113,16 @@ final class MatrixSession {
     @ObservationIgnored private var undecrypted: [String: (roomId: String, outer: SyncEvent)] = [:]
     @ObservationIgnored private var trackedUsers: Set<String> = []
     @ObservationIgnored private var seenEventIds: Set<String> = []
-    @ObservationIgnored private var roomEventCache: [String: [DecryptedRoomEvent]] = [:]
-    @ObservationIgnored private var lastStatusByRoom: [String: String] = [:]
     @ObservationIgnored private var roomKinds: [String: String] = [:]
 
     @ObservationIgnored private var pendingAutoOpen = false
     @ObservationIgnored private var autoOpenRoomId: String?
     @ObservationIgnored private var reconnectAttempts = 0
+    /// Protocol D.1 two-cursor sliding sync: the last to-device cursor we have
+    /// DURABLY persisted (alongside its keys). Carried forward and re-sent in
+    /// every `sync_ack`, and re-sent in `sync_start` on reconnect. nil until the
+    /// first to-device batch is durably persisted.
+    @ObservationIgnored private var lastToDevicePos: String?
     @ObservationIgnored private var pushTokenObserver: NSObjectProtocol?
     /// Continuations awaiting the next processed sync (background-wake drain).
     @ObservationIgnored private var syncWaiters: [CheckedContinuation<Void, Never>] = []
@@ -205,7 +215,11 @@ final class MatrixSession {
         await disconnect()
         MatrixCredentialStore.delete()
         Self.wipeCryptoStore()
-        if let uid { UserDefaults.standard.removeObject(forKey: Self.syncPosKey(uid)) }
+        if let uid {
+            UserDefaults.standard.removeObject(forKey: Self.syncPosKey(uid))
+            UserDefaults.standard.removeObject(forKey: Self.toDevicePosKey(uid))
+        }
+        lastToDevicePos = nil
         userId = nil
     }
 
@@ -226,8 +240,6 @@ final class MatrixSession {
         joinedInviteAttempts = []
         trackedUsers = []
         seenEventIds = []
-        roomEventCache = [:]
-        lastStatusByRoom = [:]
         roomKinds = [:]
         rooms = []
         activeRoomId = nil
@@ -301,9 +313,18 @@ final class MatrixSession {
         // them), so nothing is lost — it just costs one full sync on launch.
         let isWarmReconnect = !roomOrder.isEmpty
         let resumePos = isWarmReconnect ? Self.loadSyncPos(userId: auth.userId) : nil
-        AppLog.log("🔗 startSync %@ (rooms_in_memory=%d) pos=%@",
-                   isWarmReconnect ? "warm-resume" : "cold-full", roomOrder.count, resumePos ?? "nil")
-        gateway.startSync(body: SlidingSync.requestBody(), pos: resumePos)
+        // The TO-DEVICE cursor is independent of the room snapshot (two cursors,
+        // D.1). Its keys live in the crypto store (which survives a cold launch),
+        // so ALWAYS resume it from durable storage — even on a cold-full sync that
+        // re-fetches the whole room list with pos=nil — so un-acked Megolm keys are
+        // re-delivered rather than deleted. Omitted only when none was ever
+        // persisted (a genuinely fresh sync).
+        let resumeToDevicePos = Self.loadToDevicePos(userId: auth.userId)
+        lastToDevicePos = resumeToDevicePos
+        AppLog.log("🔗 startSync %@ (rooms_in_memory=%d) pos=%@ to_device_pos=%@",
+                   isWarmReconnect ? "warm-resume" : "cold-full", roomOrder.count,
+                   resumePos ?? "nil", resumeToDevicePos ?? "nil")
+        gateway.startSync(body: SlidingSync.requestBody(), pos: resumePos, toDevicePos: resumeToDevicePos)
 
         if let token = PushNotificationManager.shared.deviceToken {
             await registerPushToken(token)
@@ -344,7 +365,16 @@ final class MatrixSession {
         }
         // Feed e2ee state (to-device room keys, device lists, OTK counts) and
         // drain outgoing crypto requests BEFORE decrypting room events.
+        // `cryptoPersisted` gates the to-device cursor (D.1, "Sync cursor & key
+        // delivery"): we may advance `to_device_pos` ONLY when this frame's keys
+        // are confirmed durably on disk. `processSync` returning without throwing
+        // is that confirmation (the crypto store committed the batch before
+        // returning). A throw means we CANNOT confirm the keys are saved, so we
+        // conservatively hold the cursor and let the homeserver re-deliver this
+        // frame's to-device next sync (idempotent re-import) — never ack it lost.
+        var cryptoPersisted = true
         do { try await crypto?.processSync(sync) } catch {
+            cryptoPersisted = false
             ErrorReporter.capture(error, context: "MatrixSession.processSync")
             AppLog.log("⚙️ crypto.processSync failed: \(error)")
         }
@@ -361,15 +391,29 @@ final class MatrixSession {
             onReadReceipt?(receipt.eventId)
         }
 
-        // Durable-ack the cursor (protocol D.1, "Sync cursor & key delivery"):
+        // Durable-ack BOTH cursors (protocol D.1, "Sync cursor & key delivery"):
         // processSync persisted the to-device Megolm keys + crypto state and the
         // dispatch above persisted messages, so it's now safe to let the gateway
         // advance upstream (and the homeserver delete the acked to-device). The
-        // gateway holds the cursor until this arrives — without it, sync never
+        // gateway holds the cursors until this arrives — without it, sync never
         // advances and no new messages are delivered.
         if let pos = sync.pos {
+            // Resolve the to-device cursor to persist + ack: advance to this
+            // frame's `to_device_pos` ONLY if its keys were durably persisted;
+            // otherwise carry the last good value forward (a frame with no
+            // to-device section, or one whose crypto persist failed, must not
+            // advance the cursor past unsaved keys). Persist to durable storage
+            // AFTER the crypto-store write above, then ack — never before, so a
+            // crash can only ever lose the cursor (→ harmless re-delivery), never
+            // ack keys that aren't saved.
+            let nextToDevicePos = Self.resolveToDevicePos(
+                cryptoPersisted: cryptoPersisted, frame: sync.toDevicePos, last: lastToDevicePos)
+            if let nextToDevicePos, nextToDevicePos != lastToDevicePos {
+                Self.saveToDevicePos(nextToDevicePos, userId: userId)
+            }
+            lastToDevicePos = nextToDevicePos
             Self.saveSyncPos(pos, userId: userId)
-            gateway?.syncAck(pos: pos)
+            gateway?.syncAck(pos: pos, toDevicePos: lastToDevicePos)
         }
         resumeSyncWaiters()
     }
@@ -419,9 +463,27 @@ final class MatrixSession {
         AppLog.debug("🏠· process %@ control=%@ active=%@ timeline=%d",
                      room.id, String(isControl), String(isActive), room.timeline.count)
 
+        // Event-id dedup. We are GENERALLY AGAINST client-side dedup — it can hide a
+        // real upstream duplication bug (plugin/gateway sending something twice). The
+        // plugin sends each event once and the gateway never re-files an event, so in
+        // steady state this never fires. We keep it ONLY for one unavoidable case:
+        //
+        //   RECONNECT RE-SEND. We render a batch's events BEFORE we save its bookmark
+        //   (pos) — on purpose, so we can never LOSE a message. Example: the gateway
+        //   sends [msg96, msg97, msg98] at pos=98; we render all three; the socket
+        //   drops BEFORE we persist+ack pos 98, so our saved bookmark is still 95. On
+        //   reconnect we resume from 95, the gateway re-sends 96–98 (which are already
+        //   on screen), and without this guard they'd render a SECOND time. Saving the
+        //   bookmark first would instead LOSE messages on a crash — so we render-first,
+        //   advance-the-bookmark-last (same "re-send beats lose" rule as the Megolm
+        //   keys), and dedup absorbs the re-send. This is the ONLY reason it exists.
         for outer in room.timeline {
-            guard let eid = outer.eventId, !seenEventIds.contains(eid) else { continue }
-            seenEventIds.insert(eid)
+            // Dedup ALL timeline events by event_id — INCLUDING chat4000.status
+            // (protocol E). The gateway re-delivers the recent window on state-change
+            // syncs, so without this we'd re-process stale status and re-arm the
+            // label's TTL. The label is driven by the LATEST status by ts (below), so
+            // we never need to re-process an old one.
+            guard let eid = outer.eventId, seenEventIds.insert(eid).inserted else { continue }
 
             let clear: String?
             if outer.type == "m.room.encrypted" {
@@ -450,32 +512,20 @@ final class MatrixSession {
             }
 
             let event = DecryptedRoomEvent(outer: outer, clear: clear, isOwn: outer.sender == userId)
-            roomEventCache[room.id, default: []].append(event)
-            if isActive { onRoomEvent?(room.id, event, true) }
+            // Deliver to the room's view model regardless of which room is front
+            // (NO active gate): every room cooks + persists its own rows live, so a
+            // background room's always-mounted view is already correct when brought
+            // to front — and the active-room race that bled one room's tool chips
+            // into another room's timeline is gone structurally.
+            onRoomEvent?(room.id, event, true)
             if isBackgrounded, !event.isOwn { maybePostBackgroundNotification(outer: outer, clear: clear) }
         }
 
-        // DIAG: capture the RAW chat4000.status state per sync so we can locate
-        // where a missing `idle` dies — is the homeserver's current state genuinely
-        // stuck at `typing` (plugin/gateway never wrote idle), or does it show
-        // `idle` while we keep spinning (client mis-tracking)? Logs the current
-        // value, the value we last acted on, and the state event's id/ts/sender.
-        if isActive, !isControl {
-            if let ev = room.requiredState.first(where: { $0.type == "chat4000.status" }) {
-                AppLog.log("👻 status room=%@ value=%@ last=%@ ts=%@ sender=%@ eid=%@",
-                           room.id, room.statusState ?? "nil", lastStatusByRoom[room.id] ?? "nil",
-                           String(ev.originServerTs ?? 0), ev.sender ?? "nil", ev.eventId ?? "nil")
-            } else {
-                AppLog.debug("👻 status room=%@ (no chat4000.status this sync) last=%@",
-                             room.id, lastStatusByRoom[room.id] ?? "nil")
-            }
-        }
-
-        // chat4000.status (cleartext state) → busy indicator, active room only.
-        if isActive, !isControl, let state = room.statusState, lastStatusByRoom[room.id] != state {
-            lastStatusByRoom[room.id] = state
-            onActiveRoomStatus?(state)
-        }
+        // chat4000.status is NO LONGER read here. It is delivered as an E2EE
+        // TIMELINE event (protocol E "Agent status"), not via required_state, so it
+        // rides the normal decrypt → onRoomEvent → RoomViewModel.ingest
+        // path and drives the label there. The old required_state read was lossy
+        // (the timeline is the source of truth) and is removed.
     }
 
     /// Re-decrypt buffered UTD events — a sync may have just delivered the key
@@ -493,8 +543,8 @@ final class MatrixSession {
                 continue
             }
             let event = DecryptedRoomEvent(outer: entry.outer, clear: clear, isOwn: entry.outer.sender == userId)
-            roomEventCache[entry.roomId, default: []].append(event)
-            if activeRoomId == entry.roomId { onRoomEvent?(entry.roomId, event, false) }
+            // No active gate — deliver to the room's view model whichever room is front.
+            onRoomEvent?(entry.roomId, event, false)
         }
     }
 
@@ -502,15 +552,29 @@ final class MatrixSession {
         if controlRoomId == nil {
             controlRoomId = roomOrder.first { roomKinds[$0] == "control" }
         }
+        // I2: the workspace is "ready" only when the plugin is keyed in the control
+        // room — until then a control command would share the key to 0 devices.
+        isWorkspaceReady = controlRoomId.map { isRoomReady($0) } ?? false
         // Sidebar = every joined room except the plugin's space and the control
-        // room (protocol E). A room with no `chat4000.room_kind` is a session.
+        // room (protocol E). A room with no `chat4000.room_kind` is a session — but
+        // we surface it ONLY once it's keyed (I2), so the user never opens a room
+        // they'd message before the room key reaches the plugin.
         rooms = roomOrder.compactMap { id in
             if spaceRooms.contains(id) { return nil }
             if roomKinds[id] == "control" { return nil }
+            guard isRoomReady(id) else { return nil }
             return RoomSummary(id: id, name: roomNames[id] ?? Self.shortId(id))
         }
-        AppLog.log("📋 rebuilt: ordered=%d sessions=%d spaces=%d control=%@",
-                   roomOrder.count, rooms.count, spaceRooms.count, controlRoomId ?? "nil")
+        AppLog.log("📋 rebuilt: ordered=%d sessions=%d spaces=%d control=%@ wsReady=%@",
+                   roomOrder.count, rooms.count, spaceRooms.count, controlRoomId ?? "nil", String(isWorkspaceReady))
+    }
+
+    /// I2: is `roomId` reachable for sending — the plugin's device list known, so a
+    /// send will claim + establish + share to it (rather than to 0 devices)? A
+    /// read-only crypto-store check (no network); gates UI readiness/visibility.
+    private func isRoomReady(_ roomId: String) -> Bool {
+        guard let crypto, let userId else { return false }
+        return crypto.isRoomReachable(recipients: roomMembers[roomId] ?? [], selfUserId: userId)
     }
 
     /// Recompute the first-run progress phase from current room state.
@@ -521,11 +585,15 @@ final class MatrixSession {
     private static let firstSetupKey = "chat4000.didCompleteFirstSetup"
 
     private func updateSetupPhase() {
-        if controlRoomId != nil || !rooms.isEmpty {
+        // I2: "ready" requires the plugin to be KEYED (control room keyed, or a
+        // keyed session already visible) — not merely that a control room exists.
+        // Until then we hold on "Joining your workspace…" so the user can't fire a
+        // command before the key reaches the plugin.
+        if isWorkspaceReady || !rooms.isEmpty {
             setupPhase = .ready
             UserDefaults.standard.set(true, forKey: Self.firstSetupKey)   // G4
-        } else if !joinedInviteAttempts.isEmpty {
-            setupPhase = .joiningWorkspace          // joined an invite; awaiting the joined re-sync
+        } else if controlRoomId != nil || !joinedInviteAttempts.isEmpty {
+            setupPhase = .joiningWorkspace          // joined/known, but the plugin isn't keyed yet
         } else {
             setupPhase = .waitingForPlugin          // connected + synced, but no invite yet
         }
@@ -546,14 +614,10 @@ final class MatrixSession {
     func selectRoom(_ id: String) {
         guard activeRoomId != id else { return }
         activeRoomId = id
+        // Just record which room is front — no replay. Each room's view model is
+        // always mounted and was fed its events live, so there is nothing to
+        // re-cook or re-deliver on switch.
         onActiveRoomChange?(id)
-        for event in roomEventCache[id] ?? [] {
-            onRoomEvent?(id, event, false)
-        }
-        if let state = lastStatusByRoom[id] {
-            AppLog.log("👻 selectRoom REPLAY status room=%@ value=%@ (re-emitting cached state)", id, state)
-            onActiveRoomStatus?(state)
-        }
     }
 
     // MARK: - Sending (called by the transport)
@@ -631,6 +695,15 @@ final class MatrixSession {
     // MARK: - Control-room commands (protocol E)
 
     func requestNewSession(title: String? = nil) {
+        // I2 (app-layer guard, send path unchanged): never fire the command before
+        // the plugin is keyed — otherwise it's encrypted to 0 recipients and lost,
+        // which is exactly the "tap 3 times" bug. The button is hidden until ready
+        // too, but this is the backstop.
+        guard isWorkspaceReady else {
+            AppLog.log("🆕 requestNewSession ignored — workspace not keyed yet")
+            lastCommandError = "Still setting up the secure channel — one moment."
+            return
+        }
         var fields: [String: Any] = ["command": "session.new", "agent_id": "main"]
         if let title, !title.isEmpty { fields["title"] = String(title.prefix(255)) }
         sendControlCommand(fields)
@@ -876,6 +949,29 @@ final class MatrixSession {
     }
     private static func loadSyncPos(userId: String) -> String? {
         UserDefaults.standard.string(forKey: syncPosKey(userId))
+    }
+
+    /// Per-account durably-persisted TO-DEVICE cursor (protocol D.1). A SEPARATE
+    /// key from `pos` — the two cursors are independent. The device is the source
+    /// of truth: we resend it on reconnect so un-acked Olm-wrapped Megolm keys are
+    /// re-delivered rather than deleted before they were saved.
+    private static func toDevicePosKey(_ userId: String?) -> String { "chat4000.toDevicePos.\(userId ?? "")" }
+    private static func saveToDevicePos(_ pos: String, userId: String?) {
+        UserDefaults.standard.set(pos, forKey: toDevicePosKey(userId))
+    }
+    private static func loadToDevicePos(userId: String) -> String? {
+        UserDefaults.standard.string(forKey: toDevicePosKey(userId))
+    }
+
+    /// Pure D.1 to-device-cursor decision (unit-tested). Given one frame, returns
+    /// the to-device cursor to persist + ack: advance to the frame's cursor ONLY
+    /// if its keys were durably persisted (`cryptoPersisted`); otherwise carry the
+    /// last good value forward. A frame with no to-device section (`frame == nil`)
+    /// or one whose crypto persist failed must NOT advance the cursor past unsaved
+    /// keys. Returns nil only until the first batch is durably persisted.
+    nonisolated static func resolveToDevicePos(cryptoPersisted: Bool, frame: String?, last: String?) -> String? {
+        if cryptoPersisted, let frame { return frame }
+        return last
     }
 
     /// Bounded record of event ids we've already notified for, so a cold-launch

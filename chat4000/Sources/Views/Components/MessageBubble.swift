@@ -122,7 +122,7 @@ struct MessageBubble: View {
             }
 
             if !message.text.isEmpty {
-                Text(message.text)
+                Text(attributedText)
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
                     // Disable Text's built-in selection so a single tap can
@@ -160,6 +160,25 @@ struct MessageBubble: View {
                     .padding(.bottom, 4)
             }
         }
+    }
+
+    /// Render the body as Markdown (bold/italic/`code`/~~strike~~/links), falling
+    /// back to plain text if parsing fails. We use `.inlineOnlyPreservingWhitespace`
+    /// so newlines/blank lines in a chat message are kept verbatim (the `.full`
+    /// syntax would collapse them and try to lay out block elements, which `Text`
+    /// can't render). Inline `code` spans get a monospaced font here because the
+    /// parser only tags the intent — `Text` won't change the font on its own.
+    private var attributedText: AttributedString {
+        var options = AttributedString.MarkdownParsingOptions()
+        options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+        options.failurePolicy = .returnPartiallyParsedIfPossible
+        guard var attributed = try? AttributedString(markdown: message.text, options: options) else {
+            return AttributedString(message.text)
+        }
+        for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            attributed[run.range].font = .system(.body, design: .monospaced)
+        }
+        return attributed
     }
 
     private var contentSpacing: CGFloat {

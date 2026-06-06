@@ -31,6 +31,10 @@ struct EnterPairingCodeView: View {
 
     /// v2 pairing codes are exactly 6 digits (OTP-style, protocol §3).
     private static let codeLength = 6
+    /// Attribution ref appended to the in-app → website install link so the site
+    /// can match an app-originated install visit (see the "Fresh Plugin Install"
+    /// help button). Emitted with the `installRefOpened` event, diagnostics-gated.
+    private static let installRef = "OIQJWDOIJW"
 
     /// Digits-only, capped at the code length — what the boxes show and we submit.
     private var sanitizedCode: String {
@@ -323,7 +327,19 @@ extension EnterPairingCodeView {
                 // Setup docs cover both Hermes and OpenClaw flows — keep
                 // it as a single canonical web page so we don't fork two
                 // copies in-app every time the install command changes.
-                if let url = URL(string: "https://chat4000.com/#install") {
+                //
+                // Tag the link with an attribution `ref` so the website can match
+                // this app-originated install visit, and emit a matching event.
+                // `track` is diagnostics-gated (drops when collection is off), so
+                // nothing is sent — and we still open the page — when the user has
+                // diagnostics disabled. The `ref` query param must precede the
+                // `#install` fragment to survive URL parsing on the web side.
+                let ref = Self.installRef
+                TelemetryManager.shared.track(
+                    .installRefOpened,
+                    properties: ["ref": ref, "source": "setup_help_menu"]
+                )
+                if let url = URL(string: "https://chat4000.com/?ref=\(ref)#install") {
                     #if os(iOS)
                     UIApplication.shared.open(url)
                     #elseif os(macOS)

@@ -14,9 +14,15 @@ import Foundation
 
 /// One parsed gateway `sync` frame.
 struct GatewaySync: Sendable {
-    /// Sliding-sync cursor; replayed as `sync_start.pos` and fed to the crypto
-    /// machine as `next_batch`.
+    /// Sliding-sync ROOM cursor; replayed as `sync_start.pos` and fed to the
+    /// crypto machine as `next_batch`.
     var pos: String?
+    /// The TO-DEVICE cursor (protocol D.1 two-cursor sliding sync) — a separate
+    /// counter from `pos`, NEVER derived from it. The frame's top-level
+    /// `to_device_pos`; present only when this batch advanced the to-device
+    /// cursor (nil when the frame carried no to-device delivery). Persisted
+    /// durably with the keys and echoed in `sync_ack`.
+    var toDevicePos: String?
     var rooms: [SyncRoom]
     var toDevice: ToDeviceBatch
     var deviceLists: SyncDeviceLists
@@ -120,6 +126,7 @@ enum SyncModel {
 
         return GatewaySync(
             pos: pos,
+            toDevicePos: frame["to_device_pos"] as? String,
             rooms: parseRooms(frame["rooms"] as? [String: Any] ?? [:]),
             toDevice: parseToDevice(extensions["to_device"] as? [String: Any]),
             deviceLists: parseDeviceLists(extensions["e2ee"] as? [String: Any]),

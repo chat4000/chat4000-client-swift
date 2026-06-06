@@ -117,6 +117,10 @@ final class PushNotificationManager: NSObject {
         Bundle.main.object(forInfoDictionaryKey: "APNSEnvironment") as? String ?? "unknown"
     }
 
+    /// `userInfo["type"]` value the backend sets on the silent liveness-ping push
+    /// (see `handleRemoteNotification`). A bare install check — emits `alive`, no sync.
+    static let aliveCheckPushType = "alive_check"
+
     private static var platformName: String {
         #if os(iOS)
         return "ios"
@@ -150,6 +154,16 @@ final class PushNotificationManager: NSObject {
             String(describing: aps?["mutable-content"]),
             alertDescription
         )
+        // Liveness ping: a silent "alive check" push the backend sends purely to
+        // confirm the app is still installed. We don't sync/wake for it — we just
+        // emit the `alive` event (which `track` drops automatically if diagnostics
+        // collection is turned off), and its presence in PostHog is the signal.
+        if (userInfo["type"] as? String) == Self.aliveCheckPushType {
+            AppLog.log("🔔 [push] alive-check ping → emitting alive event")
+            TelemetryManager.shared.track(.alive, properties: ["platform": Self.platformName])
+            return true
+        }
+
         guard silent else { return false }
         let handled = await backgroundWakeHandler?() ?? false
         AppLog.log("🔔 [push] silent push handler finished handled=%@", handled ? "true" : "false")
