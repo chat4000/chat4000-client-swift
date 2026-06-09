@@ -18,6 +18,7 @@ enum MessageStatus: String, Codable {
 enum MessageKind: String, Codable {
     case message
     case toolCall = "tool_call"
+    case unavailable
 }
 
 /// Lifecycle of a Hermes tool-call row (mirrors the wire `tool_status`

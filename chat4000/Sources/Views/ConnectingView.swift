@@ -138,14 +138,22 @@ struct Chat4000ConnectingScreen: View {
 
 struct SetupProgressScreen: View {
     let phase: MatrixSession.SetupPhase
+    var stalled: Bool = false
+    var onRetry: () -> Void = {}
+    var onStartOver: () -> Void = {}
 
     var body: some View {
         ZStack {
             AppColors.background
                 .ignoresSafeArea()
 
-            SetupProgressView(phase: phase)
-                .padding(.horizontal, 12)
+            SetupProgressView(
+                phase: phase,
+                stalled: stalled,
+                onRetry: onRetry,
+                onStartOver: onStartOver
+            )
+            .padding(.horizontal, 12)
         }
     }
 }

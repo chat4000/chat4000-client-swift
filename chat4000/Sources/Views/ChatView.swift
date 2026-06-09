@@ -22,7 +22,8 @@ struct ChatView: View {
     /// When set, a leading sidebar-toggle button appears in the nav bar.
     var onToggleSidebar: (() -> Void)?
     @State private var messageText = ""
-    @State private var showSettings = false
+    /// Owned by `ChatShell` so the sidebar's Settings button can open this sheet.
+    @Binding var showSettings: Bool
     @State private var showCamera = false
     @State private var voiceRecorder = VoiceNoteRecorder()
     @State private var voiceErrorMessage: String?
@@ -65,7 +66,7 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet(
-                userId: viewModel.matrixSession.userId,
+                matrixSession: viewModel.matrixSession,
                 pluginVersion: nil,
                 pluginBundleId: nil,
                 onDisconnect: viewModel.disconnect,
@@ -188,7 +189,16 @@ struct ChatView: View {
 
     // MARK: - Nav Bar
 
+    @ViewBuilder
     private var navBar: some View {
+        #if os(macOS)
+        // On Mac the chat has no top bar: the sidebar toggle floats at the window
+        // top-left (by the traffic lights, in ChatShell) and Settings lives at the
+        // sidebar's bottom-left.
+        EmptyView()
+        #else
+        // iOS keeps the sidebar toggle top-left; Settings moved into the sidebar
+        // header (top-right, where the account avatar sits).
         HStack {
             if let onToggleSidebar {
                 Button {
@@ -207,33 +217,9 @@ struct ChatView: View {
             }
 
             Spacer()
-
-            Button {
-                Task { @MainActor in
-                    Haptics.impact()
-                }
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppColors.textPrimary)
-                    .frame(width: 28, height: 28)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 5)
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
-        #if os(iOS)
         .padding(.top, -15)
-        .padding(.bottom, AppSpacing.navBarBottomInset)
-        #else
-        .padding(.top, -12)
         .padding(.bottom, AppSpacing.navBarBottomInset)
         #endif
     }
@@ -1190,6 +1176,10 @@ final class ChatViewModel {
     var setupPhase: MatrixSession.SetupPhase { matrixSession.setupPhase }
     var isSettingUp: Bool { matrixSession.setupPhase != .ready }
     var showSetupProgress: Bool { isSettingUp }
+    /// True once setup has been stuck waiting on the plugin past the timeout.
+    var setupStalled: Bool { matrixSession.setupStalled }
+    /// Keep waiting after a stall (clears the flag, restarts the timeout clock).
+    func retrySetupWait() { matrixSession.retrySetupWait() }
 
     func backgroundWake() async -> Bool {
         await matrixSession.backgroundWake()
@@ -1402,6 +1392,13 @@ struct ConnectedCelebrationCard: View {
 /// wait for the plugin → join the workspace.
 struct SetupProgressView: View {
     let phase: MatrixSession.SetupPhase
+    /// True once the wait on the plugin has timed out — swaps the active-step
+    /// spinner for a warning and shows the recovery actions below.
+    var stalled: Bool = false
+    /// Keep waiting (re-arm the timeout). No-op closure by default for previews.
+    var onRetry: () -> Void = {}
+    /// Bail out and re-enter a pairing code.
+    var onStartOver: () -> Void = {}
 
     // Order MUST match SetupPhase's rawValue order so the checkmarks fill
     // top-to-bottom (done = a lower-rawValue phase). You wait for the plugin's
@@ -1429,7 +1426,9 @@ struct SetupProgressView: View {
                 }
             }
 
-            if phase == .waitingForPlugin {
+            if stalled {
+                stalledFooter
+            } else if phase == .waitingForPlugin {
                 Text("Your plugin is setting things up. Make sure it's running on your computer.")
                     .font(AppFonts.caption)
                     .foregroundStyle(AppColors.textTimestamp)
@@ -1442,6 +1441,41 @@ struct SetupProgressView: View {
         .padding(.vertical, 48)
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.2), value: phase.rawValue)
+        .animation(.easeInOut(duration: 0.2), value: stalled)
+    }
+
+    @ViewBuilder
+    private var stalledFooter: some View {
+        VStack(spacing: 16) {
+            Text("Your plugin isn't responding. Make sure it's running on your computer, then try again.")
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 12) {
+                Button(action: onStartOver) {
+                    Text("Re-enter code")
+                        .font(AppFonts.label)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                Button(action: onRetry) {
+                    Text("Try again")
+                        .font(AppFonts.label)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 4)
     }
 
     @ViewBuilder
@@ -1455,7 +1489,14 @@ struct SetupProgressView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(AppColors.connected)
                 } else if isActive {
-                    ProgressView().controlSize(.small).tint(AppColors.textSecondary)
+                    // A stalled wait shows a warning where the spinner was, so the
+                    // stuck step reads as "needs attention" rather than "in progress".
+                    if stalled {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(AppColors.reconnecting)
+                    } else {
+                        ProgressView().controlSize(.small).tint(AppColors.textSecondary)
+                    }
                 } else {
                     Image(systemName: "circle")
                         .foregroundStyle(AppColors.textTimestamp)

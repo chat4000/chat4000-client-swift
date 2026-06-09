@@ -5,6 +5,7 @@ struct MessageBubble: View {
     @State private var showsTimestamp = false
 
     private var isUser: Bool { message.sender == .user }
+    private var isUnavailable: Bool { message.kind == .unavailable }
     private var timestampText: String {
         message.timestamp.formatted(date: .omitted, time: .shortened)
     }
@@ -121,7 +122,20 @@ struct MessageBubble: View {
                 )
             }
 
-            if !message.text.isEmpty {
+            if isUnavailable {
+                Label {
+                    Text(message.text.isEmpty ? "Message unavailable on this device" : message.text)
+                } icon: {
+                    Image(systemName: "lock.slash")
+                }
+                .font(AppFonts.body)
+                .foregroundStyle(AppColors.textTimestamp)
+                .textSelection(.disabled)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showsTimestamp.toggle()
+                }
+            } else if !message.text.isEmpty {
                 Text(attributedText)
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
@@ -144,7 +158,7 @@ struct MessageBubble: View {
         }
         .padding(.horizontal, AppSpacing.messagePaddingH)
         .padding(.vertical, AppSpacing.messagePaddingV)
-        .background(isUser ? AppColors.background : AppColors.agentBubble)
+        .background(bubbleBackground)
         .clipShape(BubbleShape(isUser: isUser))
         .overlay(
             BubbleShape(isUser: isUser)
@@ -160,6 +174,13 @@ struct MessageBubble: View {
                     .padding(.bottom, 4)
             }
         }
+    }
+
+    private var bubbleBackground: Color {
+        if isUnavailable {
+            return AppColors.agentBubble.opacity(0.58)
+        }
+        return isUser ? AppColors.background : AppColors.agentBubble
     }
 
     /// Render the body as Markdown (bold/italic/`code`/~~strike~~/links), falling

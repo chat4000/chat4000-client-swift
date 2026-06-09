@@ -233,6 +233,26 @@ final class RoomViewModel {
         }
     }
 
+    /// True if a row for this Matrix `eventId` is already persisted in this room
+    /// (survives relaunch). Used to suppress the synced echo of our own send once
+    /// its local row has been reconciled to the homeserver event_id.
+    private func storedMessageExists(matrixEventId eventId: String) -> Bool {
+        guard let modelContext else { return false }
+        let rid = roomId
+        var descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.matrixEventId == eventId && $0.roomId == rid }
+        )
+        descriptor.fetchLimit = 1
+        do {
+            return try !modelContext.fetch(descriptor).isEmpty
+        } catch {
+            ErrorReporter.capture(error, context: "RoomViewModel.storedMessageExists.eventId")
+            AppLog.log("🧵 own-echo check failed closed room=%@ event_id=%@: %@",
+                       roomId, eventId, String(describing: error))
+            return true
+        }
+    }
+
     private func requestScrollToBottom() {
         scrollRevision &+= 1
     }
@@ -245,8 +265,7 @@ final class RoomViewModel {
     func ingest(_ event: DecryptedRoomEvent, live: Bool) {
         if let eid = event.outer.eventId { lastEventId = eid }
         guard let clear = event.clear, let clearObj = json(clear) else {
-            AppLog.debug("📥 ingest skip (no cleartext) room=%@ outerType=%@ eid=%@",
-                         roomId, event.outer.type, event.outer.eventId ?? "nil")
+            handleUndecryptableEvent(event, live: live)
             return
         }
         let content = clearObj["content"] as? [String: Any] ?? [:]
@@ -275,6 +294,25 @@ final class RoomViewModel {
                        roomId, clearObj["type"] as? String ?? "nil",
                        content["msgtype"] as? String ?? "nil", String(event.isOwn), clear)
         }
+    }
+
+    private func handleUndecryptableEvent(_ event: DecryptedRoomEvent, live: Bool) {
+        guard event.outer.type == "m.room.encrypted" else {
+            AppLog.debug("📥 ingest skip (no cleartext) room=%@ outerType=%@ eid=%@",
+                         roomId, event.outer.type, event.outer.eventId ?? "nil")
+            return
+        }
+        guard cleartextPushFlag(event.outer) != false else {
+            AppLog.debug("📥 ingest skip (no key, non-push) room=%@ eid=%@",
+                         roomId, event.outer.eventId ?? "nil")
+            return
+        }
+        let id = event.outer.eventId ?? UUID().uuidString
+        let from = MatrixTimelineMapper.sender(matrixUserId: event.outer.sender ?? "", isOwn: event.isOwn)
+        let sender: MessageSender = from.role == .app ? .user : .agent
+        AppLog.log("🔒 showing unavailable encrypted message room=%@ eid=%@ live=%@",
+                   roomId, id, String(live))
+        receiveUnavailable(id: id, sender: sender)
     }
 
     private enum MediaKind { case image, audio }
@@ -410,11 +448,19 @@ final class RoomViewModel {
     // MARK: - InnerMessage → ChatMessage rendering
 
     private func handleInnerMessage(_ inner: InnerMessage) {
-        if let from = inner.from,
-           from.role == .app,
-           from.deviceId == DeviceIdentity.currentDeviceId {
-            // Self-echo: our own send already rendered locally.
-            return
+        if let from = inner.from, from.role == .app {
+            // An own-ACCOUNT message arriving via sync. Suppress it ONLY if a local
+            // row already carries this event_id — that means it's the echo of a send
+            // from THIS device (reconciled by handleSentEventId) and is already on
+            // screen. A message sent from ANOTHER device on the same account has an
+            // event_id we've never seen, so it falls through and renders. (The old
+            // guard keyed on `deviceId == currentDeviceId`, which the timeline mapper
+            // stamps on EVERY own message regardless of origin — so it wrongly
+            // dropped this account's messages sent from other devices.)
+            if messages.contains(where: { $0.matrixEventId == inner.id })
+                || storedMessageExists(matrixEventId: inner.id) {
+                return
+            }
         }
 
         let sender = messageSender(for: inner)
@@ -466,8 +512,19 @@ final class RoomViewModel {
 
     private func receiveText(_ text: String, id: String, sender: MessageSender) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
+            message.text = text
+            message.kind = .message
+        }) { return }
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(msgId: id, text: text, sender: sender, roomId: roomId)
+        // A `.user` row reaching receiveText is our own message synced from ANOTHER
+        // device (this device's sends are shown via local echo and suppressed). The
+        // `id` IS the homeserver event_id, so stamp it on `matrixEventId` — without
+        // it, the plugin's read receipt (handleRead matches on matrixEventId) can
+        // never flip this row to .delivered, so cross-device sends would be stuck on
+        // a single ✓ forever.
+        if sender == .user { message.matrixEventId = id }
         guard appendAndInsertUnique(message, reason: "receive_text") else { return }
         Haptics.success()
         persistContext()
@@ -476,6 +533,11 @@ final class RoomViewModel {
 
     private func receiveImage(dataBase64: String, id: String, sender: MessageSender) {
         guard let imageData = Data(base64Encoded: dataBase64) else { return }
+        if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
+            message.text = ""
+            message.imageData = imageData
+            message.kind = .message
+        }) { return }
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "receive_image") else { return }
@@ -486,6 +548,14 @@ final class RoomViewModel {
 
     private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender) {
         guard let audioData = Data(base64Encoded: dataBase64) else { return }
+        if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
+            message.text = ""
+            message.audioData = audioData
+            message.audioMimeType = mimeType
+            message.audioDuration = Double(durationMs) / 1000
+            message.audioWaveformData = VoiceWaveformCodec.encode(waveform)
+            message.kind = .message
+        }) { return }
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(
             msgId: id, audioData: audioData, audioMimeType: mimeType,
@@ -495,6 +565,40 @@ final class RoomViewModel {
         Haptics.success()
         persistContext()
         requestScrollToBottom()
+    }
+
+    private func receiveUnavailable(id: String, sender: MessageSender) {
+        if isDuplicateInnerId(id) { return }
+        let message = ChatMessage(
+            msgId: id,
+            text: "Message unavailable on this device",
+            sender: sender,
+            roomId: roomId,
+            kind: .unavailable
+        )
+        guard appendAndInsertUnique(message, reason: "receive_unavailable") else { return }
+        persistContext()
+        requestScrollToBottom()
+    }
+
+    private func replaceUnavailableMessage(
+        id: String,
+        sender: MessageSender,
+        configure: (ChatMessage) -> Void
+    ) -> Bool {
+        guard let message = messages.first(where: { $0.msgId == id && $0.kind == .unavailable }) else {
+            return false
+        }
+        message.sender = sender
+        message.imageData = nil
+        message.audioData = nil
+        message.audioMimeType = nil
+        message.audioDuration = nil
+        message.audioWaveformData = nil
+        configure(message)
+        persistContext()
+        requestScrollToBottom()
+        return true
     }
 
     private func beginStreamingMessage(streamId: String, sender: MessageSender) -> Bool {
@@ -610,13 +714,29 @@ final class RoomViewModel {
         persistContext()
     }
 
-    /// A peer read up to `eventId` → flip the matching outbound row's tick.
+    /// A peer read receipt "up to `eventId`" → mark the matching outbound row AND
+    /// every earlier still-unacked user row delivered. A Matrix read receipt is
+    /// CUMULATIVE: "read up to E" means everything at or before E is read. The
+    /// plugin's receipt frequently points at a LATER event (its own reply that
+    /// arrived after your message), so an exact-match-only flip would leave your
+    /// message stuck on a single ✓ even though it was read. We anchor on the
+    /// receipt event's timestamp when it's in our timeline; otherwise we fall back
+    /// to flipping just the exact match (safe — never flips a not-yet-read row).
     func handleRead(eventId: String) {
-        guard let row = messages.first(where: { $0.matrixEventId == eventId }) else { return }
-        if row.status == .sending || row.status == .sent {
+        // The receipt's target event, located in this room's timeline (it may be
+        // one of our sends, an agent reply, or absent if it was a dropped event).
+        let anchorTs = messages.first(where: {
+            $0.matrixEventId == eventId || $0.msgId == eventId
+        })?.timestamp
+        var changed = false
+        for row in messages
+        where row.sender == .user && (row.status == .sending || row.status == .sent) {
+            let coveredByAnchor = anchorTs.map { row.timestamp <= $0 } ?? false
+            guard row.matrixEventId == eventId || coveredByAnchor else { continue }
             row.status = .delivered
-            persistContext()
+            changed = true
         }
+        if changed { persistContext() }
     }
 
     /// Plugin emitted an end-to-end ack for an outbound message → "delivered" tick.

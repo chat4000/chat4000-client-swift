@@ -53,6 +53,21 @@ final class MatrixSession {
         var progress: Double { Double(rawValue) / Double(SetupPhase.ready.rawValue) }
     }
     private(set) var setupPhase: SetupPhase = .connecting
+    /// True once we've been stuck in a plugin-dependent setup phase
+    /// (`waitingForPlugin` / `joiningWorkspace`) past `setupStallTimeout`. The
+    /// plugin must invite us and key the control room; if it crashed mid-pairing,
+    /// neither ever arrives and the "Setting up" progress screen would otherwise
+    /// spin forever. The UI swaps the spinner for an actionable "plugin isn't
+    /// responding" state when this flips true.
+    private(set) var setupStalled = false
+    @ObservationIgnored private var setupStallTask: Task<Void, Never>?
+    /// How long to wait in a plugin-dependent setup phase before surfacing the
+    /// stall. Generous on purpose — the gateway can batch sliding-sync delivery
+    /// in bursts up to ~60s, so a healthy-but-slow plugin's invite may arrive
+    /// late; this window stays clear of typical batching and only catches the
+    /// genuinely-no-show (crashed) case. The stall is non-destructive: we keep
+    /// waiting and still auto-advance if the invite lands afterward.
+    static let setupStallTimeout: Duration = .seconds(45)
     /// I2: true once the plugin is KEYED in the control room (its device is known
     /// and has an Olm session), so a control command actually reaches it instead of
     /// sharing the key to 0 devices. Gates the "connected"/ready UI and the
@@ -69,6 +84,43 @@ final class MatrixSession {
         var unreadCount: Int = 0
         var isPinned: Bool = false
         var isMuted: Bool = false
+    }
+
+    struct DevicePairingState: Equatable {
+        enum Phase: String, Equatable {
+            case idle
+            case starting
+            case codeReady
+            case completed
+            case expired
+            case cancelled
+            case failed
+        }
+
+        var phase: Phase = .idle
+        var pairId: String?
+        var code: String?
+        var message: String?
+
+        var canCancel: Bool {
+            pairId != nil && (phase == .starting || phase == .codeReady)
+        }
+
+        static let idle = DevicePairingState()
+    }
+
+    struct DevicePairingPayload: Equatable {
+        enum Kind: Equatable {
+            case startResult
+            case cancelResult
+            case status
+        }
+
+        var kind: Kind
+        var pairId: String?
+        var code: String?
+        var state: String?
+        var error: String?
     }
 
     struct StoredRoomSnapshot: Codable, Equatable {
@@ -120,6 +172,7 @@ final class MatrixSession {
 
     private(set) var lastCommandError: String?
     private(set) var lastPluginUpdateStatus: String?
+    private(set) var devicePairingState = DevicePairingState.idle
 
     /// Per-event delivery to the timeline mapper (active room only, plus replay
     /// on room switch). `live` is false for backfilled/replayed history.
@@ -302,6 +355,7 @@ final class MatrixSession {
         pinnedRoomIds = []
         mutedRoomIds = []
         pendingDeleteRoomIds = []
+        devicePairingState = .idle
         rooms = []
         activeRoomId = nil
         controlRoomId = nil
@@ -310,6 +364,9 @@ final class MatrixSession {
         requestedKeyFor = []
         undecrypted = [:]
         setupPhase = .connecting
+        setupStallTask?.cancel()
+        setupStallTask = nil
+        setupStalled = false
     }
 
     private func applyGatewayVersionGateIfNeeded(_ error: AppError) {
@@ -695,6 +752,7 @@ final class MatrixSession {
     private static let firstSetupKey = "chat4000.didCompleteFirstSetup"
 
     private func updateSetupPhase() {
+        let previous = setupPhase
         // I2: "ready" requires the plugin to be KEYED (control room keyed, or a
         // keyed session already visible) — not merely that a control room exists.
         // Until then we hold on "Joining your workspace…" so the user can't fire a
@@ -707,6 +765,52 @@ final class MatrixSession {
         } else {
             setupPhase = .waitingForPlugin          // connected + synced, but no invite yet
         }
+        updateSetupStallTimer(previous: previous, current: setupPhase)
+    }
+
+    /// Arm a one-shot timer while we're waiting on the plugin so an indefinite
+    /// "Waiting for your plugin" / "Joining your workspace" spinner becomes an
+    /// actionable timeout if the plugin never shows (e.g. it crashed). Reaching
+    /// `.ready` (or otherwise leaving the waiting region) cancels it.
+    private func updateSetupStallTimer(previous: SetupPhase, current: SetupPhase) {
+        let waitingOnPlugin = current == .waitingForPlugin || current == .joiningWorkspace
+        guard waitingOnPlugin else {
+            // Done (or no longer waiting) — drop the timer and clear any stall.
+            setupStallTask?.cancel()
+            setupStallTask = nil
+            if setupStalled { setupStalled = false }
+            return
+        }
+        // Only (re)arm on an actual phase change: entering the waiting region, or
+        // making forward progress within it (waitingForPlugin → joiningWorkspace
+        // means the plugin IS alive, so reset the clock). A plain re-sync that
+        // leaves the phase unchanged must NOT restart the clock, or a steady
+        // stream of syncs would push the deadline out forever and it'd never fire.
+        guard previous != current else { return }
+        setupStalled = false
+        armSetupStallTimer()
+    }
+
+    private func armSetupStallTimer() {
+        setupStallTask?.cancel()
+        setupStallTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.setupStallTimeout)
+            guard !Task.isCancelled, let self else { return }
+            // Still waiting on the plugin after the timeout → surface it.
+            guard self.setupPhase == .waitingForPlugin || self.setupPhase == .joiningWorkspace else { return }
+            self.setupStalled = true
+            AppLog.log("⏱️ setup stalled — plugin no-show after %ds (phase=%@)",
+                       Int(Self.setupStallTimeout.components.seconds), self.setupPhase.label)
+        }
+    }
+
+    /// User asked to keep waiting after a stall — clear the flag and restart the
+    /// clock. This does not itself contact the plugin (recovery is the plugin
+    /// coming back); the next sync advances the phase if it has.
+    func retrySetupWait() {
+        guard setupPhase == .waitingForPlugin || setupPhase == .joiningWorkspace else { return }
+        setupStalled = false
+        armSetupStallTimer()
     }
 
     private func applyAutoOpen() {
@@ -862,6 +966,33 @@ final class MatrixSession {
     func checkPluginUpdate() { sendControlCommand(["command": "plugin.update_check"]) }
     func applyPluginUpdate() { sendControlCommand(["command": "plugin.update", "restart": true]) }
 
+    func startDevicePairing() {
+        guard isWorkspaceReady, controlRoomId != nil, crypto != nil else {
+            AppLog.log("🔗 device.pair_start ignored — workspace not keyed yet")
+            devicePairingState = DevicePairingState(
+                phase: .failed,
+                pairId: nil,
+                code: nil,
+                message: "Still setting up the secure channel — one moment."
+            )
+            return
+        }
+        devicePairingState = DevicePairingState(phase: .starting)
+        sendControlCommand(["command": "device.pair_start"])
+    }
+
+    func cancelDevicePairing() {
+        guard let pairId = devicePairingState.pairId, !pairId.isEmpty else {
+            devicePairingState = .idle
+            return
+        }
+        sendControlCommand(["command": "device.pair_cancel", "pair_id": pairId])
+    }
+
+    func clearDevicePairing() {
+        devicePairingState = .idle
+    }
+
     /// Mute / unmute a room via a homeserver push rule (protocol D.2).
     func muteRoom(_ roomId: String) {
         setMuted(roomId: roomId, muted: true)
@@ -893,9 +1024,11 @@ final class MatrixSession {
     func clearCommandError() { lastCommandError = nil }
 
     private func sendControlCommand(_ fields: [String: Any]) {
+        let command = fields["command"] as? String
         guard let controlRoomId, let crypto else {
             AppLog.log("⚙️ control command dropped — no control room / crypto yet")
             lastCommandError = "Can't reach your plugin yet. Make sure it's running and synced, then try again."
+            handleControlCommandSendFailure(command: command)
             return
         }
         var content: [String: Any] = ["msgtype": "chat4000.command"]
@@ -913,18 +1046,46 @@ final class MatrixSession {
                 ErrorReporter.capture(error, context: "MatrixSession.controlCommand")
                 AppLog.log("⚙️ control command send failed: \(error)")
                 lastCommandError = "Couldn't send that to your plugin. Please try again."
+                handleControlCommandSendFailure(command: command)
             }
         }
     }
 
-    /// Decrypted control-room event → parse `chat4000.command_result` (E).
+    private func handleControlCommandSendFailure(command: String?) {
+        switch command {
+        case "device.pair_start":
+            devicePairingState = DevicePairingState(
+                phase: .failed,
+                pairId: nil,
+                code: nil,
+                message: "Couldn't ask your plugin for a pairing code. Please try again."
+            )
+        case "device.pair_cancel":
+            devicePairingState = DevicePairingState(
+                phase: .failed,
+                pairId: devicePairingState.pairId,
+                code: devicePairingState.code,
+                message: "Couldn't cancel pairing. Please try again."
+            )
+        default:
+            break
+        }
+    }
+
+    /// Decrypted control-room event → parse command results and control signals (E).
     private func handleControlEvent(clear: String?) {
         guard let clear,
               let data = clear.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = obj["content"] as? [String: Any],
-              content["msgtype"] as? String == "chat4000.command_result"
+              let content = obj["content"] as? [String: Any]
         else { return }
+
+        if let payload = Self.parseDevicePairingPayload(content) {
+            applyDevicePairingPayload(payload)
+            return
+        }
+
+        guard content["msgtype"] as? String == "chat4000.command_result" else { return }
         handleCommandResult(content)
     }
 
@@ -963,6 +1124,126 @@ final class MatrixSession {
             } else {
                 lastPluginUpdateStatus = error ?? "Plugin update failed."
             }
+        default:
+            break
+        }
+    }
+
+    nonisolated static func parseDevicePairingPayload(_ content: [String: Any]) -> DevicePairingPayload? {
+        let msgtype = content["msgtype"] as? String
+        if msgtype == "chat4000.pair_status" {
+            return DevicePairingPayload(
+                kind: .status,
+                pairId: clippedString(content["pair_id"], maxLength: 64),
+                code: nil,
+                state: clippedString(content["state"], maxLength: 32),
+                error: clippedString(content["error"], maxLength: 255)
+            )
+        }
+        guard msgtype == "chat4000.command_result",
+              let command = content["command"] as? String,
+              command == "device.pair_start" || command == "device.pair_cancel" else {
+            return nil
+        }
+        let rawCode = content["code"] as? String
+        let normalizedCode: String?
+        if let rawCode,
+           rawCode.range(of: #"^[0-9]{6}$"#, options: .regularExpression) != nil {
+            normalizedCode = rawCode
+        } else {
+            normalizedCode = nil
+        }
+        return DevicePairingPayload(
+            kind: command == "device.pair_start" ? .startResult : .cancelResult,
+            pairId: clippedString(content["pair_id"], maxLength: 64),
+            code: normalizedCode,
+            state: nil,
+            error: clippedString(content["error"], maxLength: 255)
+        )
+    }
+
+    private nonisolated static func clippedString(_ value: Any?, maxLength: Int) -> String? {
+        guard let string = value as? String, !string.isEmpty else { return nil }
+        return String(string.prefix(maxLength))
+    }
+
+    private func applyDevicePairingPayload(_ payload: DevicePairingPayload) {
+        switch payload.kind {
+        case .startResult:
+            if let error = payload.error {
+                devicePairingState = DevicePairingState(
+                    phase: .failed,
+                    pairId: payload.pairId,
+                    code: nil,
+                    message: error
+                )
+            } else if let code = payload.code, let pairId = payload.pairId {
+                devicePairingState = DevicePairingState(
+                    phase: .codeReady,
+                    pairId: pairId,
+                    code: code,
+                    message: nil
+                )
+            } else {
+                devicePairingState = DevicePairingState(
+                    phase: .failed,
+                    pairId: payload.pairId,
+                    code: nil,
+                    message: "Pairing response was missing a code."
+                )
+            }
+        case .cancelResult:
+            if let error = payload.error {
+                devicePairingState = DevicePairingState(
+                    phase: .failed,
+                    pairId: payload.pairId ?? devicePairingState.pairId,
+                    code: devicePairingState.code,
+                    message: error
+                )
+            } else {
+                devicePairingState = DevicePairingState(
+                    phase: .cancelled,
+                    pairId: payload.pairId ?? devicePairingState.pairId,
+                    code: nil,
+                    message: "Pairing cancelled."
+                )
+            }
+        case .status:
+            applyDevicePairingStatus(payload)
+        }
+    }
+
+    private func applyDevicePairingStatus(_ payload: DevicePairingPayload) {
+        let pairId = payload.pairId ?? devicePairingState.pairId
+        switch payload.state {
+        case "completed":
+            devicePairingState = DevicePairingState(
+                phase: .completed,
+                pairId: pairId,
+                code: nil,
+                message: "Device paired."
+            )
+        case "expired":
+            devicePairingState = DevicePairingState(
+                phase: .expired,
+                pairId: pairId,
+                code: nil,
+                message: "Pairing code expired."
+            )
+        case "cancelled":
+            devicePairingState = DevicePairingState(
+                phase: .cancelled,
+                pairId: pairId,
+                code: nil,
+                message: "Pairing cancelled."
+            )
+        case "error":
+            devicePairingState = DevicePairingState(
+                phase: .failed,
+                pairId: pairId,
+                code: nil,
+                message: payload.error ?? "Pairing failed."
+            )
         default:
             break
         }

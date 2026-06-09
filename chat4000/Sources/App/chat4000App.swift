@@ -301,7 +301,19 @@ struct chat4000App: App {
             Chat4000ConnectingScreen(connectionState: .reconnecting)
 
         case .setup:
-            SetupProgressScreen(phase: chatViewModel.setupPhase)
+            SetupProgressScreen(
+                phase: chatViewModel.setupPhase,
+                stalled: chatViewModel.setupStalled,
+                onRetry: { chatViewModel.retrySetupWait() },
+                onStartOver: {
+                    chatViewModel.disconnect()
+                    errorMessage = nil
+                    shouldCelebrateFirstConnection = false
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        currentScreen = .enterPairingCode
+                    }
+                }
+            )
 
         case .connectedCelebration:
             ConnectedCelebrationScreen()

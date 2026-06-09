@@ -169,6 +169,38 @@ struct ChatViewModelRoomScopingTests {
     }
 
     @Test
+    func undecryptableEncryptedMessageShowsUnavailableThenReplaces() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        room.ingest(Self.undecryptableEvent(eventId: "$old", push: true), live: false)
+
+        #expect(room.messages.count == 1)
+        #expect(room.messages.first?.msgId == "$old")
+        #expect(room.messages.first?.kind == .unavailable)
+        #expect(room.messages.first?.text == "Message unavailable on this device")
+
+        room.ingest(Self.textEvent(eventId: "$old", body: "Readable now", push: true), live: false)
+
+        #expect(room.messages.count == 1)
+        #expect(room.messages.first?.msgId == "$old")
+        #expect(room.messages.first?.kind == .message)
+        #expect(room.messages.first?.text == "Readable now")
+    }
+
+    @Test
+    func undecryptableNonPushFrameStaysHidden() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        room.ingest(Self.undecryptableEvent(eventId: "$status", push: false), live: false)
+
+        #expect(room.messages.isEmpty)
+    }
+
+    @Test
     func toolTranscriptTextIsDroppedButToolChipStays() throws {
         let ctx = try makeContext()
         let room = RoomViewModel(roomId: "!A", session: MatrixSession())
@@ -218,6 +250,21 @@ struct ChatViewModelRoomScopingTests {
             predicate: #Predicate { $0.roomId == "!A" && $0.msgId == "$bad" }
         )
         #expect((try? ctx.fetch(descriptor).count) == 0)
+    }
+
+    private static func undecryptableEvent(eventId: String, push: Bool) -> DecryptedRoomEvent {
+        DecryptedRoomEvent(
+            outer: SyncEvent(
+                type: "m.room.encrypted",
+                eventId: eventId,
+                sender: "@plugin:x",
+                stateKey: nil,
+                originServerTs: 1,
+                rawJSON: #"{"content":{"chat4000.push":\#(push)}}"#
+            ),
+            clear: nil,
+            isOwn: false
+        )
     }
 
     private static func textEvent(eventId: String, body: String, push: Bool) -> DecryptedRoomEvent {

@@ -87,8 +87,12 @@ struct MatrixTimelineMapper {
         activeStreamSenderId = nil
     }
 
-    /// Sender tagging: our own events → `.app` + this device's id (so
-    /// ChatViewModel's self-echo suppression drops them); others → `.plugin`.
+    /// Sender tagging: our own ACCOUNT's events → `.app`; others → `.plugin`.
+    /// NOTE: `isOwn` is account-level (`outer.sender == userId`), so it is true
+    /// for this account's messages sent from ANY device. Echo suppression must
+    /// therefore key on event_id (RoomViewModel.handleInnerMessage), NOT on the
+    /// device id below — the device id is only a best-effort tag and is the same
+    /// for an own message regardless of which device actually sent it.
     static func sender(matrixUserId: String, isOwn: Bool) -> SenderInfo {
         if isOwn {
             return SenderInfo(role: .app, deviceId: DeviceIdentity.currentDeviceId, deviceName: "")

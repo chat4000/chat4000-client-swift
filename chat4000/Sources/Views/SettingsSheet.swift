@@ -1,5 +1,6 @@
 import SwiftUI
 import Sentry
+import CoreImage.CIFilterBuiltins
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -12,7 +13,7 @@ struct SettingsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    let userId: String?
+    @Bindable var matrixSession: MatrixSession
     let pluginVersion: String?
     let pluginBundleId: String?
     var onDisconnect: () -> Void
@@ -237,9 +238,9 @@ struct SettingsSheet: View {
             FounderChatPromptModal(source: "settings_10tap_test")
         }
         .sheet(isPresented: $showAddDeviceInfo) {
-            AddDeviceInfoSheet()
+            AddDevicePairingSheet(session: matrixSession)
                 #if os(macOS)
-                .presentationDetents([.height(420)])
+                .presentationDetents([.height(470)])
                 #else
                 .presentationDetents([.medium])
                 #endif
@@ -276,7 +277,7 @@ struct SettingsSheet: View {
                 .foregroundStyle(AppColors.textSecondary)
 
             VStack(alignment: .leading, spacing: 16) {
-                if let userId, !userId.isEmpty {
+                if let userId = matrixSession.userId, !userId.isEmpty {
                     HStack(spacing: 8) {
                         Text("Account")
                             .font(AppFonts.label)
@@ -440,7 +441,7 @@ struct SettingsSheet: View {
             scope.setTag(value: "handled_exception", key: "test_type")
             scope.setContext(value: [
                 "bundle_id": Bundle.main.bundleIdentifier ?? "unknown",
-                "user_id": userId ?? "none"
+                "user_id": matrixSession.userId ?? "none"
             ], key: "hidden_test")
             scope.setExtra(value: String(reflecting: error), key: "error_reflection")
         }
@@ -617,15 +618,9 @@ private enum SentryDevTestError: LocalizedError {
     }
 }
 
-/// "Add Device" explainer. In v2 a device is onboarded by redeeming a 6-digit
-/// pairing code that the **plugin** reserves (protocol C); the app cannot mint
-/// codes itself (the registrar's `/pair/register` is plugin-service-token-gated,
-/// C.1), and device-to-device MSC4108 QR login doesn't fit the appservice-token
-/// auth model. So this device can't generate a code — it points the user at the
-/// real flow. (Future: a control-room `device.*` command so the app can ask its
-/// plugin to mint a code on demand.)
-struct AddDeviceInfoSheet: View {
+struct AddDevicePairingSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Bindable var session: MatrixSession
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -643,27 +638,153 @@ struct AddDeviceInfoSheet: View {
                 .buttonStyle(.plain)
             }
 
-            Text("To connect another phone or Mac to this account, pair it the same way you paired this one:")
-                .font(AppFonts.body)
-                .foregroundStyle(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 12) {
-                step(1, "Generate a pairing code from your plugin",
-                     "Run your OpenClaw / Hermes plugin on your computer and ask it for a new pairing code (it prints a 6-digit code).")
-                step(2, "Open chat4000 on the new device",
-                     "Install and launch the app on the phone or Mac you want to add.")
-                step(3, "Enter the 6-digit code there",
-                     "Type or scan the code on the new device's pairing screen. It connects to the same account.")
-            }
+            pairingBody
 
             Spacer(minLength: 0)
 
-            ChatWithFounderButton(source: "settings_add_device")
+            // Instructions live at the bottom (v1 layout): the QR + code is the
+            // hero up top, the how-to is reference below it.
+            VStack(alignment: .leading, spacing: 12) {
+                step(1, "Open chat4000 on the new device", "The phone or Mac you want to add.")
+                step(2, "Scan the QR, or enter the code", "Either one joins this same account.")
+                step(3, "Keep this screen open", "The code is short-lived; leave it up until it connects.")
+            }
+
+            if session.devicePairingState.canCancel {
+                Button(role: .destructive) {
+                    session.cancelDevicePairing()
+                } label: {
+                    Text("Cancel Pairing")
+                        .font(AppFonts.button)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                switch session.devicePairingState.phase {
+                case .expired, .cancelled, .failed:
+                    session.startDevicePairing()
+                default:
+                    session.clearDevicePairing()
+                    dismiss()
+                }
+            } label: {
+                Text(primaryButtonTitle)
+                    .font(AppFonts.button)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
+            }
+            .buttonStyle(.plain)
+            .disabled(session.devicePairingState.phase == .starting)
+            .opacity(session.devicePairingState.phase == .starting ? 0.65 : 1)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppColors.cardBackground)
+        // One click: opening the sheet immediately asks the plugin for a code, so
+        // the QR + digits are on screen without a second "Create code" tap.
+        .onAppear {
+            if session.devicePairingState.phase == .idle {
+                session.startDevicePairing()
+            }
+        }
+    }
+
+    /// The pairing code as a `chat4000://pair?code=NNNNNN` URI — the form the
+    /// in-app QR scanner (`QRScannerView`) expects to decode.
+    private func pairURI(_ code: String) -> String { "chat4000://pair?code=\(code)" }
+
+    @ViewBuilder
+    private var pairingBody: some View {
+        switch session.devicePairingState.phase {
+        case .idle, .starting:
+            HStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Creating pairing code...")
+                    .font(AppFonts.body)
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(AppColors.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.input))
+        case .codeReady:
+            let code = session.devicePairingState.code ?? ""
+            VStack(spacing: 16) {
+                PairingQRCode(payload: pairURI(code))
+                    .frame(width: 190, height: 190)
+                    .padding(14)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .frame(maxWidth: .infinity)
+
+                Text("Scan this, or enter the code on the new device")
+                    .font(AppFonts.label)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
+
+                PairingCodeBoxes(code: code)
+            }
+            .frame(maxWidth: .infinity)
+        case .completed, .expired, .cancelled, .failed:
+            VStack(alignment: .leading, spacing: 10) {
+                Label(statusTitle, systemImage: statusIconName)
+                    .font(AppFonts.label)
+                    .foregroundStyle(statusColor)
+                if let message = session.devicePairingState.message {
+                    Text(message)
+                        .font(AppFonts.body)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(AppColors.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.input))
+        }
+    }
+
+    private var primaryButtonTitle: String {
+        switch session.devicePairingState.phase {
+        case .idle, .starting: "Creating..."
+        case .codeReady, .completed: "Done"
+        case .expired, .cancelled, .failed: "Try Again"
+        }
+    }
+
+    private var statusTitle: String {
+        switch session.devicePairingState.phase {
+        case .completed: "Device paired"
+        case .expired: "Code expired"
+        case .cancelled: "Pairing cancelled"
+        case .failed: "Pairing failed"
+        default: ""
+        }
+    }
+
+    private var statusIconName: String {
+        switch session.devicePairingState.phase {
+        case .completed: "checkmark.circle.fill"
+        case .expired: "clock.badge.exclamationmark"
+        case .cancelled: "xmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        default: "info.circle"
+        }
+    }
+
+    private var statusColor: Color {
+        switch session.devicePairingState.phase {
+        case .completed: AppColors.connected
+        case .failed: .red
+        default: AppColors.textSecondary
+        }
     }
 
     private func step(_ number: Int, _ title: String, _ detail: String) -> some View {
@@ -687,9 +808,48 @@ struct AddDeviceInfoSheet: View {
     }
 }
 
+/// Renders a scannable QR code for a pairing payload (a `chat4000://pair?code=…`
+/// URI). Black modules on a transparent ground — caller puts it on white. Uses
+/// CoreImage's built-in generator; nearest-neighbor scaling keeps edges crisp.
+struct PairingQRCode: View {
+    let payload: String
+
+    private static let context = CIContext()
+
+    var body: some View {
+        if let cgImage = Self.makeQR(from: payload) {
+            Image(decorative: cgImage, scale: 1)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .accessibilityLabel("Pairing QR code")
+        } else {
+            // Generation should never fail for a short ASCII URI; show a neutral
+            // placeholder rather than crashing if it somehow does.
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.black.opacity(0.08))
+                .overlay(
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.black.opacity(0.3))
+                )
+        }
+    }
+
+    private static func makeQR(from string: String) -> CGImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        // Scale up the 1px-per-module output so the rasterized image is sharp.
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        return context.createCGImage(scaled, from: scaled.extent)
+    }
+}
+
 #Preview {
     SettingsSheet(
-        userId: "@u_demo:chat4000.com",
+        matrixSession: MatrixSession(),
         pluginVersion: "0.1.0",
         pluginBundleId: "@chat4000/openclaw-plugin",
         onDisconnect: {},

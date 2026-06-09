@@ -35,4 +35,38 @@ struct MatrixPairingTests {
         #expect(MatrixPairing.extractCode(from: "322 144") == "322144")
         #expect(MatrixPairing.extractCode(from: "  322144 ") == "322144")
     }
+
+    @Test
+    func parsesDevicePairStartResult() throws {
+        let payload = try #require(MatrixSession.parseDevicePairingPayload([
+            "msgtype": "chat4000.command_result",
+            "command": "device.pair_start",
+            "pair_id": "p_7af3c1",
+            "code": "428913"
+        ]))
+
+        #expect(payload.kind == .startResult)
+        #expect(payload.pairId == "p_7af3c1")
+        #expect(payload.code == "428913")
+        #expect(payload.error == nil)
+    }
+
+    @Test
+    func parsesDevicePairStatusAndRejectsBadCodeShape() throws {
+        let status = try #require(MatrixSession.parseDevicePairingPayload([
+            "msgtype": "chat4000.pair_status",
+            "pair_id": "p_7af3c1",
+            "state": "completed"
+        ]))
+        #expect(status.kind == .status)
+        #expect(status.state == "completed")
+
+        let badStart = try #require(MatrixSession.parseDevicePairingPayload([
+            "msgtype": "chat4000.command_result",
+            "command": "device.pair_start",
+            "pair_id": "p_7af3c1",
+            "code": "1234567"
+        ]))
+        #expect(badStart.code == nil)
+    }
 }
