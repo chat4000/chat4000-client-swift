@@ -239,9 +239,6 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            Divider()
-                .background(AppColors.inputBorder)
-
             if voiceRecorder.isRecording {
                 recordingInputBar
             } else {
@@ -913,7 +910,7 @@ struct RoomMessagesView: View {
 
 #if os(macOS)
 private struct MacComposerTextView: NSViewRepresentable {
-    private static let composerFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    private static let composerFont = NSFont.systemFont(ofSize: 12, weight: .regular)
     static let horizontalInset: CGFloat = 16
     static let verticalInset: CGFloat = 10
     private static let placeholderProbe = NSString(string: "Message ...")

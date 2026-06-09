@@ -758,7 +758,7 @@ struct AddDevicePairingSheet: View {
     private func step(_ number: Int, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text("\(number)")
-                .font(AppFonts.mono(12, weight: .bold))
+                .font(AppFonts.sans(12, weight: .bold))
                 .foregroundStyle(AppColors.textPrimary)
                 .frame(width: 24, height: 24)
                 .background(Color.white.opacity(0.08))
