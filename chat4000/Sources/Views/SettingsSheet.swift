@@ -22,6 +22,10 @@ struct SettingsSheet: View {
     /// control-room member may run it — there's no separate owner role; the
     /// plugin gates on control-room membership. Fire-and-forget.
     var onUpdatePlugin: (() -> Void)?
+    /// Close the panel. Used instead of `@Environment(\.dismiss)` so this view
+    /// works both as an iOS sheet AND as a macOS overlay (where `dismiss()` is a
+    /// no-op). The macOS overlay also dismisses on an outside click.
+    var onClose: () -> Void = {}
 
     @State private var showClearConfirmation = false
     @State private var sentryResultMessage: String?
@@ -53,7 +57,7 @@ struct SettingsSheet: View {
                     Spacer()
 
                     Button {
-                        dismiss()
+                        onClose()
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .medium))
@@ -126,7 +130,7 @@ struct SettingsSheet: View {
 
                     Button {
                         onDisconnect()
-                        dismiss()
+                        onClose()
                     } label: {
                         Text("Disconnect")
                             .font(AppFonts.button)
@@ -152,27 +156,6 @@ struct SettingsSheet: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
-
-                    if let onUpdatePlugin {
-                        Button {
-                            onUpdatePlugin()
-                            dismiss()
-                        } label: {
-                            Text("Update Plugin")
-                                .font(AppFonts.button)
-                                .foregroundStyle(AppColors.textPrimary)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                                .background(AppColors.inputBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: AppRadius.button)
-                                        .stroke(AppColors.inputBorder, lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
-                    }
 
                     VStack(spacing: 12) {
                         Text("Need help, or just want to say hi?")
@@ -220,7 +203,7 @@ struct SettingsSheet: View {
         ) {
             Button("Clear", role: .destructive) {
                 onClearHistory()
-                dismiss()
+                onClose()
             }
             Button("Cancel", role: .cancel) {}
         } message: {

@@ -64,6 +64,10 @@ struct ChatView: View {
             }
 
         }
+        // iOS: a sheet (already dismisses on an outside tap / swipe-down). macOS
+        // presents Settings as a tap-to-dismiss overlay in ChatShell instead, so
+        // there is no sheet here on the Mac.
+        #if os(iOS)
         .sheet(isPresented: $showSettings) {
             SettingsSheet(
                 matrixSession: viewModel.matrixSession,
@@ -71,16 +75,13 @@ struct ChatView: View {
                 pluginBundleId: nil,
                 onDisconnect: viewModel.disconnect,
                 onClearHistory: viewModel.clearHistory,
-                onUpdatePlugin: { viewModel.matrixSession.applyPluginUpdate() }
+                onClose: { showSettings = false }
             )
-            #if os(macOS)
-            .presentationDetents([.height(700)])
-            #else
             .presentationDetents([.fraction(0.75)])
-            #endif
             .presentationDragIndicator(.visible)
             .presentationBackground(AppColors.cardBackground)
         }
+        #endif
         .onChange(of: showSettings) { _, isPresented in
             if isPresented {
                 TelemetryManager.shared.screen("settings")
@@ -270,7 +271,16 @@ struct ChatView: View {
             trailingAccessoryArea
         }
         .padding(.horizontal, AppSpacing.messageRowInset)
+        // The divider above adds visual weight, so an equal top/bottom inset reads
+        // as top-heavy. On macOS bias the inset toward the bottom — same TOTAL as
+        // before (2 + 6 = the old 4 + 4), so the composer's divider still lines up
+        // with the sidebar's Settings-row divider — so it reads visually centered.
+        #if os(macOS)
+        .padding(.top, 2)
+        .padding(.bottom, (AppSpacing.inputBarBottomInset * 2) - 2)
+        #else
         .padding(.vertical, AppSpacing.inputBarBottomInset)
+        #endif
         .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
     }
 

@@ -92,7 +92,44 @@ struct ChatShell: View {
                 knownRoomIds = ids
                 if !added.isEmpty { Haptics.celebrate() }
             }
+            #if os(macOS)
+            // macOS Settings: a tap-to-dismiss overlay (a sheet would be modal and
+            // couldn't close on an outside click).
+            .overlay { macSettingsOverlay }
+            #endif
     }
+
+    #if os(macOS)
+    @ViewBuilder
+    private var macSettingsOverlay: some View {
+        if showSettings {
+            ZStack {
+                // Outside-click backdrop — tapping anywhere off the panel closes it.
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture { showSettings = false }
+
+                SettingsSheet(
+                    matrixSession: viewModel.matrixSession,
+                    pluginVersion: nil,
+                    pluginBundleId: nil,
+                    onDisconnect: viewModel.disconnect,
+                    onClearHistory: viewModel.clearHistory,
+                    onClose: { showSettings = false }
+                )
+                .frame(width: 520, height: 680)
+                .background(AppColors.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 30, y: 12)
+            }
+            .transition(.opacity)
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var content: some View {
@@ -425,9 +462,10 @@ struct SessionsSidebar: View {
                     if room.unreadCount > 0 {
                         unreadBadge(room.unreadCount)
                     }
-                    roomStatusIcons(room)
-                    // Reserve space so the name/badges never underlap the dots.
-                    Color.clear.frame(width: 28, height: 24)
+                    // Reserve width for the trailing overlay (pin/mute icons + the
+                    // dots, which live together on the right) so the name truncates
+                    // before them instead of sliding underneath.
+                    Color.clear.frame(width: trailingControlsWidth(room), height: 24)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -443,20 +481,26 @@ struct SessionsSidebar: View {
             // (→ horizontal on Mac) AND won't render a shape-based label like a
             // VStack of Circles (→ invisible on Mac). A Text glyph renders reliably
             // on both platforms, and `.borderlessButton` removes the macOS bezel.
-            Menu {
-                roomMenuItems(room)
-            } label: {
-                Text("\u{22EE}")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(width: 28, height: 36)
-                    .contentShape(Rectangle())
+            HStack(spacing: 4) {
+                // Pin/mute sit right next to the dots (non-interactive — taps fall
+                // through to the row's selection button below).
+                roomStatusIcons(room)
+                    .allowsHitTesting(false)
+                Menu {
+                    roomMenuItems(room)
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(AppColors.textSecondary)
+                        .frame(width: 28, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityLabel("Session options")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
             .padding(.trailing, 8)
-            .accessibilityLabel("Session options")
         }
         .background(rowBackground(isActive: isActive, roomId: room.id))
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -481,6 +525,19 @@ struct SessionsSidebar: View {
         if isActive { return AppColors.inputBackground }
         if hoveredRoomId == roomId { return Color.white.opacity(0.06) }
         return Color.clear
+    }
+
+    /// Width to reserve in the row for the trailing overlay (pin/mute icons + the
+    /// 3-dots), so the name truncates before them instead of underlapping. Mirrors
+    /// the overlay's real width: 14pt per status icon (4pt between two) + 4pt gap to
+    /// the dots + 28pt dots + an 8pt safety margin.
+    private func trailingControlsWidth(_ room: MatrixSession.RoomSummary) -> CGFloat {
+        var iconCount = 0
+        if room.isPinned { iconCount += 1 }
+        if room.isMuted { iconCount += 1 }
+        let iconsWidth = iconCount == 0 ? 0 : CGFloat(iconCount) * 14 + CGFloat(iconCount - 1) * 4
+        let dotsBlock: CGFloat = 28 + (iconCount == 0 ? 0 : 4 + iconsWidth)
+        return dotsBlock + 8
     }
 
     /// Shared by the 3-dots `Menu` and the long-press / right-click context menu.
