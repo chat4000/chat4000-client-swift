@@ -139,16 +139,19 @@ struct MessageBubble: View {
                 Text(attributedText)
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
-                    // Disable Text's built-in selection so a single tap can
-                    // toggle the timestamp on macOS without first being
-                    // captured by the selection gesture. Copy is still
-                    // reachable via the context menu below (right-click on
-                    // macOS, long-press on iOS).
+                    // macOS: keep text selectable (inherits the message list's
+                    // `.textSelection(.enabled)`) so you can drag-select + ⌘C.
+                    // iOS: there's no mouse selection, so a single tap toggles the
+                    // timestamp instead — and selectable Text would swallow that tap,
+                    // so the two are mutually exclusive and split by platform here.
+                    // Copy stays reachable on both via the context menu below.
+                    #if os(iOS)
                     .textSelection(.disabled)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         showsTimestamp.toggle()
                     }
+                    #endif
                     .contextMenu {
                         Button("Copy") {
                             copyText(message.text)
