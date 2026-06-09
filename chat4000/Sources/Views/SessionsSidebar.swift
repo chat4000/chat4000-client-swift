@@ -372,6 +372,24 @@ struct SessionsSidebar: View {
                     }
                     ForEach(session.rooms) { room in
                         roomRow(room)
+                            // Drag to reorder. The drop is confined to the same
+                            // group (pinned↔pinned, unpinned↔unpinned): a
+                            // cross-group drop returns false and snaps back, so a
+                            // session can't be dropped into the pinned area.
+                            .draggable(room.id) {
+                                Text(displayName(room))
+                                    .font(AppFonts.body)
+                                    .foregroundStyle(AppColors.textPrimary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(AppColors.inputBackground)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let dragged = items.first else { return false }
+                                return session.moveSession(dragged, before: room.id)
+                            }
                     }
                 }
                 .padding(.vertical, 8)

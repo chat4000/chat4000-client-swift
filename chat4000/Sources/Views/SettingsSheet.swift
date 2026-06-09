@@ -53,6 +53,12 @@ struct SettingsSheet: View {
                     Text("Settings")
                         .font(AppFonts.sheetTitle)
                         .foregroundStyle(AppColors.textPrimary)
+                        // Hidden QA gesture (moved here from the removed Account row):
+                        // 15 taps triggers the Sentry crash-verification crash.
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            handleGroupIDGesture()
+                        }
 
                     Spacer()
 
@@ -260,27 +266,6 @@ struct SettingsSheet: View {
                 .foregroundStyle(AppColors.textSecondary)
 
             VStack(alignment: .leading, spacing: 16) {
-                if let userId = matrixSession.userId, !userId.isEmpty {
-                    HStack(spacing: 8) {
-                        Text("Account")
-                            .font(AppFonts.label)
-                            .foregroundStyle(AppColors.textSecondary)
-
-                        Text(userId)
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundStyle(AppColors.textPrimary)
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        handleGroupIDGesture()
-                    }
-                }
-
                 Button {
                     showAddDeviceInfo = true
                 } label: {

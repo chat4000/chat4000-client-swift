@@ -963,6 +963,50 @@ final class MatrixSession {
         setPinned(roomId: roomId, pinned: false)
     }
 
+    /// Drag-reorder: move `id` to just before `targetId`. Movement is confined to
+    /// a session's own group — a pinned session can only be reordered among the
+    /// pinned ones and an unpinned among the unpinned (you can't drop a session
+    /// into the pinned area or vice-versa). Returns false (drop rejected) when the
+    /// two are in different groups or either is unknown.
+    @discardableResult
+    func moveSession(_ id: String, before targetId: String) -> Bool {
+        guard id != targetId,
+              let moving = rooms.first(where: { $0.id == id }),
+              let target = rooms.first(where: { $0.id == targetId }),
+              moving.isPinned == target.isPinned
+        else { return false }
+        if moving.isPinned {
+            reorderPinned(movingId: id, beforeId: targetId)
+        } else {
+            reorderUnpinned(movingId: id, beforeId: targetId)
+        }
+        return true
+    }
+
+    /// Reorder within the pinned group. Pin ORDER round-trips through the server
+    /// (account_data `chat4000.session.prefs`), so persist it like a pin toggle.
+    private func reorderPinned(movingId: String, beforeId: String) {
+        var ids = pinnedRoomIds.filter { $0 != movingId }
+        guard let idx = ids.firstIndex(of: beforeId) else { return }
+        ids.insert(movingId, at: idx)
+        pinnedRoomIds = Self.sanitizedPinnedRoomIds(ids)
+        rebuildRoomList()
+        let snapshot = pinnedRoomIds
+        Task { [weak self] in await self?.persistPinnedRoomIds(snapshot) }
+    }
+
+    /// Reorder within the unpinned group by repositioning `movingId` just before
+    /// `beforeId` in `roomOrder` (which drives unpinned display order). Persisted
+    /// locally in the room snapshot.
+    private func reorderUnpinned(movingId: String, beforeId: String) {
+        var order = roomOrder.filter { $0 != movingId }
+        guard let idx = order.firstIndex(of: beforeId) else { return }
+        order.insert(movingId, at: idx)
+        roomOrder = order
+        rebuildRoomList()
+        saveRoomSnapshot()
+    }
+
     func checkPluginUpdate() { sendControlCommand(["command": "plugin.update_check"]) }
     func applyPluginUpdate() { sendControlCommand(["command": "plugin.update", "restart": true]) }
 
