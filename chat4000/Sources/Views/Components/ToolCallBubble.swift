@@ -23,16 +23,50 @@ struct ToolCallBubble: View {
         .padding(.vertical, 1)
     }
 
-    @ViewBuilder
     private var iconView: some View {
-        // Prefer the per-tool emoji shipped by the plugin; fall back to a hammer.
-        if let icon = message.toolIcon, !icon.isEmpty {
-            Text(icon)
-                .font(.system(size: 10))
-        } else {
-            Image(systemName: "hammer.fill")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(AppColors.textSecondary)
+        // SF Symbol mapped from the tool NAME (ignoring the plugin's emoji), so the
+        // chips read consistently with the rest of the UI. `.frame` keeps every
+        // icon the same width so the names line up.
+        Image(systemName: Self.symbolName(forTool: message.toolName))
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(AppColors.textSecondary)
+            .frame(width: 12, alignment: .center)
+    }
+
+    /// Map a tool name to an SF Symbol by keyword, so variants
+    /// (`browser_navigate`, `browser.navigate`, …) all resolve. Order matters:
+    /// more specific cases first. Falls back to a hammer for anything unmapped.
+    static func symbolName(forTool name: String?) -> String {
+        let n = (name ?? "").lowercased()
+        switch true {
+        case n.contains("snapshot"), n.contains("screenshot"):
+            return "camera.viewfinder"
+        case n.contains("console"), n.contains("log"):
+            return "apple.terminal"
+        case n.contains("browser"), n.contains("navigate"), n.contains("http"), n.contains("url"), n.contains("fetch"):
+            return "globe"
+        case n.contains("search"):
+            return "magnifyingglass"
+        case n.contains("extract"), n.contains("scrape"), n.contains("read"):
+            return "doc.text"
+        case n.contains("terminal"), n.contains("shell"), n.contains("bash"), n.contains("exec"), n.contains("command"), n.contains("run"):
+            return "terminal"
+        case n.contains("skill"):
+            return "book"
+        case n.contains("todo"), n.contains("task"), n.contains("checklist"):
+            return "checklist"
+        case n.contains("list"):
+            return "list.bullet"
+        case n.contains("write"), n.contains("edit"), n.contains("create"), n.contains("file"):
+            return "square.and.pencil"
+        case n.contains("code"):
+            return "chevron.left.forwardslash.chevron.right"
+        case n.contains("image"), n.contains("photo"), n.contains("vision"):
+            return "photo"
+        case n.contains("memory"), n.contains("remember"), n.contains("note"):
+            return "brain"
+        default:
+            return "hammer.fill"
         }
     }
 }
