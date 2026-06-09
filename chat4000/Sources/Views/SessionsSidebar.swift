@@ -201,8 +201,13 @@ struct ChatShell: View {
                     .onHover { inside in
                         if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
                     }
+                    // Measure the drag in GLOBAL space, not the handle's local
+                    // space: resizing moves the handle under the cursor, and a
+                    // local-space translation would then feed back on itself and
+                    // make the divider vibrate. Global coords are anchored to the
+                    // window, so the translation tracks the cursor cleanly.
                     .gesture(
-                        DragGesture(minimumDistance: 1)
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { value in
                                 let base = sidebarResizeStartWidth ?? macSidebarWidth
                                 if sidebarResizeStartWidth == nil { sidebarResizeStartWidth = base }
