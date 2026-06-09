@@ -2,13 +2,9 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
-    @State private var showsTimestamp = false
 
     private var isUser: Bool { message.sender == .user }
     private var isUnavailable: Bool { message.kind == .unavailable }
-    private var timestampText: String {
-        message.timestamp.formatted(date: .omitted, time: .shortened)
-    }
 
     var body: some View {
         // Tool-call rows render with a dedicated component — they have
@@ -17,50 +13,11 @@ struct MessageBubble: View {
             ToolCallBubble(message: message)
         } else {
             HStack(alignment: .top, spacing: 8) {
-                messageLayout
+                bubbleContent
             }
             .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
             .padding(.horizontal, AppSpacing.messageRowInset)
         }
-    }
-
-    @ViewBuilder
-    private var messageLayout: some View {
-        if showsTimestamp {
-            ViewThatFits(in: .horizontal) {
-                sideTimestampLayout
-                stackedTimestampLayout
-            }
-        } else {
-            bubbleContent
-        }
-    }
-
-    private var sideTimestampLayout: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isUser {
-                timestampLabel
-                bubbleContent
-            } else {
-                bubbleContent
-                timestampLabel
-            }
-        }
-    }
-
-    private var stackedTimestampLayout: some View {
-        VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
-            bubbleContent
-            timestampLabel
-        }
-    }
-
-    private var timestampLabel: some View {
-        Text(timestampText)
-            .font(AppFonts.timestamp)
-            .foregroundStyle(AppColors.textTimestamp)
-            .fixedSize()
-            .padding(.bottom, 2)
     }
 
     /// Tiny inline tick that lives at the bottom-right inside user bubbles
@@ -130,28 +87,13 @@ struct MessageBubble: View {
                 }
                 .font(AppFonts.body)
                 .foregroundStyle(AppColors.textTimestamp)
-                .textSelection(.disabled)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    showsTimestamp.toggle()
-                }
             } else if !message.text.isEmpty {
                 Text(attributedText)
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
-                    // macOS: keep text selectable (inherits the message list's
-                    // `.textSelection(.enabled)`) so you can drag-select + ⌘C.
-                    // iOS: there's no mouse selection, so a single tap toggles the
-                    // timestamp instead — and selectable Text would swallow that tap,
-                    // so the two are mutually exclusive and split by platform here.
-                    // Copy stays reachable on both via the context menu below.
-                    #if os(iOS)
-                    .textSelection(.disabled)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        showsTimestamp.toggle()
-                    }
-                    #endif
+                    // Text stays selectable (inherits the message list's
+                    // `.textSelection(.enabled)`): drag-select + ⌘C on macOS,
+                    // long-press on iOS. Copy is also in the context menu below.
                     .contextMenu {
                         Button("Copy") {
                             copyText(message.text)
