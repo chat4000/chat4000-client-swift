@@ -12,6 +12,8 @@ final class PushNotificationManager: NSObject {
     static let shared = PushNotificationManager()
     static let deviceTokenDidChangeNotification = Notification.Name("chat4000.PushDeviceTokenDidChange")
     static let founderChatPromptRequested = Notification.Name("chat4000.FounderChatPromptRequested")
+    private static let roomNotificationUserInfoKeys = ["room_id", "roomId", "matrix_room_id"]
+    private static let eventNotificationUserInfoKey = "event_id"
 
     private let tokenDefaultsKey = "chat4000.PushDeviceToken"
 
@@ -71,6 +73,45 @@ final class PushNotificationManager: NSObject {
         UNUserNotificationCenter.current().setBadgeCount(0) { error in
             if let error {
                 AppLog.log("🔔 [push] clearBadge failed: \(error.localizedDescription)")
+            }
+        }
+        #endif
+    }
+
+    func clearSessionNotifications(roomId: String) {
+        #if os(macOS)
+        _ = roomId
+        return
+        #else
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            let pending = await center.pendingNotificationRequests()
+            let deliveredIds = delivered
+                .filter { Self.notificationMatches(roomId: roomId, request: $0.request) }
+                .map(\.request.identifier)
+            let pendingIds = pending
+                .filter { Self.notificationMatches(roomId: roomId, request: $0) }
+                .map(\.identifier)
+
+            if !deliveredIds.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: deliveredIds)
+            }
+            if !pendingIds.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: pendingIds)
+            }
+
+            guard !deliveredIds.isEmpty || !pendingIds.isEmpty else { return }
+            AppLog.log(
+                "🔔 [push] cleared session notifications room=%@ delivered=%ld pending=%ld",
+                roomId,
+                deliveredIds.count,
+                pendingIds.count
+            )
+
+            let remaining = await center.deliveredNotifications()
+            if remaining.isEmpty {
+                clearBadge()
             }
         }
         #endif
@@ -170,18 +211,27 @@ final class PushNotificationManager: NSObject {
         return handled
     }
 
-    func presentLocalNotification(body: String) async {
+    func presentLocalNotification(body: String, roomId: String? = nil, eventId: String? = nil) async {
         #if os(macOS)
         _ = body
+        _ = roomId
+        _ = eventId
         return
         #else
         let content = UNMutableNotificationContent()
         content.title = "chat4000"
         content.body = body
         content.sound = .default
+        if let roomId {
+            content.threadIdentifier = roomId
+            content.userInfo[Self.roomNotificationUserInfoKeys[0]] = roomId
+        }
+        if let eventId {
+            content.userInfo[Self.eventNotificationUserInfoKey] = eventId
+        }
 
         let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
+            identifier: eventId ?? UUID().uuidString,
             content: content,
             trigger: nil
         )
@@ -205,6 +255,13 @@ final class PushNotificationManager: NSObject {
     private func isSilentPush(_ userInfo: [AnyHashable: Any]) -> Bool {
         guard let aps = userInfo["aps"] as? [String: Any] else { return false }
         return (aps["content-available"] as? Int) == 1
+    }
+
+    private static func notificationMatches(roomId: String, request: UNNotificationRequest) -> Bool {
+        for key in roomNotificationUserInfoKeys where (request.content.userInfo[key] as? String) == roomId {
+            return true
+        }
+        return request.content.threadIdentifier == roomId
     }
 }
 
@@ -292,6 +349,13 @@ extension PushNotificationManager {
             source,
             modalTitle ?? "<default>",
             modalBody ?? "<default>"
+        )
+        FounderChatPromptStore.shared.storePendingPrompt(
+            FounderChatPromptRequest(
+                source: source,
+                modalTitle: modalTitle,
+                modalBody: modalBody
+            )
         )
         var info: [AnyHashable: Any] = ["source": source]
         if let modalTitle { info["modal_title"] = modalTitle }

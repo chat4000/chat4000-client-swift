@@ -34,6 +34,9 @@ enum AppError: Error {
     /// Pairing / redeem failed in an expected, user-facing way.
     case pairing(String)
 
+    /// The gateway transport version gate rejected this app build.
+    case unsupportedClientVersion(minClientVersion: String?, maxClientVersion: String?)
+
     /// An operation was attempted while not connected / not ready.
     case notReady
 
@@ -72,6 +75,8 @@ extension AppError {
         case .storage(let m): "Storage error: \(m)"
         case .crypto(let m): "Encryption error: \(m)"
         case .pairing(let m): m
+        case .unsupportedClientVersion:
+            "This version of chat4000 is no longer supported by the gateway. Please update to continue."
         case .notReady: "Not connected."
         case .cancelled: "Cancelled."
         case .invalidConfiguration(let m): "Invalid configuration: \(m)"

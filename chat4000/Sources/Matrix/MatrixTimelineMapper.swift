@@ -58,13 +58,25 @@ struct MatrixTimelineMapper {
         return out
     }
 
-    /// Settle the active stream (called on the transport's quiet-period debounce).
-    mutating func finalizeActiveStream() -> Emit? {
-        guard let eid = activeStreamId else { return nil }
-        let emit = Emit.end(streamId: eid, body: bodyByEvent[eid] ?? "", senderId: activeStreamSenderId ?? eid)
+    /// Settle one explicit stream when the protocol's final edit arrives.
+    mutating func finalize(streamId: String, senderId: String) -> Emit? {
+        guard activeStreamId == streamId else { return nil }
+        let emit = Emit.end(
+            streamId: streamId,
+            body: bodyByEvent[streamId] ?? "",
+            senderId: activeStreamSenderId ?? senderId
+        )
         activeStreamId = nil
         activeStreamSenderId = nil
         return emit
+    }
+
+    static func shouldStream(live: Bool, isOwn: Bool, isEdit: Bool, pushFlag: Bool?) -> Bool {
+        live && !isOwn && (isEdit || pushFlag == false)
+    }
+
+    static func isFinalEdit(isEdit: Bool, pushFlag: Bool?) -> Bool {
+        isEdit && pushFlag == true
     }
 
     /// Drop all per-room state (on room switch or timeline clear).

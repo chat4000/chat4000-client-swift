@@ -31,7 +31,7 @@ enum ToolCallStatus: String, Codable {
 @Model
 final class ChatMessage {
     var id: UUID
-    /// Relay-protocol inner message id (per protocol §6.4.1 + §6.6.9). Used
+    /// Relay-protocol inner message id (per protocol 6.4.1 + 6.6.9). Used
     /// for idempotent insert (dedupe on relay redrive) and to correlate
     /// `relay_recv_ack` / inner `ack` frames back to local outbound rows.
     /// Nullable for backwards compatibility with rows persisted before the
@@ -77,7 +77,7 @@ final class ChatMessage {
     }
 
     /// Stable correlator across all `tool_start` / `tool_delta` / `tool_end`
-    /// frames for one tool invocation (per protocol §6.4.x).
+    /// frames for one tool invocation (per protocol 6.4.x).
     var toolId: String?
 
     /// Short tool identifier emitted by the Hermes agent (e.g. `"bash"`,

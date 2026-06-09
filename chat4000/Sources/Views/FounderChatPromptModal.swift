@@ -1,5 +1,11 @@
 import SwiftUI
 
+struct FounderChatPromptRequest: Codable, Equatable {
+    let source: String
+    let modalTitle: String?
+    let modalBody: String?
+}
+
 /// Modal shown after an APNS push tags this device as "looks stuck."
 ///
 /// Title + three actions: Chat now (opens Intercom), Remind me later
@@ -131,6 +137,7 @@ final class FounderChatPromptStore {
     static let shared = FounderChatPromptStore()
 
     private let snoozeUntilKey = "chat4000.FounderChatPrompt.snoozeUntil"
+    private let pendingPromptKey = "chat4000.FounderChatPrompt.pendingPrompt"
     private let snoozeWindow: TimeInterval = 60 * 60 * 24 // 24 hours
 
     private init() {}
@@ -150,5 +157,33 @@ final class FounderChatPromptStore {
         // No persistent suppression — a future targeted push can fire again.
         // We just clear any active snooze.
         UserDefaults.standard.removeObject(forKey: snoozeUntilKey)
+    }
+
+    func storePendingPrompt(_ request: FounderChatPromptRequest) {
+        do {
+            let data = try JSONEncoder().encode(request)
+            UserDefaults.standard.set(data, forKey: pendingPromptKey)
+            AppLog.log("🔔 [push] founder_chat_prompt stored pending source=%@", request.source)
+        } catch {
+            ErrorReporter.capture(error, context: "FounderChatPromptStore.storePendingPrompt")
+            AppLog.log("⚠️ [push] failed to store founder_chat_prompt pending request: \(error.localizedDescription)")
+        }
+    }
+
+    func consumePendingPrompt() -> FounderChatPromptRequest? {
+        guard let data = UserDefaults.standard.data(forKey: pendingPromptKey) else {
+            return nil
+        }
+
+        UserDefaults.standard.removeObject(forKey: pendingPromptKey)
+        do {
+            let request = try JSONDecoder().decode(FounderChatPromptRequest.self, from: data)
+            AppLog.log("🔔 [push] founder_chat_prompt consumed pending source=%@", request.source)
+            return request
+        } catch {
+            ErrorReporter.capture(error, context: "FounderChatPromptStore.consumePendingPrompt")
+            AppLog.log("⚠️ [push] failed to decode founder_chat_prompt pending request: \(error.localizedDescription)")
+            return nil
+        }
     }
 }

@@ -27,6 +27,7 @@
 		17CD4E0AA892F9F7CBB04CE8 /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		17FF7D222DEC65AB68EE2188 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
 		1A0D38BF09814FE22EB46221 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 67F38D3ABCD80A814D60B2EF /* PostHog */; };
+		1C39FF19A2CB13123832860A /* VersionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98FA24EA5A373862282F6C4 /* VersionPolicyTests.swift */; };
 		1D1A63B60A2A7AE3A473C17F /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		1E339EE4124888C06623B7EA /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
 		21AA69DB860A21EA7248D57C /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */; };
@@ -72,6 +73,7 @@
 		6344C9D91CC944DD0E689465 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
 		64B7784CA3FFDA09C46E9385 /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */; };
 		6BCE9DD3D1995A16B00DD592 /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292B92B50C5BCD4831BA1F5B /* AppError.swift */; };
+		6BE18F56C9A382EBDF0D5FA5 /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */; };
 		6D42E3F66D3E40C67839BDE2 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
 		733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180349B31809B66A001D8B94 /* DiagnosticReportService.swift */; };
 		73F5D0F1CB8EFB33173C2392 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */; };
@@ -104,6 +106,7 @@
 		8ACDD02C4B7F64F036A9424F /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */; };
 		8B1D8FECC36DB6B1378123F4 /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
 		8CDE8E96667952C25B60E089 /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C08DE1E100F336266630F49 /* VoiceNotes.swift */; };
+		8E54EB443783828799BEB98C /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */; };
 		8EAA0DB6BE568DE1EFD8D966 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF80C3D35458420BB02536E /* PushNotificationService.swift */; };
 		901B4441638C91545DFBF037 /* VersionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D22FFACA5DC05AF48ADCA48 /* VersionPolicy.swift */; };
 		951BDD41D642B4F282A7394A /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
@@ -161,6 +164,7 @@
 		D47B5B456C4F439AC588E559 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		D4FCBCFFBE18E3ABF9590132 /* MatrixPairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */; };
 		D6725C71873E18476DE50DFF /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
+		D68104E099A9D3E0D37A18D6 /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */; };
 		D6A76607F110C0A29B30C871 /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
 		D717C29B75D7CE6ABDBC042D /* IntercomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC864A0C51C9B9647423BC9F /* IntercomService.swift */; };
 		D71964EA9FCE6279922ED795 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
@@ -196,12 +200,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		34439ADC6C19DD7D619CA996 /* PBXContainerItemProxy */ = {
+		36D5504D9B625039E278C844 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8170F8DB11ABA22193CB59FB /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = F5A1478ECCF1B164155FCFB4;
-			remoteInfo = chat4000iphoneappstore;
+			remoteGlobalIDString = 0E98DC1C8258F3BA8ED9744C;
+			remoteInfo = chat4000iphonedev;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -220,6 +224,7 @@
 		1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryManager.swift; sourceTree = "<group>"; };
 		1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalConsent.swift; sourceTree = "<group>"; };
 		261757F4308024D0CDBD8824 /* ErrorReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporter.swift; sourceTree = "<group>"; };
+		2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixRoomSnapshot.swift; sourceTree = "<group>"; };
 		28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsSidebar.swift; sourceTree = "<group>"; };
 		292B92B50C5BCD4831BA1F5B /* AppError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppError.swift; sourceTree = "<group>"; };
 		2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkToTeamButton.swift; sourceTree = "<group>"; };
@@ -247,6 +252,7 @@
 		987E633C3AE8037A73BDD2D2 /* dev-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dev-config.json"; sourceTree = "<group>"; };
 		9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsEvent.swift; sourceTree = "<group>"; };
 		A816A1C283669BC3405C6770 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
+		A98FA24EA5A373862282F6C4 /* VersionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionPolicyTests.swift; sourceTree = "<group>"; };
 		ABF80C3D35458420BB02536E /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		AC864A0C51C9B9647423BC9F /* IntercomService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntercomService.swift; sourceTree = "<group>"; };
 		AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModel.swift; sourceTree = "<group>"; };
@@ -403,6 +409,7 @@
 				292B92B50C5BCD4831BA1F5B /* AppError.swift */,
 				A816A1C283669BC3405C6770 /* ChatMessage.swift */,
 				3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */,
+				2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -488,6 +495,7 @@
 				11EEBAD5675C62C828868186 /* MatrixTimelineMapperTests.swift */,
 				F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */,
 				CFD3EEA77A3CD28EFBB6D86F /* TwoCursorSyncTests.swift */,
+				A98FA24EA5A373862282F6C4 /* VersionPolicyTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -557,7 +565,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				D4BF7090BD2662D05D32247D /* PBXTargetDependency */,
+				71A55B04B3C5831EB38F65CE /* PBXTargetDependency */,
 			);
 			name = chat4000Tests;
 			packageProductDependencies = (
@@ -814,6 +822,7 @@
 				054C58A6D63C373929305ED8 /* MatrixEnvironment.swift in Sources */,
 				2D5517FB5C5CD2DBDC828765 /* MatrixMedia.swift in Sources */,
 				0364B3874AAF31DED6B7C459 /* MatrixPairing.swift in Sources */,
+				6BE18F56C9A382EBDF0D5FA5 /* MatrixRoomSnapshot.swift in Sources */,
 				B4D78C33F0CA8FAD151AF058 /* MatrixSession.swift in Sources */,
 				8672CE672FC11561BD680863 /* MatrixTimelineMapper.swift in Sources */,
 				F22B4670321D98EE3CD6DB28 /* MessageBubble.swift in Sources */,
@@ -872,6 +881,7 @@
 				0D4A36A4EFAB57F66E79AA38 /* MatrixEnvironment.swift in Sources */,
 				B7990F311B888D25FD53C977 /* MatrixMedia.swift in Sources */,
 				34A6CA1519481C40CC07DEAF /* MatrixPairing.swift in Sources */,
+				8E54EB443783828799BEB98C /* MatrixRoomSnapshot.swift in Sources */,
 				4FF28F296D92FD5D9FEEC01A /* MatrixSession.swift in Sources */,
 				552F1547A60FB14357F28FB4 /* MatrixTimelineMapper.swift in Sources */,
 				C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */,
@@ -930,6 +940,7 @@
 				A0B6CC2D7E1C240C87D6EF61 /* MatrixEnvironment.swift in Sources */,
 				75A06B6A6C891D12BD49669B /* MatrixMedia.swift in Sources */,
 				DA81A86F313D1C4ED4A16324 /* MatrixPairing.swift in Sources */,
+				D68104E099A9D3E0D37A18D6 /* MatrixRoomSnapshot.swift in Sources */,
 				21AA69DB860A21EA7248D57C /* MatrixSession.swift in Sources */,
 				BDB305F544DA4B3C01B8B3D3 /* MatrixTimelineMapper.swift in Sources */,
 				CBF9C19ECD484466C60C197E /* MessageBubble.swift in Sources */,
@@ -969,16 +980,17 @@
 				D885756211A7C2C6BA821541 /* MatrixTimelineMapperTests.swift in Sources */,
 				8122D2340D8232055D544F33 /* SyncModelTests.swift in Sources */,
 				3DF3D01BAA0374D35BBDE95C /* TwoCursorSyncTests.swift in Sources */,
+				1C39FF19A2CB13123832860A /* VersionPolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		D4BF7090BD2662D05D32247D /* PBXTargetDependency */ = {
+		71A55B04B3C5831EB38F65CE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F5A1478ECCF1B164155FCFB4 /* chat4000iphoneappstore */;
-			targetProxy = 34439ADC6C19DD7D619CA996 /* PBXContainerItemProxy */;
+			target = 0E98DC1C8258F3BA8ED9744C /* chat4000iphonedev */;
+			targetProxy = 36D5504D9B625039E278C844 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1042,7 +1054,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/chat4000iphoneappstore.app/chat4000iphoneappstore";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/chat4000iphonedev.app/chat4000iphonedev";
 			};
 			name = Debug;
 		};
@@ -1178,7 +1190,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/chat4000iphoneappstore.app/chat4000iphoneappstore";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/chat4000iphonedev.app/chat4000iphonedev";
 			};
 			name = Release;
 		};
@@ -1254,7 +1266,7 @@
 				APP_APNS_ENV = production;
 				APP_APPATTEST_ENV = production;
 				APP_DISPLAY_NAME = chat4000;
-				APP_DISTRIBUTION_CHANNEL = app_store;
+				APP_DISTRIBUTION_CHANNEL = appstore;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/chat4000.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";

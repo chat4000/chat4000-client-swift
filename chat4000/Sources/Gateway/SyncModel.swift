@@ -35,6 +35,10 @@ struct GatewaySync: Sendable {
     /// `extensions.receipts` — m.read / m.read.private markers, used to drive the
     /// "read" tick on our outbound messages.
     var receipts: [ReadReceipt]
+    /// `extensions.account_data` → `chat4000.session.prefs.pinned`, when present.
+    var pinnedRoomIds: [String]?
+    /// `extensions.account_data` → `m.push_rules.global.room[*]` muted rooms.
+    var mutedRoomIds: [String]?
 }
 
 /// One read marker: `userId` read up to `eventId` in `roomId`.
@@ -132,7 +136,9 @@ enum SyncModel {
             deviceLists: parseDeviceLists(extensions["e2ee"] as? [String: Any]),
             oneTimeKeyCounts: parseOTKCounts(extensions["e2ee"] as? [String: Any]),
             unusedFallbackKeyTypes: parseFallbackKeyTypes(extensions["e2ee"] as? [String: Any]),
-            receipts: parseReceipts(extensions["receipts"] as? [String: Any])
+            receipts: parseReceipts(extensions["receipts"] as? [String: Any]),
+            pinnedRoomIds: parsePinnedRoomIds(extensions["account_data"] as? [String: Any]),
+            mutedRoomIds: parseMutedRoomIds(extensions["account_data"] as? [String: Any])
         )
     }
 
@@ -265,6 +271,80 @@ enum SyncModel {
             }
         }
         return out
+    }
+
+    /// Global account data shape varies across simplified sliding-sync versions.
+    /// Accept the common `events` and `global.events` forms, then lift just the
+    /// chat4000 session prefs event.
+    private static func parsePinnedRoomIds(_ accountData: [String: Any]?) -> [String]? {
+        guard let accountData else { return nil }
+        for event in accountDataEvents(accountData) {
+            guard event["type"] as? String == "chat4000.session.prefs",
+                  let content = event["content"] as? [String: Any],
+                  let pinned = content["pinned"] as? [String] else {
+                continue
+            }
+            return sanitizedPinnedRoomIds(pinned)
+        }
+        return nil
+    }
+
+    private static func parseMutedRoomIds(_ accountData: [String: Any]?) -> [String]? {
+        guard let accountData else { return nil }
+        for event in accountDataEvents(accountData) {
+            guard event["type"] as? String == "m.push_rules",
+                  let content = event["content"] as? [String: Any],
+                  let global = content["global"] as? [String: Any],
+                  let roomRules = global["room"] as? [[String: Any]] else {
+                continue
+            }
+            let muted = roomRules.compactMap { rule -> String? in
+                guard (rule["enabled"] as? Bool) != false,
+                      let roomId = rule["rule_id"] as? String,
+                      isDontNotify(rule["actions"]) else {
+                    return nil
+                }
+                return roomId
+            }
+            return sanitizedRoomIds(muted)
+        }
+        return nil
+    }
+
+    private static func accountDataEvents(_ accountData: [String: Any]) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        if let events = accountData["events"] as? [[String: Any]] {
+            out.append(contentsOf: events)
+        }
+        if let globalEvents = accountData["global"] as? [[String: Any]] {
+            out.append(contentsOf: globalEvents)
+        }
+        if let global = accountData["global"] as? [String: Any],
+           let events = global["events"] as? [[String: Any]] {
+            out.append(contentsOf: events)
+        }
+        return out
+    }
+
+    private static func sanitizedPinnedRoomIds(_ ids: [String]) -> [String] {
+        sanitizedRoomIds(ids)
+    }
+
+    private static func sanitizedRoomIds(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        for id in ids where !id.isEmpty && id.count <= 255 && seen.insert(id).inserted {
+            out.append(id)
+        }
+        return out
+    }
+
+    private static func isDontNotify(_ actions: Any?) -> Bool {
+        guard let actions = actions as? [Any] else { return false }
+        return actions.contains { action in
+            if let action = action as? String { return action == "dont_notify" }
+            return false
+        }
     }
 
     // MARK: - Small helpers

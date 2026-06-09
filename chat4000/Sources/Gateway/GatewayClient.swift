@@ -18,10 +18,16 @@ final class GatewayClient: GatewayRequesting {
 
     struct AuthResult { let userId: String; let deviceId: String }
 
+    struct VersionWindow: Equatable {
+        let minClientVersion: String?
+        let maxClientVersion: String?
+    }
+
     enum GatewayError: LocalizedError {
         case badURL
         case notConnected
         case authError(String)
+        case unsupportedClientVersion(VersionWindow)
         case socketClosed
         case requestFailed(String)
 
@@ -30,6 +36,7 @@ final class GatewayClient: GatewayRequesting {
             case .badURL: "Invalid gateway URL"
             case .notConnected: "Gateway not connected"
             case .authError(let r): "Gateway auth failed: \(r)"
+            case .unsupportedClientVersion: "Gateway auth failed: unsupported client version"
             case .socketClosed: "Gateway socket closed"
             case .requestFailed(let r): "Gateway request failed: \(r)"
             }
@@ -44,6 +51,11 @@ final class GatewayClient: GatewayRequesting {
             case .badURL: .invalidConfiguration("gateway URL")
             case .notConnected, .socketClosed: .notReady
             case .authError(let r): .pairing(r)
+            case .unsupportedClientVersion(let window):
+                .unsupportedClientVersion(
+                    minClientVersion: window.minClientVersion,
+                    maxClientVersion: window.maxClientVersion
+                )
             case .requestFailed(let r): .network(r)
             }
         }
@@ -317,7 +329,11 @@ final class GatewayClient: GatewayRequesting {
         case "auth_error":
             let reason = obj["reason"] as? String ?? "unknown"
             AppLog.debug("🛰️← auth_error reason=%@", reason)
-            authContinuation?.resume(throwing: GatewayError.authError(reason))
+            if let window = Self.unsupportedVersionWindow(from: obj) {
+                authContinuation?.resume(throwing: GatewayError.unsupportedClientVersion(window))
+            } else {
+                authContinuation?.resume(throwing: GatewayError.authError(reason))
+            }
             authContinuation = nil
         case "reauth":
             AppLog.debug("🛰️← reauth requested")
@@ -351,6 +367,14 @@ final class GatewayClient: GatewayRequesting {
         default:
             AppLog.debug("🛰️← UNHANDLED frame t=%@", type)
         }
+    }
+
+    nonisolated static func unsupportedVersionWindow(from frame: [String: Any]) -> VersionWindow? {
+        guard frame["reason"] as? String == "unsupported_client_version" else { return nil }
+        return VersionWindow(
+            minClientVersion: frame["min_client_version"] as? String,
+            maxClientVersion: frame["max_client_version"] as? String
+        )
     }
 
     private func handleSocketError(_ error: Error) {

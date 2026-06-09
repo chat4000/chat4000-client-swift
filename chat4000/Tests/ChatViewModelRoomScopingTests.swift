@@ -27,12 +27,52 @@ struct ChatViewModelRoomScopingTests {
         try ctx.save()
 
         vm.switchRoom(id: "!A")
-        #expect(vm.messages.count == 2)
-        #expect(vm.messages.allSatisfy { $0.roomId == "!A" })
+        let roomA = try #require(vm.frontRoom)
+        #expect(roomA.roomId == "!A")
+        #expect(roomA.messages.count == 2)
+        #expect(roomA.messages.allSatisfy { $0.roomId == "!A" })
 
         vm.switchRoom(id: "!B")
-        #expect(vm.messages.count == 1)
-        #expect(vm.messages.first?.roomId == "!B")
+        let roomB = try #require(vm.frontRoom)
+        #expect(roomB.roomId == "!B")
+        #expect(roomB.messages.count == 1)
+        #expect(roomB.messages.first?.roomId == "!B")
+    }
+
+    @Test
+    func selectingAlreadyActiveSessionReconcilesVisibleRoom() throws {
+        let ctx = try makeContext()
+        let vm = ChatViewModel()
+        vm.attach(modelContext: ctx)
+
+        ctx.insert(ChatMessage(text: "saved", sender: .agent, roomId: "!A"))
+        try ctx.save()
+
+        vm.switchRoom(id: "!A")
+        vm.clearActiveRoom()
+        vm.switchRoom(id: "!A")
+
+        let room = try #require(vm.frontRoom)
+        #expect(room.roomId == "!A")
+        #expect(room.messages.map(\.text) == ["saved"])
+    }
+
+    @Test
+    func syncActiveRoomFromSessionReconcilesVisibleRoom() throws {
+        let ctx = try makeContext()
+        let vm = ChatViewModel()
+        vm.attach(modelContext: ctx)
+
+        ctx.insert(ChatMessage(text: "restored", sender: .agent, roomId: "!A"))
+        try ctx.save()
+
+        vm.matrixSession.selectRoom("!A")
+        vm.clearActiveRoom()
+        vm.syncActiveRoomFromSession()
+
+        let room = try #require(vm.frontRoom)
+        #expect(room.roomId == "!A")
+        #expect(room.messages.map(\.text) == ["restored"])
     }
 
     /// Worth 8 — an unstamped (nil-room) message vanishes under the scoped
@@ -46,9 +86,196 @@ struct ChatViewModelRoomScopingTests {
 
         vm.send(text: "hello")
 
-        let sent = try #require(vm.messages.last)
+        let sent = try #require(vm.frontRoom?.messages.last)
         #expect(sent.roomId == "!A")
         #expect(sent.sender == .user)
         #expect(sent.text == "hello")
+    }
+
+    @Test
+    func redeliveredStreamEventDoesNotDuplicatePersistedRow() throws {
+        let ctx = try makeContext()
+        let session = MatrixSession()
+        let first = RoomViewModel(roomId: "!A", session: session)
+        first.attach(modelContext: ctx)
+
+        first.ingest(Self.textEvent(
+            eventId: "$root",
+            body: "Hi",
+            push: false
+        ), live: true)
+        first.ingest(Self.editEvent(
+            eventId: "$edit",
+            rootEventId: "$root",
+            body: "Hi! How can I help?",
+            push: true
+        ), live: true)
+        #expect(first.messages.map(\.msgId) == ["$root"])
+        #expect(first.messages.first?.text == "Hi! How can I help?")
+
+        let second = RoomViewModel(roomId: "!A", session: session)
+        second.attach(modelContext: ctx)
+        second.ingest(Self.textEvent(
+            eventId: "$root",
+            body: "Hi",
+            push: false
+        ), live: true)
+
+        #expect(second.messages.map(\.msgId) == ["$root"])
+    }
+
+    @Test
+    func loadHistoryDeduplicatesStoredMsgIds() throws {
+        let ctx = try makeContext()
+        ctx.insert(ChatMessage(msgId: "$dup", text: "one", sender: .agent, roomId: "!A"))
+        ctx.insert(ChatMessage(msgId: "$dup", text: "two", sender: .agent, roomId: "!A"))
+        try ctx.save()
+
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        #expect(room.messages.map(\.msgId) == ["$dup"])
+
+        let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == "!A" && $0.msgId == "$dup" }
+        )
+        #expect((try? ctx.fetch(descriptor).count) == 1)
+    }
+
+    @Test
+    func sameMsgIdAllowedAcrossRoomsButBlockedWithinRoom() throws {
+        let ctx = try makeContext()
+        let session = MatrixSession()
+        let roomA = RoomViewModel(roomId: "!A", session: session)
+        let roomB = RoomViewModel(roomId: "!B", session: session)
+        roomA.attach(modelContext: ctx)
+        roomB.attach(modelContext: ctx)
+
+        roomA.ingest(Self.textEvent(eventId: "$same", body: "A", push: true), live: true)
+        roomB.ingest(Self.textEvent(eventId: "$same", body: "B", push: true), live: true)
+        roomA.ingest(Self.textEvent(eventId: "$same", body: "A duplicate", push: true), live: true)
+
+        #expect(roomA.messages.map(\.text) == ["A"])
+        #expect(roomB.messages.map(\.text) == ["B"])
+
+        let roomADescriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == "!A" && $0.msgId == "$same" }
+        )
+        let roomBDescriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == "!B" && $0.msgId == "$same" }
+        )
+        #expect((try? ctx.fetch(roomADescriptor).count) == 1)
+        #expect((try? ctx.fetch(roomBDescriptor).count) == 1)
+    }
+
+    @Test
+    func toolTranscriptTextIsDroppedButToolChipStays() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        room.ingest(Self.textEvent(
+            eventId: "$transcript",
+            body: """
+            📚 skill_view: quick-news-briefings
+            🌐 browser_navigate: https://www.ynet.co.il
+            🖥️ browser_console...
+            """,
+            push: false
+        ), live: true)
+        room.ingest(Self.toolEvent(
+            eventId: "$tool",
+            toolId: "tool-1",
+            name: "skill_view",
+            icon: "📚"
+        ), live: true)
+
+        #expect(room.messages.count == 1)
+        #expect(room.messages.first?.kind == .toolCall)
+        #expect(room.messages.first?.toolName == "skill_view")
+    }
+
+    @Test
+    func loadHistoryDeletesStoredToolTranscriptText() throws {
+        let ctx = try makeContext()
+        ctx.insert(ChatMessage(
+            msgId: "$bad",
+            text: """
+            📚 skill_view: quick-news-briefings
+            🌐 browser_navigate: https://www.ynet.co.il
+            """,
+            sender: .agent,
+            roomId: "!A"
+        ))
+        ctx.insert(ChatMessage(msgId: "$good", text: "Ynet top headlines:", sender: .agent, roomId: "!A"))
+        try ctx.save()
+
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        #expect(room.messages.map(\.msgId) == ["$good"])
+        let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == "!A" && $0.msgId == "$bad" }
+        )
+        #expect((try? ctx.fetch(descriptor).count) == 0)
+    }
+
+    private static func textEvent(eventId: String, body: String, push: Bool) -> DecryptedRoomEvent {
+        DecryptedRoomEvent(
+            outer: SyncEvent(
+                type: "m.room.encrypted",
+                eventId: eventId,
+                sender: "@plugin:x",
+                stateKey: nil,
+                originServerTs: 1,
+                rawJSON: #"{"content":{"chat4000.push":\#(push)}}"#
+            ),
+            clear: #"{"type":"m.room.message","content":{"msgtype":"m.text","body":\#(jsonStringLiteral(body))}}"#,
+            isOwn: false
+        )
+    }
+
+    private static func toolEvent(eventId: String, toolId: String, name: String, icon: String) -> DecryptedRoomEvent {
+        DecryptedRoomEvent(
+            outer: SyncEvent(
+                type: "m.room.encrypted",
+                eventId: eventId,
+                sender: "@plugin:x",
+                stateKey: nil,
+                originServerTs: 1,
+                rawJSON: #"{"content":{"chat4000.push":false}}"#
+            ),
+            clear: """
+            {"type":"m.room.message","content":{"msgtype":"chat4000.tool","chat4000.tool":{"tool_id":\(jsonStringLiteral(toolId)),"name":\(jsonStringLiteral(name)),"icon":\(jsonStringLiteral(icon))}}}
+            """,
+            isOwn: false
+        )
+    }
+
+    private static func jsonStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let literal = String(data: data, encoding: .utf8) else {
+            return #""""#
+        }
+        return literal
+    }
+
+    private static func editEvent(eventId: String, rootEventId: String, body: String, push: Bool) -> DecryptedRoomEvent {
+        DecryptedRoomEvent(
+            outer: SyncEvent(
+                type: "m.room.encrypted",
+                eventId: eventId,
+                sender: "@plugin:x",
+                stateKey: nil,
+                originServerTs: 2,
+                rawJSON: """
+                {"content":{"chat4000.push":\(push),"m.relates_to":{"rel_type":"m.replace","event_id":"\(rootEventId)"}}}
+                """
+            ),
+            clear: """
+            {"type":"m.room.message","content":{"msgtype":"m.text","body":"* \(body)","m.new_content":{"msgtype":"m.text","body":"\(body)"}}}
+            """,
+            isOwn: false
+        )
     }
 }

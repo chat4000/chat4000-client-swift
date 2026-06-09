@@ -29,22 +29,20 @@ struct ChatShell: View {
         content
             .onAppear {
                 if shouldConnect { viewModel.setupMatrix(modelContext: modelContext) }
+                viewModel.syncActiveRoomFromSession()
             }
             .onChange(of: shouldConnect) { _, newValue in
                 guard newValue else { return }
                 viewModel.setupMatrix(modelContext: modelContext)
+                viewModel.syncActiveRoomFromSession()
             }
             // The session auto-selects the most-recent room, and the sidebar
             // selects others; both flow through here into the view model.
-            .onChange(of: viewModel.matrixSession.activeRoomId) { _, newId in
+            .onChange(of: viewModel.matrixSession.activeRoomId) { _, _ in
                 // G1: when the session resets (e.g. a new pairing) the active room
                 // goes nil — clear the visible room + messages so we don't keep
                 // showing the OLD room's persisted messages with no session.
-                if let newId {
-                    viewModel.switchRoom(id: newId)
-                } else {
-                    viewModel.clearActiveRoom()
-                }
+                viewModel.syncActiveRoomFromSession()
             }
             .alert(
                 "Couldn't reach your plugin",
@@ -246,6 +244,14 @@ struct SessionsSidebar: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
+                if room.unreadCount > 0 {
+                    unreadBadge(room.unreadCount)
+                }
+                roomStatusIcons(room)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColors.textSecondary)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -259,12 +265,66 @@ struct SessionsSidebar: View {
                 renameText = room.name
                 renameTarget = room
             } label: { Label("Rename", systemImage: "pencil") }
-            Button { session.muteRoom(room.id) } label: { Label("Mute", systemImage: "bell.slash") }
-            Button { session.unmuteRoom(room.id) } label: { Label("Unmute", systemImage: "bell") }
+            if room.isPinned {
+                Button {
+                    session.unpinSession(roomId: room.id)
+                } label: { Label("Unpin", systemImage: "pin.slash") }
+            } else {
+                Button {
+                    session.pinSession(roomId: room.id)
+                } label: { Label("Pin", systemImage: "pin") }
+            }
+            if room.isMuted {
+                Button {
+                    session.unmuteRoom(room.id)
+                } label: { Label("Unmute", systemImage: "bell") }
+            } else {
+                Button {
+                    session.muteRoom(room.id)
+                } label: { Label("Mute", systemImage: "bell.slash") }
+            }
             Button(role: .destructive) {
-                session.archiveSession(roomId: room.id)
-            } label: { Label("Archive", systemImage: "archivebox") }
+                session.deleteSession(roomId: room.id)
+            } label: { Label("Delete", systemImage: "trash") }
         }
+    }
+
+    private func unreadBadge(_ count: Int) -> some View {
+        Text(unreadBadgeText(count))
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(AppColors.background)
+            .frame(minWidth: 20, minHeight: 18)
+            .padding(.horizontal, count > 9 ? 3 : 0)
+            .background(AppColors.connected)
+            .clipShape(Capsule())
+            .accessibilityLabel("\(count) unread messages")
+    }
+
+    private func unreadBadgeText(_ count: Int) -> String {
+        count > 99 ? "99+" : "\(max(0, count))"
+    }
+
+    @ViewBuilder
+    private func roomStatusIcons(_ room: MatrixSession.RoomSummary) -> some View {
+        if room.isPinned || room.isMuted {
+            HStack(spacing: 4) {
+                if room.isPinned {
+                    statusIcon(systemName: "pin.fill", accessibilityLabel: "Pinned")
+                }
+                if room.isMuted {
+                    statusIcon(systemName: "bell.slash.fill", accessibilityLabel: "Muted")
+                }
+            }
+        }
+    }
+
+    private func statusIcon(systemName: String, accessibilityLabel: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(AppColors.textSecondary)
+            .frame(width: 14, height: 14)
+            .accessibilityLabel(accessibilityLabel)
     }
 
     /// Best-effort label. TODO(v2): resolve real room display names.

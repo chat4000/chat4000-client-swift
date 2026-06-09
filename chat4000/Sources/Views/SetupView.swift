@@ -29,7 +29,7 @@ struct EnterPairingCodeView: View {
     var errorMessage: String?
     var onSubmit: (String) -> Void
 
-    /// v2 pairing codes are exactly 6 digits (OTP-style, protocol §3).
+    /// v2 pairing codes are exactly 6 digits (OTP-style, protocol section 3).
     private static let codeLength = 6
     /// Attribution ref appended to the in-app → website install link so the site
     /// can match an app-originated install visit (see the "Fresh Plugin Install"

@@ -127,17 +127,11 @@ targets:
           APP_APNS_ENV: development
           APP_APPATTEST_ENV: development
         Release:
-          APP_DISTRIBUTION_CHANNEL: app_store
+          APP_DISTRIBUTION_CHANNEL: appstore
           APP_APNS_ENV: production
           APP_APPATTEST_ENV: production
     scheme:
-      # Wire the unit-test bundle into this app's scheme so `xcodebuild test`
-      # actually runs it (previously no scheme had a test action, so the suite
-      # silently executed 0 tests).
-      testTargets:
-        - chat4000Tests
       gatherCoverageData: false
-
   chat4000iphonedev:
     templates: [iOSApp]
     settings:
@@ -147,6 +141,12 @@ targets:
         APP_DISTRIBUTION_CHANNEL: dev
         APP_APNS_ENV: development
         APP_APPATTEST_ENV: development
+    scheme:
+      # Wire the unit-test bundle into the dev scheme so local verification does
+      # not build or host against the App Store app target.
+      testTargets:
+        - chat4000Tests
+      gatherCoverageData: false
 
   chat4000mac:
     type: application
@@ -203,5 +203,5 @@ targets:
         # the suite build.
         SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"
     dependencies:
-      - target: chat4000iphoneappstore
+      - target: chat4000iphonedev
       - package: MatrixSDKCrypto

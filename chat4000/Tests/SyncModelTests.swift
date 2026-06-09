@@ -130,6 +130,93 @@ struct SyncModelTests {
         #expect(r.eventId == "$evt1")
     }
 
+    /// Worth 7 — this per-user server count drives the sidebar unread badge.
+    @Test
+    func parsesNotificationCount() throws {
+        let frame: [String: Any] = [
+            "rooms": [
+                "!r:x": [
+                    "notification_count": 12,
+                    "required_state": [],
+                    "timeline": [],
+                ],
+            ],
+        ]
+        let room = try #require(SyncModel.parse(frame).rooms.first)
+        #expect(room.notificationCount == 12)
+    }
+
+    @Test
+    func parsesPinnedSessionPrefsFromAccountData() {
+        let frame: [String: Any] = [
+            "rooms": [:],
+            "extensions": [
+                "account_data": [
+                    "global": [
+                        "events": [
+                            [
+                                "type": "chat4000.session.prefs",
+                                "content": ["pinned": ["!b:x", "!a:x", "!b:x", ""]],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        #expect(SyncModel.parse(frame).pinnedRoomIds == ["!b:x", "!a:x"])
+    }
+
+    @Test
+    func parsesMutedRoomsFromPushRules() {
+        let frame: [String: Any] = [
+            "rooms": [:],
+            "extensions": [
+                "account_data": [
+                    "global": [
+                        "events": [
+                            [
+                                "type": "m.push_rules",
+                                "content": [
+                                    "global": [
+                                        "room": [
+                                            [
+                                                "rule_id": "!muted:x",
+                                                "enabled": true,
+                                                "actions": ["dont_notify"],
+                                            ],
+                                            [
+                                                "rule_id": "!disabled:x",
+                                                "enabled": false,
+                                                "actions": ["dont_notify"],
+                                            ],
+                                            [
+                                                "rule_id": "!loud:x",
+                                                "actions": ["notify"],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        #expect(SyncModel.parse(frame).mutedRoomIds == ["!muted:x"])
+    }
+
+    @Test
+    func sortsPinnedRoomsFirstInPinnedOrder() {
+        let rooms = [
+            MatrixSession.RoomSummary(id: "!a:x", name: "A"),
+            MatrixSession.RoomSummary(id: "!b:x", name: "B", isPinned: true),
+            MatrixSession.RoomSummary(id: "!c:x", name: "C", isPinned: true),
+            MatrixSession.RoomSummary(id: "!d:x", name: "D"),
+        ]
+        let sorted = MatrixSession.sortedRooms(rooms, pinnedRoomIds: ["!c:x", "!b:x"])
+        #expect(sorted.map(\.id) == ["!c:x", "!b:x", "!a:x", "!d:x"])
+    }
+
     /// Worth 6 — a malformed/empty frame must degrade to empty, never crash.
     @Test
     func toleratesEmptyAndGarbageFrames() {

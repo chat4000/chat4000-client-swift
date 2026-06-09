@@ -48,12 +48,7 @@ final class VersionPolicyManager {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "app_id": Bundle.main.bundleIdentifier ?? "",
-            "client_version": AppRegistrationIdentity.currentAppVersion,
-            "release_channel": Self.releaseChannel,
-            "platform": Self.platform
-        ])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: Self.requestBody())
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
@@ -72,6 +67,16 @@ final class VersionPolicyManager {
 
     func dismissNag() { nagDismissed = true }
 
+    func requireUpgradeFromGateway(minClientVersion: String?, maxClientVersion: String?) {
+        let message = "This version of chat4000 is no longer supported by the gateway. Please update to continue."
+        action = .forceUpgrade(minVersion: minClientVersion, recommended: nil, message: message)
+        AppLog.log(
+            "⬆️ gateway version gate min=%@ max=%@",
+            minClientVersion ?? "nil",
+            maxClientVersion ?? "nil"
+        )
+    }
+
     static var releaseChannel: String {
         #if targetEnvironment(simulator)
         return "dev"
@@ -86,6 +91,28 @@ final class VersionPolicyManager {
         #else
         "ios"
         #endif
+    }
+
+    static func requestBody(postHogDistinctId: String? = TelemetryManager.shared.postHogDistinctId) -> [String: Any] {
+        var body: [String: Any] = [
+            "app_id": Bundle.main.bundleIdentifier ?? "",
+            "client_version": AppRegistrationIdentity.currentAppVersion,
+            "release_channel": Self.releaseChannel,
+            "platform": Self.platform
+        ]
+        if let postHogId = protocolPostHogId(postHogDistinctId) {
+            body["posthog_id"] = postHogId
+        }
+        return body
+    }
+
+    static func protocolPostHogId(_ raw: String?) -> String? {
+        guard let id = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !id.isEmpty,
+              id.count <= 64 else {
+            return nil
+        }
+        return id
     }
 }
 

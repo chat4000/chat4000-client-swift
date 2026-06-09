@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwiftData
 @testable import chat4000
 
 /// Protocol D.1 two-cursor sliding sync (crash-safe to-device key delivery).
@@ -97,15 +98,74 @@ struct TwoCursorSyncTests {
         #expect(frame["to_device_pos"] as? String == "T6")
     }
 
-    @Test func syncStartResumesToDeviceCursorEvenOnColdFullRoomSync() {
-        // Cold launch: the ROOM cursor is omitted (pos == nil) to force a full room
-        // snapshot, but the to-device cursor is INDEPENDENT — its keys survive in
-        // the crypto store — so it is still resumed. Conflating the two (dropping
-        // to_device_pos on cold launch) would re-deliver/redrop keys; keeping it
-        // separate is the whole point.
+    @Test func roomCursorResumesWhenRoomSnapshotExists() {
+        #expect(MatrixSession.roomCursorForStart(savedPos: "R6", restoredRoomCount: 3) == "R6")
+    }
+
+    @Test func roomCursorOmitsWithoutRoomSnapshot() {
+        #expect(MatrixSession.roomCursorForStart(savedPos: "R6", restoredRoomCount: 0) == nil)
+        #expect(MatrixSession.roomCursorForStart(savedPos: nil, restoredRoomCount: 3) == nil)
+    }
+
+    @Test func syncStartResumesToDeviceCursorEvenWhenRoomCursorIsOmitted() {
+        // No room snapshot yet: omit the ROOM cursor once to recover room metadata,
+        // but still resume the independent to-device cursor from durable storage.
         let frame = GatewayClient.syncStartFrame(body: ["lists": [:]], pos: nil, toDevicePos: "T6")
         #expect(frame["pos"] == nil)
         #expect(frame["to_device_pos"] as? String == "T6")
+    }
+
+    @Test func roomSnapshotCodecPreservesResumeSeed() throws {
+        let snapshot = MatrixSession.StoredRoomSnapshot(
+            roomOrder: ["!space:x", "!control:x", "!session:x"],
+            roomMembers: [
+                "!control:x": ["@me:x", "@plugin:x"],
+                "!session:x": ["@me:x", "@plugin:x"]
+            ],
+            roomNames: ["!session:x": "Support"],
+            spaceRooms: ["!space:x"],
+            encryptedRooms: ["!control:x", "!session:x"],
+            roomKinds: ["!control:x": "control", "!session:x": "session"],
+            pinnedRoomIds: ["!session:x"],
+            mutedRoomIds: ["!session:x"],
+            activeRoomId: "!session:x"
+        )
+        let data = try #require(MatrixSession.encodeRoomSnapshot(snapshot))
+        #expect(MatrixSession.decodeRoomSnapshot(data) == snapshot)
+    }
+
+    @MainActor
+    @Test func roomSnapshotRecordStoresEncodedResumeSeed() throws {
+        let container = try ModelContainer(
+            for: MatrixRoomSnapshot.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+        let snapshot = MatrixSession.StoredRoomSnapshot(
+            roomOrder: ["!control:x", "!session:x"],
+            roomMembers: ["!session:x": ["@me:x", "@plugin:x"]],
+            roomNames: ["!session:x": "Support"],
+            spaceRooms: [],
+            encryptedRooms: ["!session:x"],
+            roomKinds: ["!control:x": "control", "!session:x": "session"],
+            pinnedRoomIds: ["!session:x"],
+            mutedRoomIds: [],
+            activeRoomId: "!session:x"
+        )
+        let data = try #require(MatrixSession.encodeRoomSnapshot(snapshot))
+        context.insert(MatrixRoomSnapshot(
+            userId: "@me:x",
+            schemaVersion: snapshot.schemaVersion,
+            snapshotData: data
+        ))
+        try context.save()
+
+        var descriptor = FetchDescriptor<MatrixRoomSnapshot>(
+            predicate: #Predicate { $0.userId == "@me:x" }
+        )
+        descriptor.fetchLimit = 1
+        let record = try #require(try context.fetch(descriptor).first)
+        #expect(MatrixSession.decodeRoomSnapshot(record.snapshotData) == snapshot)
     }
 
     @Test func syncStartOmitsBothOnGenuinelyFreshSync() {
@@ -115,5 +175,17 @@ struct TwoCursorSyncTests {
         #expect(frame["pos"] == nil)
         #expect(frame["to_device_pos"] == nil)
         #expect(frame["t"] as? String == "sync_start")
+    }
+
+    @Test func authErrorExtractsUnsupportedVersionWindow() throws {
+        let frame: [String: Any] = [
+            "t": "auth_error",
+            "reason": "unsupported_client_version",
+            "min_client_version": "1.2.0",
+            "max_client_version": NSNull(),
+        ]
+        let window = try #require(GatewayClient.unsupportedVersionWindow(from: frame))
+        #expect(window.minClientVersion == "1.2.0")
+        #expect(window.maxClientVersion == nil)
     }
 }

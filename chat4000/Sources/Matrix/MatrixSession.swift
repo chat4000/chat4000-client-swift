@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -65,6 +66,47 @@ final class MatrixSession {
     struct RoomSummary: Identifiable, Equatable {
         let id: String
         var name: String
+        var unreadCount: Int = 0
+        var isPinned: Bool = false
+        var isMuted: Bool = false
+    }
+
+    struct StoredRoomSnapshot: Codable, Equatable {
+        static let currentSchemaVersion = 1
+
+        var schemaVersion: Int
+        var roomOrder: [String]
+        var roomMembers: [String: [String]]
+        var roomNames: [String: String]
+        var spaceRooms: [String]
+        var encryptedRooms: [String]
+        var roomKinds: [String: String]
+        var pinnedRoomIds: [String]
+        var mutedRoomIds: [String]
+        var activeRoomId: String?
+
+        init(
+            roomOrder: [String],
+            roomMembers: [String: [String]],
+            roomNames: [String: String],
+            spaceRooms: [String],
+            encryptedRooms: [String],
+            roomKinds: [String: String],
+            pinnedRoomIds: [String],
+            mutedRoomIds: [String],
+            activeRoomId: String?
+        ) {
+            self.schemaVersion = Self.currentSchemaVersion
+            self.roomOrder = roomOrder
+            self.roomMembers = roomMembers
+            self.roomNames = roomNames
+            self.spaceRooms = spaceRooms
+            self.encryptedRooms = encryptedRooms
+            self.roomKinds = roomKinds
+            self.pinnedRoomIds = pinnedRoomIds
+            self.mutedRoomIds = mutedRoomIds
+            self.activeRoomId = activeRoomId
+        }
     }
 
     /// All joined session rooms, in first-seen order. Drives the sidebar.
@@ -87,6 +129,7 @@ final class MatrixSession {
     @ObservationIgnored var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
     /// A peer (the plugin) read up to `eventId` → drives the "read" tick.
     @ObservationIgnored var onReadReceipt: ((_ eventId: String) -> Void)?
+    @ObservationIgnored var onRoomDeleted: ((_ roomId: String) -> Void)?
 
     // MARK: - Internals
 
@@ -96,6 +139,7 @@ final class MatrixSession {
     /// HTTP base for authenticated media (protocol D.3), derived from the
     /// gateway URL on connect.
     @ObservationIgnored private var mediaBaseURL: String?
+    @ObservationIgnored private var modelContext: ModelContext?
 
     @ObservationIgnored private var roomOrder: [String] = []
     @ObservationIgnored private var roomMembers: [String: [String]] = [:]
@@ -114,6 +158,10 @@ final class MatrixSession {
     @ObservationIgnored private var trackedUsers: Set<String> = []
     @ObservationIgnored private var seenEventIds: Set<String> = []
     @ObservationIgnored private var roomKinds: [String: String] = [:]
+    @ObservationIgnored private var roomUnreadCounts: [String: Int] = [:]
+    @ObservationIgnored private var pinnedRoomIds: [String] = []
+    @ObservationIgnored private var mutedRoomIds: Set<String> = []
+    @ObservationIgnored private var pendingDeleteRoomIds: [String] = []
 
     @ObservationIgnored private var pendingAutoOpen = false
     @ObservationIgnored private var autoOpenRoomId: String?
@@ -139,6 +187,10 @@ final class MatrixSession {
                 await self.registerPushToken(token)
             }
         }
+    }
+
+    func attach(modelContext: ModelContext) {
+        self.modelContext = modelContext
     }
 
     /// True if paired credentials are persisted (drives launch routing).
@@ -178,6 +230,7 @@ final class MatrixSession {
             // Expected, user-facing pairing failures (bad/expired code, etc.) and
             // any classified boundary failure. Reporting (if warranted) already
             // happened at the boundary that produced the AppError.
+            applyGatewayVersionGateIfNeeded(error)
             connectionState = .failed(error.message)
             AppLog.log("❌ Matrix pairing failed: \(error)")
         }
@@ -197,6 +250,7 @@ final class MatrixSession {
             AppLog.log("⚙️ Matrix connect cancelled")
         } catch {
             // Already classified (and, if unexpected, reported) at the boundary.
+            applyGatewayVersionGateIfNeeded(error)
             connectionState = .failed(error.message)
             AppLog.log("❌ Matrix connect failed: \(error)")
         }
@@ -218,6 +272,7 @@ final class MatrixSession {
         if let uid {
             UserDefaults.standard.removeObject(forKey: Self.syncPosKey(uid))
             UserDefaults.standard.removeObject(forKey: Self.toDevicePosKey(uid))
+            removeRoomSnapshot(userId: uid)
         }
         lastToDevicePos = nil
         userId = nil
@@ -232,6 +287,9 @@ final class MatrixSession {
     }
 
     private func resetSessionState() {
+        if let userId {
+            removeRoomSnapshot(userId: userId)
+        }
         roomOrder = []
         roomMembers = [:]
         roomNames = [:]
@@ -241,6 +299,9 @@ final class MatrixSession {
         trackedUsers = []
         seenEventIds = []
         roomKinds = [:]
+        pinnedRoomIds = []
+        mutedRoomIds = []
+        pendingDeleteRoomIds = []
         rooms = []
         activeRoomId = nil
         controlRoomId = nil
@@ -249,6 +310,16 @@ final class MatrixSession {
         requestedKeyFor = []
         undecrypted = [:]
         setupPhase = .connecting
+    }
+
+    private func applyGatewayVersionGateIfNeeded(_ error: AppError) {
+        guard case let .unsupportedClientVersion(minClientVersion, maxClientVersion) = error else {
+            return
+        }
+        VersionPolicyManager.shared.requireUpgradeFromGateway(
+            minClientVersion: minClientVersion,
+            maxClientVersion: maxClientVersion
+        )
     }
 
     private func startClient(_ stored: MatrixCredentialStore.Stored) async throws(AppError) {
@@ -299,20 +370,32 @@ final class MatrixSession {
         if setupPhase.rawValue < SetupPhase.syncing.rawValue { setupPhase = .syncing }
         AppLog.log("✅ Matrix gateway connected as \(auth.userId) device \(auth.deviceId)")
 
+        let restoredRoomSnapshot = restoreRoomSnapshotIfNeeded(userId: auth.userId)
+        restoreCryptoStateForRoomSnapshot()
+
         // Publish our device keys / one-time keys before syncing.
         try await crypto.runOutgoingRequests()
-        // Resume from the saved `pos` ONLY on a warm reconnect — i.e. when we
-        // still hold the room list in memory (`roomOrder` non-empty). The gateway
-        // resumes upstream from `pos` and sends deltas-since-`pos` (`rooms=0` when
-        // nothing changed); it does NOT re-send the room snapshot. On a COLD
-        // launch the in-memory room list is empty (it's never persisted), so a
-        // `pos`-resume leaves the list empty forever and the app sits on the
-        // setup screen despite being connected. A fresh full sync (`pos=nil`)
-        // re-delivers the room snapshot AND any pending to-device keys (the
-        // homeserver keeps un-acked to-device until the cursor advances past
-        // them), so nothing is lost — it just costs one full sync on launch.
-        let isWarmReconnect = !roomOrder.isEmpty
-        let resumePos = isWarmReconnect ? Self.loadSyncPos(userId: auth.userId) : nil
+        // Resume from saved `pos` whenever we have a room snapshot in memory. On a
+        // process restart the snapshot is restored from SwiftData before this point,
+        // so normal app opens do not force a full timeline replay. If no snapshot
+        // exists (fresh pairing, old build, or corrupt cache), omit `pos` once to
+        // recover the room list from the gateway.
+        let savedRoomPos = Self.loadSyncPos(userId: auth.userId)
+        let resumePos = Self.roomCursorForStart(
+            savedPos: savedRoomPos,
+            restoredRoomCount: roomOrder.count
+        )
+        let syncStartMode = resumePos == nil ? "cold-full" : "cursor-resume"
+        if resumePos == nil {
+            AppLog.log(
+                "🚨 FULL SYNC START pos=nil rooms_in_memory=%d restored_snapshot=%@ saved_pos=%@ - " +
+                    "if you're seeing this and we didn't just pair or create the first SwiftData room snapshot, " +
+                    "there's probably some kind of bug here; app is not supposed to full sync in the middle",
+                roomOrder.count,
+                String(restoredRoomSnapshot),
+                savedRoomPos ?? "nil"
+            )
+        }
         // The TO-DEVICE cursor is independent of the room snapshot (two cursors,
         // D.1). Its keys live in the crypto store (which survives a cold launch),
         // so ALWAYS resume it from durable storage — even on a cold-full sync that
@@ -321,8 +404,9 @@ final class MatrixSession {
         // persisted (a genuinely fresh sync).
         let resumeToDevicePos = Self.loadToDevicePos(userId: auth.userId)
         lastToDevicePos = resumeToDevicePos
-        AppLog.log("🔗 startSync %@ (rooms_in_memory=%d) pos=%@ to_device_pos=%@",
-                   isWarmReconnect ? "warm-resume" : "cold-full", roomOrder.count,
+        AppLog.log("🔗 startSync %@ (rooms_in_memory=%d restored_snapshot=%@) pos=%@ to_device_pos=%@",
+                   syncStartMode, roomOrder.count,
+                   String(restoredRoomSnapshot),
                    resumePos ?? "nil", resumeToDevicePos ?? "nil")
         gateway.startSync(body: SlidingSync.requestBody(), pos: resumePos, toDevicePos: resumeToDevicePos)
 
@@ -357,6 +441,12 @@ final class MatrixSession {
     private func handleSync(_ frame: [String: Any]) async {
         backgroundNotifyCount = 0
         let sync = SyncModel.parse(frame)
+        if let pinned = sync.pinnedRoomIds {
+            pinnedRoomIds = pinned
+        }
+        if let muted = sync.mutedRoomIds {
+            mutedRoomIds = Set(muted)
+        }
         AppLog.log("🔄 sync pos=%@ rooms=%d to_device=%d", sync.pos ?? "nil", sync.rooms.count, sync.toDevice.count)
         for r in sync.rooms {
             AppLog.log("🏠 room %@ kind=%@ space=%@ invite=%@ enc=%@ members=%d tl=%d",
@@ -380,16 +470,23 @@ final class MatrixSession {
         }
 
         for room in sync.rooms { await processRoom(room) }
+
+        // Peer receipts drive the outgoing "read" tick. Our own private receipts
+        // are the cross-device read marker for this Matrix user, so they clear the
+        // per-room unread count without clearing local notifications on this device.
+        for receipt in sync.receipts {
+            if receipt.userId == userId {
+                markRoomReadLocally(roomId: receipt.roomId, rebuild: false)
+                AppLog.debug("👁️ own read receipt in %@ up to %@ → unread=0", receipt.roomId, receipt.eventId)
+            } else {
+                AppLog.debug("👁️ read receipt from %@ up to %@", receipt.userId, receipt.eventId)
+                onReadReceipt?(receipt.eventId)
+            }
+        }
         retryUndecrypted()
         rebuildRoomList()
         applyAutoOpen()
         updateSetupPhase()
-
-        // Read receipts from anyone but us → advance our "read" ticks.
-        for receipt in sync.receipts where receipt.userId != userId {
-            AppLog.debug("👁️ read receipt from %@ up to %@", receipt.userId, receipt.eventId)
-            onReadReceipt?(receipt.eventId)
-        }
 
         // Durable-ack BOTH cursors (protocol D.1, "Sync cursor & key delivery"):
         // processSync persisted the to-device Megolm keys + crypto state and the
@@ -460,6 +557,7 @@ final class MatrixSession {
 
         let isControl = roomKinds[room.id] == "control"
         let isActive = activeRoomId == room.id
+        setUnreadCount(roomId: room.id, count: isActive ? 0 : room.notificationCount, rebuild: false)
         AppLog.debug("🏠· process %@ control=%@ active=%@ timeline=%d",
                      room.id, String(isControl), String(isActive), room.timeline.count)
 
@@ -518,7 +616,9 @@ final class MatrixSession {
             // to front — and the active-room race that bled one room's tool chips
             // into another room's timeline is gone structurally.
             onRoomEvent?(room.id, event, true)
-            if isBackgrounded, !event.isOwn { maybePostBackgroundNotification(outer: outer, clear: clear) }
+            if isBackgrounded, !event.isOwn {
+                maybePostBackgroundNotification(roomId: room.id, outer: outer, clear: clear)
+            }
         }
 
         // chat4000.status is NO LONGER read here. It is delivered as an E2EE
@@ -559,14 +659,24 @@ final class MatrixSession {
         // room (protocol E). A room with no `chat4000.room_kind` is a session — but
         // we surface it ONLY once it's keyed (I2), so the user never opens a room
         // they'd message before the room key reaches the plugin.
-        rooms = roomOrder.compactMap { id in
+        let pinned = Set(pinnedRoomIds)
+        let muted = mutedRoomIds
+        let nextRooms: [RoomSummary] = roomOrder.compactMap { id -> RoomSummary? in
             if spaceRooms.contains(id) { return nil }
             if roomKinds[id] == "control" { return nil }
             guard isRoomReady(id) else { return nil }
-            return RoomSummary(id: id, name: roomNames[id] ?? Self.shortId(id))
+            return RoomSummary(
+                id: id,
+                name: roomNames[id] ?? Self.shortId(id),
+                unreadCount: roomUnreadCounts[id] ?? 0,
+                isPinned: pinned.contains(id),
+                isMuted: muted.contains(id)
+            )
         }
+        rooms = Self.sortedRooms(nextRooms, pinnedRoomIds: pinnedRoomIds)
         AppLog.log("📋 rebuilt: ordered=%d sessions=%d spaces=%d control=%@ wsReady=%@",
                    roomOrder.count, rooms.count, spaceRooms.count, controlRoomId ?? "nil", String(isWorkspaceReady))
+        saveRoomSnapshot()
     }
 
     /// I2: is `roomId` reachable for sending — the plugin's device list known, so a
@@ -612,12 +722,34 @@ final class MatrixSession {
     // MARK: - Room selection (local; replays the room's cached events)
 
     func selectRoom(_ id: String) {
-        guard activeRoomId != id else { return }
+        PushNotificationManager.shared.clearSessionNotifications(roomId: id)
+        markRoomReadLocally(roomId: id, rebuild: true)
+        guard activeRoomId != id else {
+            onActiveRoomChange?(id)
+            return
+        }
         activeRoomId = id
         // Just record which room is front — no replay. Each room's view model is
         // always mounted and was fed its events live, so there is nothing to
         // re-cook or re-deliver on switch.
         onActiveRoomChange?(id)
+    }
+
+    func clearNotificationsForActiveRoom() {
+        guard let activeRoomId else { return }
+        PushNotificationManager.shared.clearSessionNotifications(roomId: activeRoomId)
+        markRoomReadLocally(roomId: activeRoomId, rebuild: true)
+    }
+
+    private func markRoomReadLocally(roomId: String, rebuild: Bool) {
+        setUnreadCount(roomId: roomId, count: 0, rebuild: rebuild)
+    }
+
+    private func setUnreadCount(roomId: String, count: Int, rebuild: Bool) {
+        let sanitizedCount = max(0, count)
+        guard roomUnreadCounts[roomId] != sanitizedCount else { return }
+        roomUnreadCounts[roomId] = sanitizedCount
+        if rebuild { rebuildRoomList() }
     }
 
     // MARK: - Sending (called by the transport)
@@ -714,8 +846,17 @@ final class MatrixSession {
         sendControlCommand(["command": "session.rename", "room_id": roomId, "title": String(title.prefix(255))])
     }
 
-    func archiveSession(roomId: String) {
-        sendControlCommand(["command": "session.archive", "room_id": roomId])
+    func deleteSession(roomId: String) {
+        pendingDeleteRoomIds.append(roomId)
+        sendControlCommand(["command": "session.delete", "room_id": roomId])
+    }
+
+    func pinSession(roomId: String) {
+        setPinned(roomId: roomId, pinned: true)
+    }
+
+    func unpinSession(roomId: String) {
+        setPinned(roomId: roomId, pinned: false)
     }
 
     func checkPluginUpdate() { sendControlCommand(["command": "plugin.update_check"]) }
@@ -723,22 +864,26 @@ final class MatrixSession {
 
     /// Mute / unmute a room via a homeserver push rule (protocol D.2).
     func muteRoom(_ roomId: String) {
+        setMuted(roomId: roomId, muted: true)
         Task {
             let path = "/_matrix/client/v3/pushrules/global/room/\(roomId)"
             do {
                 _ = try await gateway?.request(method: "PUT", path: percentEncodePath(path), body: ["actions": ["dont_notify"]])
             } catch {
+                await MainActor.run { self.setMuted(roomId: roomId, muted: false) }
                 ErrorReporter.capture(error, context: "MatrixSession.muteRoom")
             }
         }
     }
 
     func unmuteRoom(_ roomId: String) {
+        setMuted(roomId: roomId, muted: false)
         Task {
             let path = "/_matrix/client/v3/pushrules/global/room/\(roomId)"
             do {
                 _ = try await gateway?.request(method: "DELETE", path: percentEncodePath(path), body: nil)
             } catch {
+                await MainActor.run { self.setMuted(roomId: roomId, muted: true) }
                 ErrorReporter.capture(error, context: "MatrixSession.unmuteRoom")
             }
         }
@@ -795,8 +940,16 @@ final class MatrixSession {
             } else {
                 lastCommandError = error ?? "Could not create a new session."
             }
-        case "session.rename", "session.archive":
+        case "session.rename":
             if !ok { lastCommandError = error ?? "\(command) failed." }
+        case "session.delete":
+            let roomId = resolvePendingDeleteRoomId(from: c)
+            if ok, let roomId {
+                Task { await leaveAndForgetDeletedRoom(roomId) }
+            } else {
+                if let roomId { removePendingDelete(roomId) }
+                lastCommandError = error ?? "session.delete failed."
+            }
         case "plugin.update_check":
             if ok, let latest = c["latest_version"] as? String {
                 let updatable = (c["updatable"] as? Bool) ?? false
@@ -842,6 +995,88 @@ final class MatrixSession {
         }
     }
 
+    private func setPinned(roomId: String, pinned: Bool) {
+        var next = pinnedRoomIds.filter { $0 != roomId }
+        if pinned { next.insert(roomId, at: 0) }
+        pinnedRoomIds = Self.sanitizedPinnedRoomIds(next)
+        rebuildRoomList()
+        let ids = pinnedRoomIds
+        Task { [weak self] in
+            await self?.persistPinnedRoomIds(ids)
+        }
+    }
+
+    private func setMuted(roomId: String, muted: Bool) {
+        if muted {
+            mutedRoomIds.insert(roomId)
+        } else {
+            mutedRoomIds.remove(roomId)
+        }
+        rebuildRoomList()
+    }
+
+    private func persistPinnedRoomIds(_ ids: [String]) async {
+        guard let userId else { return }
+        let path = "/_matrix/client/v3/user/\(userId)/account_data/chat4000.session.prefs"
+        do {
+            _ = try await gateway?.request(
+                method: "PUT",
+                path: percentEncodePath(path),
+                body: ["pinned": ids]
+            )
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.persistPinnedRoomIds")
+            AppLog.log("⚠️ pin prefs persist failed: \(error)")
+        }
+    }
+
+    private func resolvePendingDeleteRoomId(from content: [String: Any]) -> String? {
+        if let roomId = content["room_id"] as? String {
+            removePendingDelete(roomId)
+            return roomId
+        }
+        guard !pendingDeleteRoomIds.isEmpty else { return nil }
+        return pendingDeleteRoomIds.removeFirst()
+    }
+
+    private func removePendingDelete(_ roomId: String) {
+        pendingDeleteRoomIds.removeAll { $0 == roomId }
+    }
+
+    private func leaveAndForgetDeletedRoom(_ roomId: String) async {
+        removeLocalRoom(roomId)
+        await sendRoomLifecycleRequest(method: "POST", roomId: roomId, action: "leave")
+        await sendRoomLifecycleRequest(method: "POST", roomId: roomId, action: "forget")
+    }
+
+    private func sendRoomLifecycleRequest(method: String, roomId: String, action: String) async {
+        let path = "/_matrix/client/v3/rooms/\(roomId)/\(action)"
+        do {
+            _ = try await gateway?.request(method: method, path: percentEncodePath(path), body: [:])
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.\(action)Room")
+            AppLog.log("⚠️ room %@ failed for %@: %@", action, roomId, String(describing: error))
+        }
+    }
+
+    private func removeLocalRoom(_ roomId: String) {
+        roomOrder.removeAll { $0 == roomId }
+        roomMembers[roomId] = nil
+        roomNames[roomId] = nil
+        roomKinds[roomId] = nil
+        roomUnreadCounts[roomId] = nil
+        spaceRooms.remove(roomId)
+        encryptedRooms.remove(roomId)
+        pinnedRoomIds.removeAll { $0 == roomId }
+        mutedRoomIds.remove(roomId)
+        onRoomDeleted?(roomId)
+        rebuildRoomList()
+        if activeRoomId == roomId {
+            activeRoomId = rooms.first?.id
+            onActiveRoomChange?(activeRoomId)
+        }
+    }
+
     // MARK: - Background wake (silent push drain)
 
     /// Drain on a silent push: ensure the gateway is connected and wait for one
@@ -882,7 +1117,7 @@ final class MatrixSession {
     /// message (mirrors the `chat4000.push` flag, protocol E), deduped by event
     /// id and capped per sync batch. Streaming partials (`chat4000.push: false`)
     /// and tool/status events never notify.
-    private func maybePostBackgroundNotification(outer: SyncEvent, clear: String?) {
+    private func maybePostBackgroundNotification(roomId: String, outer: SyncEvent, clear: String?) {
         guard backgroundNotifyCount < 3, let eid = outer.eventId, !Self.wasNotified(eid) else { return }
         // Push eligibility: explicit `chat4000.push: false` on the cleartext
         // envelope → not the final answer → skip.
@@ -903,7 +1138,13 @@ final class MatrixSession {
 
         Self.markNotified(eid)
         backgroundNotifyCount += 1
-        Task { await PushNotificationManager.shared.presentLocalNotification(body: body) }
+        Task {
+            await PushNotificationManager.shared.presentLocalNotification(
+                body: body,
+                roomId: roomId,
+                eventId: eid
+            )
+        }
     }
 
     // MARK: - Helpers
@@ -963,6 +1204,202 @@ final class MatrixSession {
         UserDefaults.standard.string(forKey: toDevicePosKey(userId))
     }
 
+    private static func legacyRoomSnapshotKey(_ userId: String?) -> String { "chat4000.roomSnapshot.\(userId ?? "")" }
+
+    nonisolated static func roomCursorForStart(savedPos: String?, restoredRoomCount: Int) -> String? {
+        restoredRoomCount > 0 ? savedPos : nil
+    }
+
+    nonisolated static func encodeRoomSnapshot(_ snapshot: StoredRoomSnapshot) -> Data? {
+        try? JSONEncoder().encode(snapshot)
+    }
+
+    nonisolated static func decodeRoomSnapshot(_ data: Data) -> StoredRoomSnapshot? {
+        guard let snapshot = try? JSONDecoder().decode(StoredRoomSnapshot.self, from: data),
+              snapshot.schemaVersion == StoredRoomSnapshot.currentSchemaVersion else {
+            return nil
+        }
+        return snapshot
+    }
+
+    private static func roomSnapshotDescriptor(userId: String) -> FetchDescriptor<MatrixRoomSnapshot> {
+        var descriptor = FetchDescriptor<MatrixRoomSnapshot>(
+            predicate: #Predicate { $0.userId == userId },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 2
+        return descriptor
+    }
+
+    private func saveRoomSnapshot(_ snapshot: StoredRoomSnapshot, userId: String) {
+        guard let data = Self.encodeRoomSnapshot(snapshot) else {
+            AppLog.log("⚠️ room snapshot encode failed for %@", userId)
+            return
+        }
+        guard let modelContext else {
+            AppLog.log("⚠️ room snapshot not saved - no SwiftData context for %@", userId)
+            return
+        }
+        do {
+            let existing = try modelContext.fetch(Self.roomSnapshotDescriptor(userId: userId))
+            if let record = existing.first {
+                record.schemaVersion = snapshot.schemaVersion
+                record.snapshotData = data
+                record.updatedAt = .now
+                for duplicate in existing.dropFirst() {
+                    modelContext.delete(duplicate)
+                }
+            } else {
+                modelContext.insert(
+                    MatrixRoomSnapshot(
+                        userId: userId,
+                        schemaVersion: snapshot.schemaVersion,
+                        snapshotData: data
+                    )
+                )
+            }
+            try modelContext.save()
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.saveRoomSnapshot")
+            AppLog.log("⚠️ room snapshot save failed for %@: %@", userId, String(describing: error))
+        }
+    }
+
+    private func loadRoomSnapshot(userId: String) -> StoredRoomSnapshot? {
+        guard let modelContext else {
+            AppLog.log("⚠️ room snapshot not loaded - no SwiftData context for %@", userId)
+            return nil
+        }
+        do {
+            let records = try modelContext.fetch(Self.roomSnapshotDescriptor(userId: userId))
+            for duplicate in records.dropFirst() {
+                modelContext.delete(duplicate)
+            }
+            if records.count > 1 {
+                try modelContext.save()
+            }
+            if let record = records.first {
+                guard let snapshot = Self.decodeRoomSnapshot(record.snapshotData) else {
+                    AppLog.log("⚠️ room snapshot corrupt for %@ - deleting", userId)
+                    modelContext.delete(record)
+                    try modelContext.save()
+                    return nil
+                }
+                return snapshot
+            }
+            return migrateLegacyRoomSnapshotIfNeeded(userId: userId)
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.loadRoomSnapshot")
+            AppLog.log("⚠️ room snapshot load failed for %@: %@", userId, String(describing: error))
+            return nil
+        }
+    }
+
+    private func migrateLegacyRoomSnapshotIfNeeded(userId: String) -> StoredRoomSnapshot? {
+        let key = Self.legacyRoomSnapshotKey(userId)
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        guard let snapshot = Self.decodeRoomSnapshot(data) else {
+            AppLog.log("⚠️ legacy room snapshot corrupt for %@ - deleting", userId)
+            return nil
+        }
+        saveRoomSnapshot(snapshot, userId: userId)
+        AppLog.log("📋 migrated legacy room snapshot to SwiftData rooms=%d", snapshot.roomOrder.count)
+        return snapshot
+    }
+
+    private func removeRoomSnapshot(userId: String?) {
+        guard let userId else { return }
+        UserDefaults.standard.removeObject(forKey: Self.legacyRoomSnapshotKey(userId))
+        guard let modelContext else { return }
+        do {
+            let records = try modelContext.fetch(Self.roomSnapshotDescriptor(userId: userId))
+            for record in records {
+                modelContext.delete(record)
+            }
+            if !records.isEmpty {
+                try modelContext.save()
+            }
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.removeRoomSnapshot")
+            AppLog.log("⚠️ room snapshot remove failed for %@: %@", userId, String(describing: error))
+        }
+    }
+
+    private func currentRoomSnapshot() -> StoredRoomSnapshot {
+        StoredRoomSnapshot(
+            roomOrder: roomOrder,
+            roomMembers: roomMembers,
+            roomNames: roomNames,
+            spaceRooms: Array(spaceRooms).sorted(),
+            encryptedRooms: Array(encryptedRooms).sorted(),
+            roomKinds: roomKinds,
+            pinnedRoomIds: pinnedRoomIds,
+            mutedRoomIds: Array(mutedRoomIds).sorted(),
+            activeRoomId: activeRoomId
+        )
+    }
+
+    private func saveRoomSnapshot() {
+        guard let userId else { return }
+        guard !roomOrder.isEmpty else {
+            removeRoomSnapshot(userId: userId)
+            return
+        }
+        saveRoomSnapshot(currentRoomSnapshot(), userId: userId)
+    }
+
+    @discardableResult
+    private func restoreRoomSnapshotIfNeeded(userId: String) -> Bool {
+        guard roomOrder.isEmpty, let snapshot = loadRoomSnapshot(userId: userId), !snapshot.roomOrder.isEmpty else {
+            return false
+        }
+        roomOrder = snapshot.roomOrder
+        roomMembers = snapshot.roomMembers
+        roomNames = snapshot.roomNames
+        spaceRooms = Set(snapshot.spaceRooms)
+        encryptedRooms = Set(snapshot.encryptedRooms)
+        roomKinds = snapshot.roomKinds
+        pinnedRoomIds = Self.sanitizedPinnedRoomIds(snapshot.pinnedRoomIds)
+        mutedRoomIds = Set(snapshot.mutedRoomIds)
+        if let active = snapshot.activeRoomId, snapshot.roomOrder.contains(active) {
+            activeRoomId = active
+        }
+        let restoredActiveRoomId = activeRoomId
+        controlRoomId = nil
+        rebuildRoomList()
+        applyAutoOpen()
+        if activeRoomId == restoredActiveRoomId {
+            onActiveRoomChange?(activeRoomId)
+        }
+        updateSetupPhase()
+        AppLog.log("📋 restored room snapshot rooms=%d active=%@", roomOrder.count, activeRoomId ?? "nil")
+        return true
+    }
+
+    private func restoreCryptoStateForRoomSnapshot() {
+        guard let crypto, let userId, !roomOrder.isEmpty else { return }
+        for roomId in encryptedRooms {
+            do {
+                try crypto.markRoomEncrypted(roomId)
+            } catch {
+                ErrorReporter.capture(error, context: "MatrixSession.restoreRoomEncryption")
+                AppLog.log("⚙️ restore room encryption failed for %@: %@", roomId, error.localizedDescription)
+            }
+        }
+        let snapshotUsers = Set(roomMembers.values.flatMap { $0 }).filter { $0 != userId }
+        let newUsers = snapshotUsers.filter { !trackedUsers.contains($0) }
+        guard !newUsers.isEmpty else { return }
+        do {
+            try crypto.updateTrackedUsers(Array(newUsers))
+            trackedUsers.formUnion(newUsers)
+            AppLog.debug("🔑 restored tracking for %d snapshot user(s)", newUsers.count)
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.restoreTrackedUsers")
+            AppLog.log("⚙️ restore tracked users failed: %@", error.localizedDescription)
+        }
+    }
+
     /// Pure D.1 to-device-cursor decision (unit-tested). Given one frame, returns
     /// the to-device cursor to persist + ack: advance to the frame's cursor ONLY
     /// if its keys were durably persisted (`cryptoPersisted`); otherwise carry the
@@ -972,6 +1409,34 @@ final class MatrixSession {
     nonisolated static func resolveToDevicePos(cryptoPersisted: Bool, frame: String?, last: String?) -> String? {
         if cryptoPersisted, let frame { return frame }
         return last
+    }
+
+    nonisolated static func sortedRooms(_ rooms: [RoomSummary], pinnedRoomIds: [String]) -> [RoomSummary] {
+        let sanitized = sanitizedPinnedRoomIds(pinnedRoomIds)
+        let pinnedOrder = Dictionary(uniqueKeysWithValues: sanitized.enumerated().map { ($0.element, $0.offset) })
+        return rooms.enumerated().sorted { lhs, rhs in
+            let leftPinned = pinnedOrder[lhs.element.id]
+            let rightPinned = pinnedOrder[rhs.element.id]
+            switch (leftPinned, rightPinned) {
+            case let (left?, right?):
+                return left < right
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return lhs.offset < rhs.offset
+            }
+        }.map(\.element)
+    }
+
+    nonisolated static func sanitizedPinnedRoomIds(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        for id in ids where !id.isEmpty && id.count <= 255 && seen.insert(id).inserted {
+            out.append(id)
+        }
+        return out
     }
 
     /// Bounded record of event ids we've already notified for, so a cold-launch

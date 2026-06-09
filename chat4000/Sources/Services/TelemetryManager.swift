@@ -24,6 +24,12 @@ final class TelemetryManager {
         TelemetryPreferences.isCollectionEnabled
     }
 
+    var postHogDistinctId: String? {
+        guard postHogStarted, isCollectionEnabled else { return nil }
+        let id = PostHogSDK.shared.getDistinctId().trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
     func configure(from json: [String: Any]?) {
         config = Config(
             sentryDsn: json?["sentryDsn"] as? String,

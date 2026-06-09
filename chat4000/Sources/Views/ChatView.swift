@@ -6,6 +6,7 @@ import AppKit
 
 private let cliSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 private let cliThinkingHints = ["Thinking", "Planning", "Tracing", "Checking", "Exploring", "Reasoning"]
+private let cliWorkingHints = ["Working", "Using tools", "Checking results", "Running steps"]
 private let cliTypingHints = ["Typing", "Drafting", "Shaping", "Answering"]
 
 private enum VoiceRecordingSource: String {
@@ -23,9 +24,6 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var showSettings = false
     @State private var showCamera = false
-    @State private var founderPromptSource: String?
-    @State private var founderPromptTitle: String?
-    @State private var founderPromptBody: String?
     @State private var voiceRecorder = VoiceNoteRecorder()
     @State private var voiceErrorMessage: String?
     @FocusState private var inputFocused: Bool
@@ -35,10 +33,6 @@ struct ChatView: View {
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
     @State private var versionPolicy = VersionPolicyManager.shared
-    /// Confetti + haptic when the device finishes joining (workspace becomes
-    /// ready). `didCelebrateJoin` keeps it to once per launch.
-    @State private var showConfetti = false
-    @State private var didCelebrateJoin = false
     private let macComposerMaxHeight: CGFloat = 210
 
     var body: some View {
@@ -68,30 +62,6 @@ struct ChatView: View {
                 }
             }
 
-            // Device-joined celebration: light confetti + emoji rain over
-            // everything (taps pass through) behind a pretty "Connected!" card,
-            // paired with a native fanfare haptic, for a few seconds.
-            if showConfetti {
-                ZStack {
-                    ConfettiView(intensity: 0.2)
-                        .allowsHitTesting(false)
-                        .ignoresSafeArea()
-                    ConnectedCelebrationCard()
-                        .allowsHitTesting(false)
-                        .transition(.scale(scale: 0.85).combined(with: .opacity))
-                }
-                .transition(.opacity)
-            }
-        }
-        .onChange(of: viewModel.matrixSession.isWorkspaceReady) { _, ready in
-            guard ready, !didCelebrateJoin else { return }
-            didCelebrateJoin = true
-            Haptics.fanfare()
-            withAnimation(.easeIn(duration: 0.2)) { showConfetti = true }
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(3))
-                withAnimation(.easeOut(duration: 0.6)) { showConfetti = false }
-            }
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet(
@@ -139,25 +109,6 @@ struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: LaunchActionStore.didSetNotification)) { _ in
             handlePendingLaunchActionIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: PushNotificationManager.founderChatPromptRequested)) { note in
-            founderPromptSource = (note.userInfo?["source"] as? String) ?? "push"
-            founderPromptTitle = note.userInfo?["modal_title"] as? String
-            founderPromptBody = note.userInfo?["modal_body"] as? String
-        }
-        .sheet(isPresented: Binding(
-            get: { founderPromptSource != nil },
-            set: { if !$0 {
-                founderPromptSource = nil
-                founderPromptTitle = nil
-                founderPromptBody = nil
-            } }
-        )) {
-            FounderChatPromptModal(
-                source: founderPromptSource ?? "push",
-                modalTitle: founderPromptTitle ?? FounderChatPromptModal.defaultTitle,
-                modalBody: founderPromptBody ?? FounderChatPromptModal.defaultBody
-            )
-        }
         .onDisappear {
             pendingLaunchActionTask?.cancel()
             pendingLaunchActionTask = nil
@@ -189,11 +140,7 @@ struct ChatView: View {
             // No room selected yet → the global setup/empty overlay (not a room).
             if viewModel.activeRoomId == nil {
                 ScrollView {
-                    if viewModel.showSetupProgress {
-                        SetupProgressView(phase: viewModel.setupPhase)
-                    } else {
-                        noSessionPlaceholder
-                    }
+                    noSessionPlaceholder
                 }
             }
         }
@@ -929,6 +876,8 @@ struct RoomMessagesView: View {
 
     private func busyHints(for phase: String) -> [String] {
         switch phase.lowercased() {
+        case "working":
+            return cliWorkingHints
         case "typing":
             return cliTypingHints
         default:
@@ -1157,8 +1106,7 @@ final class ChatViewModel {
         // session.new auto-open / first-room select sets the front pointer here.
         matrixSession.onActiveRoomChange = { [weak self] id in
             guard let self else { return }
-            self.activeRoomId = id
-            if let id { _ = self.room(for: id) }
+            self.setFrontRoom(id)
         }
         // Outbound correlation + read receipts: broadcast to all rooms; the one
         // that owns the local id / event id acts, the rest no-op.
@@ -1167,6 +1115,11 @@ final class ChatViewModel {
         }
         matrixSession.onReadReceipt = { [weak self] eventId in
             self?.roomVMs.values.forEach { $0.handleRead(eventId: eventId) }
+        }
+        matrixSession.onRoomDeleted = { [weak self] roomId in
+            guard let self else { return }
+            self.roomVMs[roomId]?.clearHistory()
+            self.roomVMs.removeValue(forKey: roomId)
         }
     }
 
@@ -1182,15 +1135,29 @@ final class ChatViewModel {
 
     var frontRoom: RoomViewModel? { activeRoomId.map { room(for: $0) } }
 
+    private func setFrontRoom(_ roomId: String?) {
+        activeRoomId = roomId
+        if let roomId { _ = room(for: roomId) }
+    }
+
+    func syncActiveRoomFromSession() {
+        setFrontRoom(matrixSession.activeRoomId)
+    }
+
     func attach(modelContext: ModelContext) {
         self.modelContext = modelContext
+        matrixSession.attach(modelContext: modelContext)
         for vm in roomVMs.values { vm.attach(modelContext: modelContext) }
+        syncActiveRoomFromSession()
     }
 
     /// v2 chat-screen setup: attach persistence and restore the Matrix session.
     func setupMatrix(modelContext: ModelContext) {
         attach(modelContext: modelContext)
-        guard connectionState != .connected else { return }
+        guard connectionState != .connected else {
+            syncActiveRoomFromSession()
+            return
+        }
         Task { await matrixSession.connect() }
     }
 
@@ -1203,7 +1170,7 @@ final class ChatViewModel {
 
     /// Session reset (new pairing / signed out) — no room is front.
     func clearActiveRoom() {
-        activeRoomId = nil
+        setFrontRoom(nil)
     }
 
     func refreshMessages() {

@@ -29,14 +29,14 @@ enum InnerMessageType: String, Codable {
     case textDelta = "text_delta"
     case textEnd = "text_end"
     case status
-    /// End-to-end "I received and decoded your message" ack (per §6.6.5).
+    /// End-to-end "I received and decoded your message" ack (per section 6.6.5).
     /// Drives the "✓✓ delivered" tick. Travels inside the encrypted envelope
     /// so the relay cannot forge it.
     case ack
     /// Tool-call streaming (Hermes-specific, additive on protocol v1).
     /// `tool_id` is the stable correlator across start/delta/end. Each
-    /// wire frame gets a fresh inner.id per §6.4.2. Receivers dedupe by
-    /// inner.id (§6.6.9) and merge by tool_id.
+    /// wire frame gets a fresh inner.id per section 6.4.2. Receivers dedupe by
+    /// inner.id (section 6.6.9) and merge by tool_id.
     case toolStart = "tool_start"
     case toolDelta = "tool_delta"
     case toolEnd = "tool_end"
@@ -49,7 +49,7 @@ enum InnerToolStatus: String, Codable {
     case failed
 }
 
-/// Acknowledgement stage values per §6.6.5. `received` is the only required
+/// Acknowledgement stage values per section 6.6.5. `received` is the only required
 /// stage for v1; `processing` and `displayed` are optional/reserved.
 enum InnerAckStage: String, Codable {
     case received
@@ -196,7 +196,7 @@ struct InnerMessage: Codable {
         )
     }
 
-    /// Per protocol §6.6.5 — emit an end-to-end "I received and decoded your
+    /// Per protocol section 6.6.5 — emit an end-to-end "I received and decoded your
     /// message" ack. The `refs` field is the inner `id` of the message being
     /// acknowledged. `stage` defaults to `.received`.
     static func ack(refs: String, stage: InnerAckStage = .received) -> InnerMessage {
@@ -209,7 +209,7 @@ struct InnerMessage: Codable {
         )
     }
 
-    /// Per protocol §6.4.2 — streaming text increment. Each frame gets a
+    /// Per protocol section 6.4.2 — streaming text increment. Each frame gets a
     /// fresh `inner.id` (UUID v4); the stable stream correlator lives in
     /// `body.stream_id`.
     static func textDelta(streamId: String, delta: String) -> InnerMessage {
@@ -222,7 +222,7 @@ struct InnerMessage: Codable {
         )
     }
 
-    /// Per protocol §6.4.2 — streaming text finalizer. Each frame gets a
+    /// Per protocol section 6.4.2 — streaming text finalizer. Each frame gets a
     /// fresh `inner.id` (UUID v4); the stable stream correlator lives in
     /// `body.stream_id`. `reset == true` abandons the stream instead of
     /// finalising it.
@@ -303,7 +303,7 @@ enum InnerBody: Codable {
     struct TextBody: Codable {
         let text: String
         let reset: Bool?
-        /// Per §6.4.2: stream correlator on `text_end`. nil for plain `text`
+        /// Per section 6.4.2: stream correlator on `text_end`. nil for plain `text`
         /// frames. Optional on decode for transitional compat with senders
         /// that still reuse `inner.id == stream_id`.
         let streamId: String?
@@ -337,7 +337,7 @@ enum InnerBody: Codable {
 
     struct TextDeltaBody: Codable {
         let delta: String
-        /// Per §6.4.2: stream correlator. Optional on decode for transitional
+        /// Per section 6.4.2: stream correlator. Optional on decode for transitional
         /// compat with senders that still reuse `inner.id == stream_id`.
         let streamId: String?
 

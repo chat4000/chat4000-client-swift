@@ -65,7 +65,7 @@ struct MessageBubble: View {
     /// Tiny inline tick that lives at the bottom-right inside user bubbles
     /// (per the chat-app convention). Agent bubbles get no tick.
     /// Color: timestamp grey for sending/sent, green for delivered, red for
-    /// failed. Per protocol §6.6.7.
+    /// failed. Per protocol section 6.6.7.
     @ViewBuilder
     private var statusTick: some View {
         if isUser {

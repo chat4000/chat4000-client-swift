@@ -10,7 +10,11 @@ import UIKit
 
 enum AppScreen {
     case enterPairingCode
-    case connecting
+    case pairingConnecting
+    case appConnecting
+    case reconnecting
+    case setup
+    case connectedCelebration
     case chat
 }
 
@@ -30,6 +34,8 @@ struct chat4000App: App {
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
     @State private var versionPolicy = VersionPolicyManager.shared
+    @State private var founderPromptRequest: FounderChatPromptRequest?
+    @State private var shouldCelebrateFirstConnection = false
     #if os(iOS)
     @State private var telemetryFlushBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -39,7 +45,7 @@ struct chat4000App: App {
 
         _chatViewModel = State(initialValue: initialViewModel)
         // v2: route on the persisted Matrix session, not a v1 group key.
-        _currentScreen = State(initialValue: initialViewModel.isPaired ? .chat : .enterPairingCode)
+        _currentScreen = State(initialValue: initialViewModel.isPaired ? .appConnecting : .enterPairingCode)
         _showLegalReconsentModal = State(initialValue: false)
         _currentTermsVersion = State(initialValue: nil)
 
@@ -85,6 +91,9 @@ struct chat4000App: App {
                 }
             }
             .background(ModelContextBinder(viewModel: chatViewModel))
+            .onAppear {
+                presentPendingFounderPromptIfPossible()
+            }
             .task { await runVersionCheck() }
             .preferredColorScheme(.dark)
             #if os(macOS)
@@ -95,13 +104,19 @@ struct chat4000App: App {
                 case .connected:
                     errorMessage = nil
                     chatViewModel.refreshMessages()
+                    routeAfterConnectionProgress()
+                case .reconnecting:
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        currentScreen = .chat
+                        currentScreen = .reconnecting
                     }
                 case .failed(let message):
                     // Pairing or restore failed — surface the error on the
                     // entry screen.
-                    if currentScreen == .connecting {
+                    if currentScreen == .pairingConnecting
+                        || currentScreen == .appConnecting
+                        || currentScreen == .setup
+                        || currentScreen == .reconnecting {
+                        shouldCelebrateFirstConnection = false
                         errorMessage = message
                         Haptics.error()
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -110,7 +125,11 @@ struct chat4000App: App {
                     }
                 case .disconnected:
                     // Signed out / torn down — return to the entry screen.
-                    if currentScreen == .chat {
+                    if currentScreen == .chat
+                        || currentScreen == .appConnecting
+                        || currentScreen == .setup
+                        || currentScreen == .reconnecting {
+                        shouldCelebrateFirstConnection = false
                         withAnimation(.easeInOut(duration: 0.3)) {
                             currentScreen = .enterPairingCode
                         }
@@ -118,6 +137,10 @@ struct chat4000App: App {
                 default:
                     break
                 }
+            }
+            .onChange(of: chatViewModel.setupPhase) { _, _ in
+                guard chatViewModel.connectionState == .connected else { return }
+                routeAfterConnectionProgress()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
@@ -132,12 +155,14 @@ struct chat4000App: App {
                     Haptics.prime()
                     activeSessionStartedAt = .now
                     chatViewModel.refreshMessages()
+                    chatViewModel.matrixSession.clearNotificationsForActiveRoom()
                     if currentScreen == .chat, chatViewModel.isPaired {
                         Task { await chatViewModel.matrixSession.connect() }
                     }
                     Task { await runVersionCheck() }
                     PushNotificationManager.shared.clearBadge()
                     TelemetryManager.shared.track(.appOpened)
+                    presentPendingFounderPromptIfPossible()
                 case .background:
                     // v2: leave the Matrix sync running; silent push + SDK
                     // sync drive background delivery. No socket teardown.
@@ -150,6 +175,21 @@ struct chat4000App: App {
                 AppLog.log("🎯 onOpenURL %@", url.absoluteString)
                 guard let action = LaunchActionStore.action(for: url) else { return }
                 LaunchActionStore.set(action)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: PushNotificationManager.founderChatPromptRequested)) { _ in
+                presentPendingFounderPromptIfPossible()
+            }
+            .sheet(isPresented: Binding(
+                get: { founderPromptRequest != nil },
+                set: { if !$0 { dismissFounderPromptAndDrainQueue() } }
+            )) {
+                if let founderPromptRequest {
+                    FounderChatPromptModal(
+                        source: founderPromptRequest.source,
+                        modalTitle: founderPromptRequest.modalTitle ?? FounderChatPromptModal.defaultTitle,
+                        modalBody: founderPromptRequest.modalBody ?? FounderChatPromptModal.defaultBody
+                    )
+                }
             }
             #if os(iOS)
             .fullScreenCover(isPresented: $showLegalReconsentModal) {
@@ -172,6 +212,10 @@ struct chat4000App: App {
                 .interactiveDismissDisabled(true)
             }
             #endif
+            .onChange(of: showLegalReconsentModal) { _, isPresented in
+                guard !isPresented else { return }
+                presentPendingFounderPromptIfPossible()
+            }
         }
         #if os(macOS)
         .windowResizability(.automatic)
@@ -179,7 +223,51 @@ struct chat4000App: App {
         .defaultPosition(.center)
         .defaultSize(width: 950, height: 700)
         #endif
-        .modelContainer(for: ChatMessage.self)
+        .modelContainer(for: [ChatMessage.self, MatrixRoomSnapshot.self])
+    }
+
+    private func presentPendingFounderPromptIfPossible() {
+        guard founderPromptRequest == nil, !showLegalReconsentModal else { return }
+        founderPromptRequest = FounderChatPromptStore.shared.consumePendingPrompt()
+    }
+
+    private func routeAfterConnectionProgress() {
+        guard chatViewModel.connectionState == .connected else { return }
+        if chatViewModel.showSetupProgress {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                currentScreen = .setup
+            }
+        } else if shouldCelebrateFirstConnection {
+            showFirstConnectionCelebration()
+        } else {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                currentScreen = .chat
+            }
+        }
+    }
+
+    private func showFirstConnectionCelebration() {
+        guard currentScreen != .connectedCelebration else { return }
+        shouldCelebrateFirstConnection = false
+        Haptics.fanfare()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            currentScreen = .connectedCelebration
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard currentScreen == .connectedCelebration else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                currentScreen = .chat
+            }
+        }
+    }
+
+    private func dismissFounderPromptAndDrainQueue() {
+        founderPromptRequest = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            presentPendingFounderPromptIfPossible()
+        }
     }
 
     @ViewBuilder
@@ -191,12 +279,13 @@ struct chat4000App: App {
                 onSubmit: startJoinPairing
             )
 
-        case .connecting:
+        case .pairingConnecting:
             ConnectingView(
                 connectionState: chatViewModel.connectionState,
                 onBack: {
                     chatViewModel.disconnect()
                     errorMessage = nil
+                    shouldCelebrateFirstConnection = false
                     withAnimation(.easeInOut(duration: 0.3)) {
                         currentScreen = .enterPairingCode
                     }
@@ -204,6 +293,18 @@ struct chat4000App: App {
             )
             // Pairing (Task in startJoinPairing) is already in flight; this
             // screen just reflects connection state.
+
+        case .appConnecting:
+            Chat4000ConnectingScreen(connectionState: chatViewModel.connectionState)
+
+        case .reconnecting:
+            Chat4000ConnectingScreen(connectionState: .reconnecting)
+
+        case .setup:
+            SetupProgressScreen(phase: chatViewModel.setupPhase)
+
+        case .connectedCelebration:
+            ConnectedCelebrationScreen()
 
         case .chat:
             ChatShell(
@@ -258,7 +359,7 @@ struct chat4000App: App {
     /// `chat4000://pair?code=…` URI). Redeem → `m.login.token` → Matrix client.
     /// Connection state drives routing (see `onChange(connectionState)`).
     private func startJoinPairing(_ input: String) {
-        if currentScreen == .connecting {
+        if currentScreen == .pairingConnecting {
             AppLog.log("🔗 Ignoring duplicate pairing while already connecting")
             return
         }
@@ -276,11 +377,12 @@ struct chat4000App: App {
         let code = MatrixPairing.extractCode(from: trimmed)
 
         errorMessage = nil
+        shouldCelebrateFirstConnection = true
         TelemetryManager.shared.track(.pairingCodeSubmitted, properties: ["input_type": "code"])
         TelemetryManager.shared.track(.pairingStarted, properties: ["flow": "matrix_join"])
 
         withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen = .connecting
+            currentScreen = .pairingConnecting
         }
         Task { await chatViewModel.pair(code: code) }
     }
@@ -295,6 +397,9 @@ private struct ModelContextBinder: View {
         Color.clear
             .onAppear {
                 viewModel.attach(modelContext: modelContext)
+                if viewModel.isPaired {
+                    viewModel.setupMatrix(modelContext: modelContext)
+                }
             }
     }
 }

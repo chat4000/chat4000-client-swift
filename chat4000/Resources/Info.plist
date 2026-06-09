@@ -22,6 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>TelemetryDistributionChannel</key>
 	<string>$(APP_DISTRIBUTION_CHANNEL)</string>
+	<key>APNSEnvironment</key>
+	<string>$(APP_APNS_ENV)</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>tg</string>

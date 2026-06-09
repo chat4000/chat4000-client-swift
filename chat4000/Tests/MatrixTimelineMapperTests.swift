@@ -60,13 +60,30 @@ struct MatrixTimelineMapperTests {
         #expect(m.ingest(eventId: "$1", body: "hello", senderId: "@p:x", isOwn: false, live: true).isEmpty)
     }
 
-    // Debounced finalize settles the active stream once.
+    // Protocol final edit settles the addressed stream once.
     @Test
-    func finalizeActiveStreamSettlesOnce() {
+    func finalEditSettlesAddressedStreamOnce() {
         var m = MatrixTimelineMapper()
         _ = m.ingest(eventId: "$1", body: "streaming", senderId: "@p:x", isOwn: false, live: true)
-        #expect(m.finalizeActiveStream() == .end(streamId: "$1", body: "streaming", senderId: "@p:x"))
-        #expect(m.finalizeActiveStream() == nil)
+        #expect(m.finalize(streamId: "$1", senderId: "@p:x") == .end(streamId: "$1", body: "streaming", senderId: "@p:x"))
+        #expect(m.finalize(streamId: "$1", senderId: "@p:x") == nil)
+    }
+
+    @Test
+    func streamDecisionFollowsPushFlag() {
+        #expect(MatrixTimelineMapper.shouldStream(live: true, isOwn: false, isEdit: false, pushFlag: false))
+        #expect(!MatrixTimelineMapper.shouldStream(live: true, isOwn: false, isEdit: false, pushFlag: nil))
+        #expect(!MatrixTimelineMapper.shouldStream(live: true, isOwn: false, isEdit: false, pushFlag: true))
+        #expect(MatrixTimelineMapper.shouldStream(live: true, isOwn: false, isEdit: true, pushFlag: true))
+        #expect(!MatrixTimelineMapper.shouldStream(live: true, isOwn: true, isEdit: true, pushFlag: true))
+    }
+
+    @Test
+    func finalEditRequiresExplicitTruePushFlag() {
+        #expect(MatrixTimelineMapper.isFinalEdit(isEdit: true, pushFlag: true))
+        #expect(!MatrixTimelineMapper.isFinalEdit(isEdit: true, pushFlag: false))
+        #expect(!MatrixTimelineMapper.isFinalEdit(isEdit: true, pushFlag: nil))
+        #expect(!MatrixTimelineMapper.isFinalEdit(isEdit: false, pushFlag: true))
     }
 
     // Self-echo sender tagging (worth 8).

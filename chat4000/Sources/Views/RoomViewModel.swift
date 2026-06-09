@@ -37,7 +37,6 @@ final class RoomViewModel {
     // transport's state; now owned per room so two rooms never share a mapper).
     @ObservationIgnored private var mapper = MatrixTimelineMapper()
     @ObservationIgnored private var emittedToolStarts: Set<String> = []
-    @ObservationIgnored private var finalizeTask: Task<Void, Never>?
     /// Newest event id seen in this room (for the read receipt).
     @ObservationIgnored private var lastEventId: String?
 
@@ -79,10 +78,19 @@ final class RoomViewModel {
             predicate: #Predicate { $0.roomId == rid },
             sortBy: [SortDescriptor(\.timestamp, order: .forward)]
         )
-        let stored = (try? modelContext.fetch(descriptor)) ?? []
+        let fetched = (try? modelContext.fetch(descriptor)) ?? []
+        let stored = deduplicatedStoredMessages(fetched, modelContext: modelContext)
         let storedIds = Set(stored.map(\.id))
         var merged = stored
         for message in messages where !storedIds.contains(message.id) {
+            guard isUniqueStoredMessage(message, against: merged) else {
+                AppLog.log(
+                    "🧵 not re-inserting duplicate in-memory message room=%@ msg_id=%@",
+                    roomId,
+                    message.msgId ?? "nil"
+                )
+                continue
+            }
             modelContext.insert(message)
             merged.append(message)
         }
@@ -92,12 +100,136 @@ final class RoomViewModel {
         requestScrollToBottom()
     }
 
+    private func deduplicatedStoredMessages(_ stored: [ChatMessage], modelContext: ModelContext) -> [ChatMessage] {
+        var seenMsgIds: Set<String> = []
+        var out: [ChatMessage] = []
+        for message in stored {
+            if Self.isToolTranscriptMessage(message) {
+                AppLog.log(
+                    "🧰 deleting stored tool transcript text room=%@ msg_id=%@",
+                    roomId,
+                    message.msgId ?? "nil"
+                )
+                modelContext.delete(message)
+                continue
+            }
+            guard let msgId = message.msgId, !msgId.isEmpty else {
+                out.append(message)
+                continue
+            }
+            if seenMsgIds.insert(msgId).inserted {
+                out.append(message)
+            } else {
+                AppLog.log("🧵 deleting duplicate stored message room=%@ msg_id=%@", roomId, msgId)
+                modelContext.delete(message)
+            }
+        }
+        return out
+    }
+
+    private static func isToolTranscriptMessage(_ message: ChatMessage) -> Bool {
+        message.kind == .message && isPureToolTranscript(message.text)
+    }
+
+    static func isPureToolTranscript(_ text: String) -> Bool {
+        let lines = text
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return false }
+        return lines.allSatisfy(isToolTranscriptLine(_:))
+    }
+
+    private static func isToolTranscriptLine(_ line: String) -> Bool {
+        let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+        guard parts.count == 2 else { return false }
+
+        let rest = String(parts[1])
+        guard let nameEnd = rest.firstIndex(where: isToolNameTerminator(_:)) else {
+            return false
+        }
+
+        let name = String(rest[..<nameEnd])
+        guard isLikelyToolName(name) else { return false }
+
+        let suffix = String(rest[nameEnd...])
+        return suffix.hasPrefix(":") || suffix.hasPrefix("...")
+    }
+
+    private static func isToolNameTerminator(_ character: Character) -> Bool {
+        character == ":" || character == "." || character.isWhitespace
+    }
+
+    private static func isLikelyToolName(_ name: String) -> Bool {
+        guard !name.isEmpty else { return false }
+        let knownSimpleNames: Set<String> = ["bash", "python", "terminal", "todo", "cronjob"]
+        if knownSimpleNames.contains(name) { return true }
+        return name.contains("_") || name.contains(".") || name.contains("-")
+    }
+
     private func persistContext() {
         guard let modelContext else { return }
         do {
             try modelContext.save()
         } catch {
             ErrorReporter.capture(error, context: "RoomViewModel.persistContext")
+        }
+    }
+
+    @discardableResult
+    private func appendAndInsertUnique(_ message: ChatMessage, reason: String) -> Bool {
+        guard let msgId = message.msgId, !msgId.isEmpty else {
+            messages.append(message)
+            modelContext?.insert(message)
+            return true
+        }
+        if messages.contains(where: { $0.id != message.id && $0.msgId == msgId }) {
+            AppLog.log(
+                "🧵 blocked duplicate in-memory message room=%@ msg_id=%@ reason=%@",
+                roomId,
+                msgId,
+                reason
+            )
+            return false
+        }
+        if storedMessageExists(msgId: msgId) {
+            AppLog.log(
+                "🧵 blocked duplicate stored message room=%@ msg_id=%@ reason=%@",
+                roomId,
+                msgId,
+                reason
+            )
+            return false
+        }
+        messages.append(message)
+        modelContext?.insert(message)
+        return true
+    }
+
+    private func isUniqueStoredMessage(_ message: ChatMessage, against existing: [ChatMessage]) -> Bool {
+        guard let msgId = message.msgId, !msgId.isEmpty else { return true }
+        return !existing.contains { $0.msgId == msgId }
+    }
+
+    private func storedMessageExists(msgId: String) -> Bool {
+        guard let modelContext else { return false }
+        let rid = roomId
+        var descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.msgId == msgId && $0.roomId == rid }
+        )
+        descriptor.fetchLimit = 1
+        do {
+            let existing = try modelContext.fetch(descriptor)
+            return !existing.isEmpty
+        } catch {
+            ErrorReporter.capture(error, context: "RoomViewModel.storedMessageExists")
+            AppLog.log(
+                "🧵 duplicate check failed closed room=%@ msg_id=%@: %@",
+                roomId,
+                msgId,
+                String(describing: error)
+            )
+            return true
         }
     }
 
@@ -181,6 +313,13 @@ final class RoomViewModel {
         ts: Int64
     ) {
         let isEdit = relation?.relType == "m.replace"
+        let pushFlag = cleartextPushFlag(outer)
+        let streamLive = MatrixTimelineMapper.shouldStream(
+            live: live,
+            isOwn: isOwn,
+            isEdit: isEdit,
+            pushFlag: pushFlag
+        )
         let body: String
         if isEdit, let newContent = content["m.new_content"] as? [String: Any],
            let edited = newContent["body"] as? String {
@@ -189,11 +328,32 @@ final class RoomViewModel {
             body = content["body"] as? String ?? ""
         }
         guard !body.isEmpty else { return }
+        if Self.isPureToolTranscript(body) {
+            AppLog.log(
+                "🧰 dropping tool transcript text room=%@ event_id=%@",
+                roomId,
+                outer.eventId ?? "nil"
+            )
+            return
+        }
 
         let streamKey = (isEdit ? relation?.eventId : outer.eventId) ?? outer.eventId ?? UUID().uuidString
-        let emits = mapper.ingest(eventId: streamKey, body: body, senderId: outer.sender ?? "", isOwn: isOwn, live: live)
+        if !streamLive, let active = mapper.activeStreamId, active != streamKey,
+           let emit = mapper.finalize(streamId: active, senderId: outer.sender ?? "") {
+            applyEmit(emit, ts: ts)
+        }
+        let emits = mapper.ingest(
+            eventId: streamKey,
+            body: body,
+            senderId: outer.sender ?? "",
+            isOwn: isOwn,
+            live: streamLive
+        )
         for emit in emits { applyEmit(emit, ts: ts) }
-        if mapper.activeStreamId != nil { scheduleFinalize(ts: ts) }
+        if MatrixTimelineMapper.isFinalEdit(isEdit: isEdit, pushFlag: pushFlag),
+           let emit = mapper.finalize(streamId: streamKey, senderId: outer.sender ?? "") {
+            applyEmit(emit, ts: ts)
+        }
     }
 
     /// chat4000.tool (protocol E, START-ONLY): one static chip per tool_id.
@@ -217,8 +377,8 @@ final class RoomViewModel {
         guard let state = content["state"] as? String else { return }
         let mapped: String
         switch state {
-        case "idle", "typing", "thinking": mapped = state
-        default: mapped = "thinking"
+        case "idle", "typing", "thinking", "working": mapped = state
+        default: mapped = "working"
         }
         AppLog.log("📊 status room=%@ state=%@ mapped=%@ ts=%@", roomId, state, mapped, String(ts))
         handleInnerMessage(InnerMessage(
@@ -247,17 +407,6 @@ final class RoomViewModel {
         }
     }
 
-    /// Matrix has no explicit "stream finished" signal beyond the final edit, so
-    /// settle the active stream after a quiet period.
-    private func scheduleFinalize(ts: Int64) {
-        finalizeTask?.cancel()
-        finalizeTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(800))
-            guard let self, !Task.isCancelled else { return }
-            if let emit = self.mapper.finalizeActiveStream() { self.applyEmit(emit, ts: ts) }
-        }
-    }
-
     // MARK: - InnerMessage → ChatMessage rendering
 
     private func handleInnerMessage(_ inner: InnerMessage) {
@@ -279,7 +428,9 @@ final class RoomViewModel {
                          waveform: b.waveform, id: inner.id, sender: sender)
         case .textDelta(let b):
             let streamId = b.streamId ?? inner.id
-            if currentStreamId != streamId { beginStreamingMessage(streamId: streamId, sender: sender) }
+            if currentStreamId != streamId {
+                guard beginStreamingMessage(streamId: streamId, sender: sender) else { return }
+            }
             currentStreamText += b.delta
             updateCurrentStreamingMessage(text: currentStreamText, sender: sender)
         case .textEnd(let b):
@@ -288,8 +439,10 @@ final class RoomViewModel {
                 cancelCurrentStreamingMessage(streamId: streamId)
             } else if currentStreamId == streamId {
                 finalizeCurrentStreamingMessage(text: b.text, sender: sender)
+            } else if isDuplicateInnerId(streamId) {
+                AppLog.log("🧵 textEnd skipping duplicate stream_id=%@", streamId)
             } else if currentStreamId == nil {
-                receiveText(b.text, id: inner.id, sender: sender)
+                receiveText(b.text, id: streamId, sender: sender)
             }
         case .status(let s):
             guard sender == .agent else { break }
@@ -297,6 +450,7 @@ final class RoomViewModel {
             latestStatusTs = inner.ts
             switch s.status {
             case "thinking": markBusy(phase: "Thinking", startTs: inner.ts)
+            case "working": markBusy(phase: "Working", startTs: inner.ts)
             case "typing": markBusy(phase: "Typing", startTs: inner.ts)
             case "idle": clearBusy()
             default: break
@@ -313,10 +467,9 @@ final class RoomViewModel {
     private func receiveText(_ text: String, id: String, sender: MessageSender) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if isDuplicateInnerId(id) { return }
-        Haptics.success()
         let message = ChatMessage(msgId: id, text: text, sender: sender, roomId: roomId)
-        messages.append(message)
-        modelContext?.insert(message)
+        guard appendAndInsertUnique(message, reason: "receive_text") else { return }
+        Haptics.success()
         persistContext()
         requestScrollToBottom()
     }
@@ -324,10 +477,9 @@ final class RoomViewModel {
     private func receiveImage(dataBase64: String, id: String, sender: MessageSender) {
         guard let imageData = Data(base64Encoded: dataBase64) else { return }
         if isDuplicateInnerId(id) { return }
-        Haptics.success()
         let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: roomId)
-        messages.append(message)
-        modelContext?.insert(message)
+        guard appendAndInsertUnique(message, reason: "receive_image") else { return }
+        Haptics.success()
         persistContext()
         requestScrollToBottom()
     }
@@ -335,41 +487,47 @@ final class RoomViewModel {
     private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender) {
         guard let audioData = Data(base64Encoded: dataBase64) else { return }
         if isDuplicateInnerId(id) { return }
-        Haptics.success()
         let message = ChatMessage(
             msgId: id, audioData: audioData, audioMimeType: mimeType,
             audioDuration: Double(durationMs) / 1000, audioWaveform: waveform,
             sender: sender, roomId: roomId)
-        messages.append(message)
-        modelContext?.insert(message)
+        guard appendAndInsertUnique(message, reason: "receive_audio") else { return }
+        Haptics.success()
         persistContext()
         requestScrollToBottom()
     }
 
-    private func beginStreamingMessage(streamId: String, sender: MessageSender) {
+    private func beginStreamingMessage(streamId: String, sender: MessageSender) -> Bool {
+        if isDuplicateInnerId(streamId) {
+            AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
+            return false
+        }
         currentStreamId = streamId
         currentStreamText = ""
         if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
             existing.text = ""
             existing.msgId = streamId
-        } else if isDuplicateInnerId(streamId) {
-            AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
         } else {
             let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending, roomId: roomId)
-            messages.append(message)
-            modelContext?.insert(message)
+            guard appendAndInsertUnique(message, reason: "stream_begin") else { return false }
             currentStreamMessageId = message.id
         }
         requestScrollToBottom()
+        return true
     }
 
     private func updateCurrentStreamingMessage(text: String, sender: MessageSender) {
         if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
             existing.text = text
+        } else if let streamId = currentStreamId, isDuplicateInnerId(streamId) {
+            AppLog.log("🧵 updateCurrentStreamingMessage skipping duplicate stream_id=%@", streamId)
         } else {
-            let message = ChatMessage(msgId: currentStreamId, text: text, sender: sender, status: .sending, roomId: roomId)
-            messages.append(message)
-            modelContext?.insert(message)
+            guard let streamId = currentStreamId else {
+                AppLog.log("🧵 updateCurrentStreamingMessage missing stream_id room=%@", roomId)
+                return
+            }
+            let message = ChatMessage(msgId: streamId, text: text, sender: sender, status: .sending, roomId: roomId)
+            guard appendAndInsertUnique(message, reason: "stream_update") else { return }
             currentStreamMessageId = message.id
         }
         requestScrollToBottom()
@@ -382,10 +540,9 @@ final class RoomViewModel {
             existing.status = .sent
         } else if let streamId = currentStreamId, isDuplicateInnerId(streamId) {
             AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
-        } else {
-            let message = ChatMessage(msgId: currentStreamId, text: text, sender: sender, roomId: roomId)
-            messages.append(message)
-            modelContext?.insert(message)
+        } else if let streamId = currentStreamId {
+            let message = ChatMessage(msgId: streamId, text: text, sender: sender, roomId: roomId)
+            _ = appendAndInsertUnique(message, reason: "stream_finalize")
         }
         currentStreamId = nil
         currentStreamText = ""
@@ -426,8 +583,7 @@ final class RoomViewModel {
         let bubble = ChatMessage(
             sender: sender, roomId: roomId, kind: .toolCall,
             toolId: toolId, toolName: toolName, toolIcon: icon)
-        messages.append(bubble)
-        modelContext?.insert(bubble)
+        guard appendAndInsertUnique(bubble, reason: "tool_call") else { return }
         persistContext()
         requestScrollToBottom()
     }
@@ -442,11 +598,7 @@ final class RoomViewModel {
 
     private func isDuplicateInnerId(_ id: String) -> Bool {
         if messages.contains(where: { $0.msgId == id }) { return true }
-        guard let modelContext else { return false }
-        var descriptor = FetchDescriptor<ChatMessage>(predicate: #Predicate { $0.msgId == id })
-        descriptor.fetchLimit = 1
-        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { return true }
-        return false
+        return storedMessageExists(msgId: id)
     }
 
     // MARK: - Ack / read routing (broadcast from the global model)
@@ -492,6 +644,14 @@ final class RoomViewModel {
               let eventId = relates["event_id"] as? String
         else { return nil }
         return (relType, eventId)
+    }
+
+    private func cleartextPushFlag(_ outer: SyncEvent) -> Bool? {
+        guard let obj = json(outer.rawJSON),
+              let content = obj["content"] as? [String: Any] else {
+            return nil
+        }
+        return content["chat4000.push"] as? Bool
     }
 
     private func intValue(_ value: Any?) -> Int? {
@@ -545,15 +705,12 @@ final class RoomViewModel {
     // MARK: - Outbound (only the front room sends; each uses its own roomId)
 
     func send(text: String) {
-        let message = ChatMessage(text: text, sender: .user, status: .sending, roomId: roomId)
-        messages.append(message)
-        modelContext?.insert(message)
+        let localId = UUID().uuidString
+        let message = ChatMessage(msgId: localId, text: text, sender: .user, status: .sending, roomId: roomId)
+        guard appendAndInsertUnique(message, reason: "send_text") else { return }
         persistContext()
         requestScrollToBottom()
 
-        let localId = UUID().uuidString
-        message.msgId = localId
-        persistContext()
         Task { await session.sendText(text, roomId: roomId, localId: localId) }
         TelemetryManager.shared.track(
             .messageSentText,
@@ -563,15 +720,12 @@ final class RoomViewModel {
     }
 
     func sendImage(data: Data, mimeType: String) {
-        let message = ChatMessage(imageData: data, sender: .user, status: .sending, roomId: roomId)
-        messages.append(message)
-        modelContext?.insert(message)
+        let localId = UUID().uuidString
+        let message = ChatMessage(msgId: localId, imageData: data, sender: .user, status: .sending, roomId: roomId)
+        guard appendAndInsertUnique(message, reason: "send_image") else { return }
         persistContext()
         requestScrollToBottom()
 
-        let localId = UUID().uuidString
-        message.msgId = localId
-        persistContext()
         Task { await session.sendImage(data, mimeType: mimeType, roomId: roomId, localId: localId) }
         TelemetryManager.shared.track(.messageSentImage, properties: ["source": "camera", "count": 1])
         if message.status == .sending { message.status = .sent }
@@ -579,17 +733,15 @@ final class RoomViewModel {
     }
 
     func sendAudio(data: Data, mimeType: String, duration: TimeInterval, waveform: [Float], source: String) {
+        let localId = UUID().uuidString
         let message = ChatMessage(
+            msgId: localId,
             audioData: data, audioMimeType: mimeType, audioDuration: duration,
             audioWaveform: waveform, sender: .user, status: .sending, roomId: roomId)
-        messages.append(message)
-        modelContext?.insert(message)
+        guard appendAndInsertUnique(message, reason: "send_audio") else { return }
         persistContext()
         requestScrollToBottom()
 
-        let localId = UUID().uuidString
-        message.msgId = localId
-        persistContext()
         Task {
             await session.sendAudio(
                 data, mimeType: mimeType, durationMs: Int((duration * 1000).rounded()),
