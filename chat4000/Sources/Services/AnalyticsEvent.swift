@@ -10,6 +10,7 @@ enum AnalyticsEvent: String {
     case messageSentText = "message_sent_text"
     case messageSentImage = "message_sent_image"
     case messageSentAudio = "message_sent_audio"
+    case htmlCardReceived = "html_card_received"
     case voiceRecordingStarted = "voice_recording_started"
     case voiceRecordingFinished = "voice_recording_finished"
     case voiceRecordingFailed = "voice_recording_failed"

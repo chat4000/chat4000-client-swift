@@ -11,6 +11,8 @@ struct MessageBubble: View {
         // their own header/expand/status UI distinct from text bubbles.
         if message.kind == .toolCall {
             ToolCallBubble(message: message)
+        } else if message.kind == .htmlCard {
+            HTMLCardBubble(message: message)
         } else {
             HStack(alignment: .top, spacing: 8) {
                 bubbleContent

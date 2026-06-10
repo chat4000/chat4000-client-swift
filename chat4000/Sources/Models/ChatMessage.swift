@@ -18,6 +18,7 @@ enum MessageStatus: String, Codable {
 enum MessageKind: String, Codable {
     case message
     case toolCall = "tool_call"
+    case htmlCard = "html_card"
     case unavailable
 }
 
@@ -44,6 +45,7 @@ final class ChatMessage {
     var audioMimeType: String?
     var audioDuration: Double?
     var audioWaveformData: Data?
+    var htmlCardHTML: String?
     var sender: MessageSender
     var timestamp: Date
     var status: MessageStatus
@@ -120,6 +122,7 @@ final class ChatMessage {
         status: MessageStatus = .sent,
         roomId: String? = nil,
         kind: MessageKind = .message,
+        htmlCardHTML: String? = nil,
         toolId: String? = nil,
         toolName: String? = nil,
         toolArgs: String? = nil,
@@ -145,6 +148,7 @@ final class ChatMessage {
         self.roomId = roomId
         self.matrixEventId = nil
         self.kindRaw = kind.rawValue
+        self.htmlCardHTML = htmlCardHTML
         self.toolId = toolId
         self.toolName = toolName
         self.toolArgs = toolArgs

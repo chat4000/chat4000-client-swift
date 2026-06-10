@@ -17,6 +17,7 @@
 		061DD07107510A886DFB24F6 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */; };
 		06A3761B4213833BD05E388F /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261757F4308024D0CDBD8824 /* ErrorReporter.swift */; };
 		0775F69200598C722BD4FA4A /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 68D83A1025C08CB45A6EFF30 /* Sentry */; };
+		0B109A8011F376F344AE74BF /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
 		0D290EDD37589C80800A63D9 /* ConfettiLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D51E8ACE688905C3A85420B /* ConfettiLab.swift */; };
 		0D4A36A4EFAB57F66E79AA38 /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 853062E21AF8E7B8FDDD38D4 /* MatrixEnvironment.swift */; };
 		0F6B6A2A88F66B8740A2E4FA /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D577136CE593FD82EF78E86F /* AppLog.swift */; };
@@ -130,9 +131,11 @@
 		AE9077B6572E9A1FAF84CC92 /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC626D09942862C10A3DE4B /* SlidingSync.swift */; };
 		B02F39E74B2C5CDAE84AFECE /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
 		B0BE4C42C5F53E1A1B1AE53C /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
+		B0EEACC8B6E90E1E3EB0B781 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
 		B16AEEC41FE3E265CAEB1488 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
 		B17C5F03F9550287E214BE74 /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
 		B28C845296443884C4AD197C /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
+		B29686244A17ABDF9A0DAE35 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
 		B3191AE96E6215A7F3A2DF25 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		B32DEB39084257E9A8EEA90F /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		B3439458F3DD828A0C77B797 /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
@@ -154,6 +157,7 @@
 		C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
 		CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
+		CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
 		CBD9415E86196C507B48311C /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
 		CBF9C19ECD484466C60C197E /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
 		CECD701C81C1A5420877FB98 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC091E5444DA21F658F41CE /* RoomViewModel.swift */; };
@@ -173,6 +177,7 @@
 		DA81A86F313D1C4ED4A16324 /* MatrixPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E310131C1553FBB80D41A92D /* MatrixPairing.swift */; };
 		DB36633D34F589487D8ED6D1 /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
 		DB7C6CCE509495B05D647B7E /* ChatViewModelRoomScopingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDCE40544DE6B79EB1ED760B /* ChatViewModelRoomScopingTests.swift */; };
+		DBA6749ED450A352E7A54FEA /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
 		DCA0A87EFF5DEBD7471790AE /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */; };
 		DE1533CBEAC0FDC85942DCA5 /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
 		E013DEB8130901A6F927CD4D /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF80C3D35458420BB02536E /* PushNotificationService.swift */; };
@@ -195,6 +200,7 @@
 		F26811CC469379438C76C3B3 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
 		F7070CFFF020F789D8061919 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF80C3D35458420BB02536E /* PushNotificationService.swift */; };
 		F72AF596F956CC0A0E19CA16 /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
+		F76F3F4C0F5B22E79814406A /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
 		FCFE7A586201F420E9AF6108 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
 		FE8E61893B9CEC1FCE1049BE /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */; };
 /* End PBXBuildFile section */
@@ -268,6 +274,7 @@
 		C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = chat4000Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CB8627734E252FE4E0D03E22 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		CFD3EEA77A3CD28EFBB6D86F /* TwoCursorSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoCursorSyncTests.swift; sourceTree = "<group>"; };
+		CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLCardSanitizer.swift; sourceTree = "<group>"; };
 		D577136CE593FD82EF78E86F /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessageViews.swift; sourceTree = "<group>"; };
 		DE9EA29D23E1AD0C71314E58 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -276,6 +283,7 @@
 		EDCE40544DE6B79EB1ED760B /* ChatViewModelRoomScopingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModelRoomScopingTests.swift; sourceTree = "<group>"; };
 		F20986EDB38AB39E9B87CF73 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModels.swift; sourceTree = "<group>"; };
+		F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLCardBubble.swift; sourceTree = "<group>"; };
 		F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -429,6 +437,8 @@
 			isa = PBXGroup;
 			children = (
 				5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */,
+				F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */,
+				CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */,
 				B2921479514ABE106F4A0EE2 /* MessageBubble.swift */,
 				2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */,
 				7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */,
@@ -811,6 +821,8 @@
 				06A3761B4213833BD05E388F /* ErrorReporter.swift in Sources */,
 				E8436C5B504D38765372E21B /* FounderChatPromptModal.swift in Sources */,
 				E3B1CDFE6CC7AFB2E4EACBEE /* GatewayClient.swift in Sources */,
+				0B109A8011F376F344AE74BF /* HTMLCardBubble.swift in Sources */,
+				F76F3F4C0F5B22E79814406A /* HTMLCardSanitizer.swift in Sources */,
 				CBD9415E86196C507B48311C /* Haptics.swift in Sources */,
 				00A7628C7B55491FDE2CDDD0 /* HapticsLab.swift in Sources */,
 				17CD4E0AA892F9F7CBB04CE8 /* IntercomMacSheet.swift in Sources */,
@@ -870,6 +882,8 @@
 				A2D4032429C03DA3F87B7C0F /* ErrorReporter.swift in Sources */,
 				A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */,
 				425F525EF0BEA5A6001EB4F8 /* GatewayClient.swift in Sources */,
+				CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */,
+				B0EEACC8B6E90E1E3EB0B781 /* HTMLCardSanitizer.swift in Sources */,
 				ADBA7109CFF1CB68A63FDF12 /* Haptics.swift in Sources */,
 				4C825D9B01473A59D9FF60C8 /* HapticsLab.swift in Sources */,
 				4AE8AC90DF5638962D2C19D9 /* IntercomMacSheet.swift in Sources */,
@@ -929,6 +943,8 @@
 				7E7C85F28D65340254A2F302 /* ErrorReporter.swift in Sources */,
 				452474235E7C879E9686978B /* FounderChatPromptModal.swift in Sources */,
 				851A2D6926F3E4E057C96E21 /* GatewayClient.swift in Sources */,
+				DBA6749ED450A352E7A54FEA /* HTMLCardBubble.swift in Sources */,
+				B29686244A17ABDF9A0DAE35 /* HTMLCardSanitizer.swift in Sources */,
 				D71964EA9FCE6279922ED795 /* Haptics.swift in Sources */,
 				A06A3D21029F79E807F38781 /* HapticsLab.swift in Sources */,
 				D6725C71873E18476DE50DFF /* IntercomMacSheet.swift in Sources */,

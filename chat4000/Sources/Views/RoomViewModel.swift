@@ -280,6 +280,16 @@ final class RoomViewModel {
             return
         }
 
+        if clearObj["type"] as? String == "chat4000.html_card" {
+            handleHTMLCard(
+                content: content,
+                sender: event.outer.sender,
+                isOwn: event.isOwn,
+                eventId: event.outer.eventId
+            )
+            return
+        }
+
         switch content["msgtype"] as? String {
         case "m.text", "m.notice", "m.emote":
             handleText(content: content, relation: relation, outer: event.outer, isOwn: event.isOwn, live: live, ts: ts)
@@ -294,6 +304,15 @@ final class RoomViewModel {
                        roomId, clearObj["type"] as? String ?? "nil",
                        content["msgtype"] as? String ?? "nil", String(event.isOwn), clear)
         }
+    }
+
+    private func handleHTMLCard(content: [String: Any], sender: String?, isOwn: Bool, eventId: String?) {
+        guard let html = content["html"] as? String else { return }
+        AppLog.log("🃏 html card payload room=%@ event_id=%@ len=%d html=%@",
+                   roomId, eventId ?? "nil", html.count, html)
+        let from = MatrixTimelineMapper.sender(matrixUserId: sender ?? "", isOwn: isOwn)
+        let messageSender: MessageSender = from.role == .app ? .user : .agent
+        receiveHTMLCard(html, id: eventId ?? UUID().uuidString, sender: messageSender)
     }
 
     private func handleUndecryptableEvent(_ event: DecryptedRoomEvent, live: Bool) {
@@ -567,6 +586,47 @@ final class RoomViewModel {
         requestScrollToBottom()
     }
 
+    private func receiveHTMLCard(_ html: String, id: String, sender: MessageSender) {
+        // Render the card's HTML as-authored (full CSS + JS). The renderer
+        // (HTMLCardBubble) is the security boundary: it runs in a WKWebView with
+        // ALL network loads blocked, so no sanitizing/stripping happens here.
+        let sanitizedHTML = html
+        guard sanitizedHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
+
+        if let streamId = currentStreamId {
+            cancelCurrentStreamingMessage(streamId: streamId)
+        }
+
+        if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
+            message.text = ""
+            message.kind = .htmlCard
+            message.htmlCardHTML = sanitizedHTML
+        }) { return }
+
+        if isDuplicateInnerId(id) { return }
+        let message = ChatMessage(
+            msgId: id,
+            text: "",
+            sender: sender,
+            roomId: roomId,
+            kind: .htmlCard,
+            htmlCardHTML: sanitizedHTML
+        )
+        guard appendAndInsertUnique(message, reason: "receive_html_card") else { return }
+        // Fire once per unique card that actually lands on this device (past the
+        // dedup/append guards), not on gateway re-deliveries.
+        TelemetryManager.shared.track(
+            .htmlCardReceived,
+            properties: [
+                "from": sender == .user ? "self" : "agent",
+                "html_length_bucket": AnalyticsBuckets.lengthBucket(for: sanitizedHTML)
+            ]
+        )
+        Haptics.success()
+        persistContext()
+        requestScrollToBottom()
+    }
+
     private func receiveUnavailable(id: String, sender: MessageSender) {
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(
@@ -595,6 +655,7 @@ final class RoomViewModel {
         message.audioMimeType = nil
         message.audioDuration = nil
         message.audioWaveformData = nil
+        message.htmlCardHTML = nil
         configure(message)
         persistContext()
         requestScrollToBottom()
