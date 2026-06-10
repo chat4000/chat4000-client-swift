@@ -188,9 +188,13 @@ final class VoiceNoteRecorder {
             // So: no BT options, override output to the speaker, and pin the built-in
             // mic — input and output both on the phone, which captures reliably and
             // leaves the AirPods untouched (no call-mode switch).
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
+            // Use `.record` (input-only), NOT `.playAndRecord`: a voice note never
+            // plays anything, and `.playAndRecord` establishes an OUTPUT route that
+            // touches the connected AirPods and flips them out of ANC/quiet into
+            // Transparency ("hear surroundings"). `.record` has no output route, so
+            // the AirPods are left entirely alone. Pin the built-in mic for input.
+            try session.setCategory(.record, mode: .default)
             try session.setActive(true)
-            try? session.overrideOutputAudioPort(.speaker)
             if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
                 try? session.setPreferredInput(builtIn)
             }
