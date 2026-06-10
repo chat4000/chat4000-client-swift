@@ -179,13 +179,21 @@ final class VoiceNoteRecorder {
         do {
             #if os(iOS)
             let session = AVAudioSession.sharedInstance()
-            // `.allowBluetooth` enables the HFP/SCO profile, which is the ONLY
-            // Bluetooth profile with a microphone — required to record from AirPods
-            // (or any BT headset). `.allowBluetoothA2DP` is OUTPUT-ONLY (no mic), so
-            // on its own a BT mic records 0 samples → a 0:00 clip.
-            try session.setCategory(.playAndRecord, mode: .spokenAudio,
-                                    options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+            // Record ENTIRELY on the built-in device (mic in + speaker out), with NO
+            // Bluetooth at all. Two reasons:
+            //  • `.allowBluetooth` (HFP) forces AirPods into "call mode" — disruptive.
+            //  • `.allowBluetoothA2DP` keeps AirPods as the OUTPUT, but then iOS has a
+            //    split route (built-in mic IN + Bluetooth OUT) and delivers NO input
+            //    samples → a valid-length but silent clip (dataBytes ≈ header only).
+            // So: no BT options, override output to the speaker, and pin the built-in
+            // mic — input and output both on the phone, which captures reliably and
+            // leaves the AirPods untouched (no call-mode switch).
+            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
             try session.setActive(true)
+            try? session.overrideOutputAudioPort(.speaker)
+            if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                try? session.setPreferredInput(builtIn)
+            }
             let inputs = session.currentRoute.inputs.map { "\($0.portType.rawValue)/\($0.portName)" }.joined(separator: ",")
             AppLog.log("🎙️ recording route inputs=[%@] sampleRate=%.0f", inputs, session.sampleRate)
             #endif
@@ -229,9 +237,12 @@ final class VoiceNoteRecorder {
 
         meterTask?.cancel()
         meterTask = nil
-        recorder.stop()
 
-        let duration = recorder.currentTime
+        // Read the length BEFORE stop() — `currentTime` returns 0 once the recorder
+        // is no longer recording. Fall back to the meter's last sampled value.
+        let liveTime = recorder.currentTime
+        recorder.stop()
+        let duration = liveTime > 0 ? liveTime : self.duration
         let waveform = VoiceWaveformBuilder.downsample(meterSamples)
 
         self.recorder = nil
@@ -255,6 +266,7 @@ final class VoiceNoteRecorder {
             try? FileManager.default.removeItem(at: currentURL)
             return nil
         }
+        AppLog.log("🎙️ stop: duration=%.2fs liveTime=%.2f dataBytes=%d", duration, liveTime, data.count)
 
         return RecordedVoiceClip(
             url: currentURL,
