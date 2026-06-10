@@ -179,8 +179,15 @@ final class VoiceNoteRecorder {
         do {
             #if os(iOS)
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            // `.allowBluetooth` enables the HFP/SCO profile, which is the ONLY
+            // Bluetooth profile with a microphone — required to record from AirPods
+            // (or any BT headset). `.allowBluetoothA2DP` is OUTPUT-ONLY (no mic), so
+            // on its own a BT mic records 0 samples → a 0:00 clip.
+            try session.setCategory(.playAndRecord, mode: .spokenAudio,
+                                    options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
             try session.setActive(true)
+            let inputs = session.currentRoute.inputs.map { "\($0.portType.rawValue)/\($0.portName)" }.joined(separator: ",")
+            AppLog.log("🎙️ recording route inputs=[%@] sampleRate=%.0f", inputs, session.sampleRate)
             #endif
             recorder = try AVAudioRecorder(url: url, settings: settings)
         } catch is CancellationError {
@@ -190,7 +197,10 @@ final class VoiceNoteRecorder {
             throw AppError.unexpected(error)
         }
         recorder.isMeteringEnabled = true
-        recorder.record()
+        let started = recorder.record()
+        if !started {
+            AppLog.log("🎙️ recorder.record() returned false — recording did not start")
+        }
 
         self.recorder = recorder
         currentURL = url
