@@ -226,16 +226,20 @@ struct SettingsSheet: View {
         .sheet(isPresented: $showFounderPromptTest) {
             FounderChatPromptModal(source: "settings_10tap_test")
         }
+        // iOS: full-screen cover (the sheet has its own X/Done dismiss). macOS:
+        // keep a sized sheet. fullScreenCover is iOS-only, so guard it.
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showAddDeviceInfo) {
+            AddDevicePairingSheet(session: matrixSession)
+        }
+        #else
         .sheet(isPresented: $showAddDeviceInfo) {
             AddDevicePairingSheet(session: matrixSession)
-                #if os(macOS)
                 .presentationDetents([.height(470)])
-                #else
-                .presentationDetents([.medium])
-                #endif
                 .presentationDragIndicator(.visible)
                 .presentationBackground(AppColors.cardBackground)
         }
+        #endif
         .alert(
             "Diagnostics",
             isPresented: $showDiagnosticAlert
@@ -653,7 +657,9 @@ struct AddDevicePairingSheet: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(AppColors.cardBackground)
+        // Edge-to-edge fill so the full-screen cover's background reaches the
+        // status bar / home indicator instead of leaving safe-area gaps.
+        .background(AppColors.cardBackground.ignoresSafeArea())
         // One click: opening the sheet immediately asks the plugin for a code, so
         // the QR + digits are on screen without a second "Create code" tap.
         .onAppear {
