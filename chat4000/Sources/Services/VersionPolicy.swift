@@ -48,6 +48,10 @@ final class VersionPolicyManager {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // FLW5: phone client_id on /version (omitted entirely when telemetry off).
+        if let clientId = ClientIdentity.headerClientId() {
+            request.setValue(clientId, forHTTPHeaderField: "X-Client-Id")
+        }
         request.httpBody = try? JSONSerialization.data(withJSONObject: Self.requestBody())
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),

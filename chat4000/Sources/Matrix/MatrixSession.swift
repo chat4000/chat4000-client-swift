@@ -172,7 +172,9 @@ final class MatrixSession {
 
     private(set) var lastCommandError: String?
     private(set) var lastPluginUpdateStatus: String?
-    private(set) var devicePairingState = DevicePairingState.idle
+    private(set) var devicePairingState = DevicePairingState.idle {
+        didSet { emitAddDeviceFunnelIfTerminal(from: oldValue.phase) }
+    }
 
     /// Per-event delivery to the timeline mapper (active room only, plus replay
     /// on room switch). `live` is false for backfilled/replayed history.
@@ -217,6 +219,9 @@ final class MatrixSession {
     @ObservationIgnored private var pendingDeleteRoomIds: [String] = []
 
     @ObservationIgnored private var pendingAutoOpen = false
+    /// CL7 source hint: true while a user-initiated `session.new` is outstanding, so
+    /// the next room that appears is attributed to "user" vs "plugin".
+    @ObservationIgnored private var pendingUserSessionCreate = false
     @ObservationIgnored private var autoOpenRoomId: String?
     @ObservationIgnored private var reconnectAttempts = 0
     /// Protocol D.1 two-cursor sliding sync: the last to-device cursor we have
@@ -276,6 +281,10 @@ final class MatrixSession {
             // inherit a stale key DB (different user / device_id).
             Self.wipeCryptoStore()
             try await startClient(stored)
+            // CL1 pairing_completed (declared-but-never-emitted regression fix) +
+            // CL6 account_linked (event + $set + register super prop), once per pair.
+            TelemetryManager.shared.track(.pairingCompleted, properties: ["flow": "matrix_join"])
+            TelemetryManager.shared.linkAccount(userId: redeemed.userId)
         } catch .cancelled {
             // Benign — a torn-down pairing flow. Don't surface as a failure.
             AppLog.log("⚙️ Matrix pairing cancelled")
@@ -285,6 +294,8 @@ final class MatrixSession {
             // happened at the boundary that produced the AppError.
             applyGatewayVersionGateIfNeeded(error)
             connectionState = .failed(error.message)
+            TelemetryManager.shared.track(.pairingFailed,  // CL2
+                                          properties: ["flow": "matrix_join", "reason": error.message])
             AppLog.log("❌ Matrix pairing failed: \(error)")
         }
     }
@@ -452,6 +463,11 @@ final class MatrixSession {
                 String(restoredRoomSnapshot),
                 savedRoomPos ?? "nil"
             )
+            TelemetryManager.shared.track(.fullSyncTriggered, properties: [  // CL15
+                "rooms_in_memory": roomOrder.count,
+                "restored_snapshot": restoredRoomSnapshot,
+                "had_saved_pos": savedRoomPos != nil
+            ])
         }
         // The TO-DEVICE cursor is independent of the room snapshot (two cursors,
         // D.1). Its keys live in the crypto store (which survives a cold launch),
@@ -472,9 +488,22 @@ final class MatrixSession {
         }
     }
 
+    /// The socket dropped. Start a reconnect cycle — but ONLY if we were connected
+    /// (ignore spurious closes while disconnected/already reconnecting, so we never
+    /// spin up two parallel loops).
     private func handleSocketClosed() async {
         guard connectionState == .connected else { return }
         connectionState = .reconnecting
+        await reconnectLoop()
+    }
+
+    /// Back off and retry until we reconnect (startClient flips state to
+    /// `.connected` and zeroes `reconnectAttempts`) or the state leaves
+    /// `.reconnecting` (e.g. the user signs out). This is the RETRY step and must
+    /// NOT be gated on `== .connected` — that guard belongs to `handleSocketClosed`
+    /// only; gating the retry there is what previously stopped reconnection dead
+    /// after a single failed attempt, stranding the app on "Connecting".
+    private func reconnectLoop() async {
         reconnectAttempts += 1
         let delay = min(60, Int(pow(2.0, Double(min(reconnectAttempts, 6)))))
         AppLog.log("🔌 gateway closed — reconnecting in \(delay)s (attempt \(reconnectAttempts))")
@@ -488,8 +517,8 @@ final class MatrixSession {
             AppLog.log("⚙️ reconnect cancelled")
         } catch {
             // Classified (and, if unexpected, reported) at the boundary already.
-            AppLog.log("❌ reconnect failed: \(error)")
-            await handleSocketClosed()
+            AppLog.log("❌ reconnect failed: \(error) — retrying")
+            await reconnectLoop()
         }
     }
 
@@ -944,15 +973,25 @@ final class MatrixSession {
         if let title, !title.isEmpty { fields["title"] = String(title.prefix(255)) }
         sendControlCommand(fields)
         pendingAutoOpen = true
+        pendingUserSessionCreate = true  // CL7: the resulting new room is user-sourced
+    }
+
+    /// CL7: consume the source attribution for one newly-appeared room. Returns
+    /// "user" once after a local `requestNewSession`, "plugin" otherwise.
+    func consumeSessionCreateSource() -> String {
+        defer { pendingUserSessionCreate = false }
+        return pendingUserSessionCreate ? "user" : "plugin"
     }
 
     func renameSession(roomId: String, title: String) {
         sendControlCommand(["command": "session.rename", "room_id": roomId, "title": String(title.prefix(255))])
+        TelemetryManager.shared.track(.sessionRenamed, properties: ["session_count": rooms.count])  // CL9
     }
 
     func deleteSession(roomId: String) {
         pendingDeleteRoomIds.append(roomId)
         sendControlCommand(["command": "session.delete", "room_id": roomId])
+        TelemetryManager.shared.track(.sessionDeleted, properties: ["session_count": rooms.count])  // CL10
     }
 
     func pinSession(roomId: String) {
@@ -977,8 +1016,31 @@ final class MatrixSession {
             )
             return
         }
+        TelemetryManager.shared.track(.addDeviceFlowStarted)  // CL21
         devicePairingState = DevicePairingState(phase: .starting)
         sendControlCommand(["command": "device.pair_start"])
+    }
+
+    /// CL21 add-device funnel close: emit once per terminal transition. `completed`
+    /// → success; `failed`/`expired`/`cancelled` → `_failed {reason}` (every
+    /// non-completion closes the funnel so started/completed/failed reconcile).
+    private func emitAddDeviceFunnelIfTerminal(from oldPhase: DevicePairingState.Phase) {
+        let new = devicePairingState.phase
+        guard new != oldPhase else { return }
+        switch new {
+        case .completed:
+            TelemetryManager.shared.track(.addDeviceFlowCompleted)
+        case .failed, .expired, .cancelled:
+            let reason: String
+            switch new {
+            case .expired: reason = "expired"
+            case .cancelled: reason = "cancelled"
+            default: reason = devicePairingState.message ?? "failed"
+            }
+            TelemetryManager.shared.track(.addDeviceFlowFailed, properties: ["reason": reason])
+        default:
+            break
+        }
     }
 
     func cancelDevicePairing() {
@@ -1281,6 +1343,8 @@ final class MatrixSession {
         if pinned { next.insert(roomId, at: 0) }
         pinnedRoomIds = Self.sanitizedPinnedRoomIds(next)
         rebuildRoomList()
+        TelemetryManager.shared.track(pinned ? .sessionPinned : .sessionUnpinned,  // CL11
+                                      properties: ["session_count": rooms.count])
         let ids = pinnedRoomIds
         Task { [weak self] in
             await self?.persistPinnedRoomIds(ids)
@@ -1294,6 +1358,8 @@ final class MatrixSession {
             mutedRoomIds.remove(roomId)
         }
         rebuildRoomList()
+        TelemetryManager.shared.track(muted ? .sessionMuted : .sessionUnmuted,  // CL12
+                                      properties: ["session_count": rooms.count])
     }
 
     private func persistPinnedRoomIds(_ ids: [String]) async {

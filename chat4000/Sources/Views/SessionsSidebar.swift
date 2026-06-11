@@ -91,6 +91,11 @@ struct ChatShell: View {
                 let added = ids.subtracting(knownRoomIds)
                 knownRoomIds = ids
                 if !added.isEmpty { Haptics.celebrate() }
+                for _ in added {  // CL7 session_created — one per brand-new room
+                    let source = viewModel.matrixSession.consumeSessionCreateSource()
+                    TelemetryManager.shared.track(.sessionCreated,
+                                                  properties: ["source": source, "session_count": ids.count])
+                }
             }
             #if os(macOS)
             // macOS Settings: a tap-to-dismiss overlay (a sheet would be modal and
@@ -116,7 +121,7 @@ struct ChatShell: View {
                     matrixSession: viewModel.matrixSession,
                     pluginVersion: nil,
                     pluginBundleId: nil,
-                    onDisconnect: viewModel.disconnect,
+                    onDisconnect: viewModel.disconnectTapped,
                     onClearHistory: viewModel.clearHistory,
                     onClose: { showSettings = false }
                 )

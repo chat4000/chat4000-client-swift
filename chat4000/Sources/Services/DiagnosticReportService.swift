@@ -9,8 +9,11 @@ import Foundation
 /// ProcessInfo for system metadata.
 ///
 /// Triggered by the 20-tap gesture on the "Privacy" header in
-/// `SettingsSheet`. Fires PostHog events at every stage so a missing
-/// upload still leaves an auditable trail in our analytics.
+/// `SettingsSheet`. Emits CL23 `diagnostic_started` / `diagnostic_completed`
+/// through `TelemetryManager.track` (same identity + toggle gate as every
+/// other event), so a missing upload still leaves a trail in analytics —
+/// except when the user has opted out, where nothing is sent and the upload
+/// URL itself is the support channel.
 @MainActor
 final class DiagnosticReportService {
     static let shared = DiagnosticReportService()
@@ -36,8 +39,6 @@ final class DiagnosticReportService {
     ///   openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
     ///     -in bundle.enc -out bundle.tar.gz -pass pass:<this>
     private static let sharedPassword = "chat4000-support-diag-shared-2026"
-    private static let posthogHost = "https://us.i.posthog.com"
-    private static let posthogApiKey = "phc_s49DnTamyFDnEC6MyumNmmjjf7p455LXCVzPE94hPemZ"
     private static let uploadEndpoint = "https://uguu.se/upload"
 
     private let sessionId = UUID().uuidString
@@ -59,20 +60,34 @@ final class DiagnosticReportService {
         }
     }
 
+    // CL23: just two events — `diagnostic_started`, then `diagnostic_completed`
+    // with `path` (uploaded|collect_failed|encrypt_failed|upload_failed), `url?`,
+    // `bundle_size_bytes`, and `elapsed_ms`. Routed through `TelemetryManager.track`
+    // like every other event (OQ1 ruling): distinct_id = client_id, toggle-gated,
+    // joins the same PostHog person. The accepted consequence is that an opted-out
+    // user's diagnostic upload leaves no analytics trail — the upload still works and
+    // surfaces its URL, which is the real support channel.
+    private func emitCompleted(path: String, bundleSize: Int, url: String? = nil) {
+        var props: [String: Any] = [
+            "path": path,
+            "bundle_size_bytes": bundleSize,
+            "session_id": sessionId,
+            "elapsed_ms": Int(Date().timeIntervalSince(startedAt) * 1000)
+        ]
+        if let url { props["url"] = url }
+        TelemetryManager.shared.track(.diagnosticCompleted, properties: props)
+    }
+
     private func runReportAsync() async {
-        emit("diagnostic_started")
+        TelemetryManager.shared.track(.diagnosticStarted, properties: ["session_id": sessionId])
         status = .collecting
 
         let json: Data
         do {
             json = try await collectBundleJSON()
-            emit(
-                "diagnostic_bundle_built",
-                ["bundle_size_bytes": json.count]
-            )
         } catch {
             ErrorReporter.capture(error, context: "DiagnosticReportService.collect")
-            emit("diagnostic_collect_failed", ["error": String(describing: error)])
+            emitCompleted(path: "collect_failed", bundleSize: 0)
             status = .failed(reason: "Could not collect diagnostics")
             return
         }
@@ -84,13 +99,9 @@ final class DiagnosticReportService {
                 plaintext: json,
                 password: Self.sharedPassword
             )
-            emit(
-                "diagnostic_bundle_encrypted",
-                ["bundle_size_bytes": encrypted.count]
-            )
         } catch {
             ErrorReporter.capture(error, context: "DiagnosticReportService.encrypt")
-            emit("diagnostic_encrypt_failed", ["error": String(describing: error)])
+            emitCompleted(path: "encrypt_failed", bundleSize: json.count)
             status = .failed(reason: "Could not encrypt diagnostics")
             return
         }
@@ -98,21 +109,11 @@ final class DiagnosticReportService {
         status = .uploading
         do {
             let url = try await uploadToUguu(data: encrypted)
-            emit(
-                "diagnostic_bundle_uploaded",
-                [
-                    "url": url,
-                    "bundle_size_bytes": encrypted.count,
-                    "host": "uguu.se",
-                    "retention_hours": 48
-                ]
-            )
-            emit("diagnostic_completed", ["path": "uploaded"])
+            emitCompleted(path: "uploaded", bundleSize: encrypted.count, url: url)
             status = .succeeded(url: url)
         } catch {
             ErrorReporter.capture(error, context: "DiagnosticReportService.upload")
-            emit("diagnostic_upload_failed", ["error": String(describing: error)])
-            emit("diagnostic_completed", ["path": "upload_failed"])
+            emitCompleted(path: "upload_failed", bundleSize: encrypted.count)
             status = .failed(reason: "Could not upload diagnostics")
         }
     }
@@ -441,51 +442,4 @@ final class DiagnosticReportService {
         return url
     }
 
-    // MARK: - PostHog (fire-and-forget, mirrors diagnose.py event names)
-
-    private func emit(_ event: String, _ extras: [String: Any] = [:]) {
-        #if os(macOS)
-        let platformName = "macos"
-        #else
-        let platformName = "ios"
-        #endif
-        var properties: [String: Any] = [
-            "$lib": "chat4000-diagnose-inapp",
-            "$lib_version": "1.0",
-            "platform": platformName,
-            "session_id": sessionId,
-            "elapsed_ms": Int(Date().timeIntervalSince(startedAt) * 1000),
-            "host_name": ProcessInfo.processInfo.hostName,
-            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
-            "app_build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "",
-            "app_bundle_id": Bundle.main.bundleIdentifier ?? "",
-            "macos_version": {
-                let v = ProcessInfo.processInfo.operatingSystemVersion
-                return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
-            }()
-        ]
-        for (k, v) in extras { properties[k] = v }
-
-        let payload: [String: Any] = [
-            "api_key": Self.posthogApiKey,
-            "event": event,
-            "distinct_id": distinctId(),
-            "properties": properties
-        ]
-        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
-
-        var req = URLRequest(url: requireURL("\(Self.posthogHost)/i/v0/e/"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("chat4000-diagnose-inapp/1.0", forHTTPHeaderField: "User-Agent")
-        req.httpBody = body
-        req.timeoutInterval = 5
-        URLSession.shared.dataTask(with: req).resume()
-    }
-
-    private func distinctId() -> String {
-        // Stable per-machine id derived from hostname. We deliberately
-        // don't pull the IOPlatformUUID (sandbox can't read ioreg).
-        "mac-\(ProcessInfo.processInfo.hostName)"
-    }
 }

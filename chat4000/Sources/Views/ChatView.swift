@@ -73,7 +73,7 @@ struct ChatView: View {
                 matrixSession: viewModel.matrixSession,
                 pluginVersion: nil,
                 pluginBundleId: nil,
-                onDisconnect: viewModel.disconnect,
+                onDisconnect: viewModel.disconnectTapped,
                 onClearHistory: viewModel.clearHistory,
                 onClose: { showSettings = false }
             )
@@ -1159,6 +1159,8 @@ final class ChatViewModel {
     /// up to date.
     func switchRoom(id: String) {
         matrixSession.selectRoom(id)
+        TelemetryManager.shared.track(.sessionSwitched,  // CL8
+                                      properties: ["session_count": matrixSession.rooms.count])
     }
 
     /// Session reset (new pairing / signed out) — no room is front.
@@ -1192,8 +1194,18 @@ final class ChatViewModel {
         await matrixSession.backgroundWake()
     }
 
+    /// CL14: user tapped "Disconnect" in Settings (a churn signal) — distinct from
+    /// the programmatic disconnects (pairing-cancel / start-over) that call
+    /// `disconnect()` directly without emitting.
+    func disconnectTapped() {
+        TelemetryManager.shared.track(.disconnectTapped,
+                                      properties: ["session_count": matrixSession.rooms.count])
+        disconnect()
+    }
+
     func disconnect() {
         connectionState = .disconnected
+        TelemetryManager.shared.clearAccount()  // CL6: drop user_id super prop on sign-out
         Task { await matrixSession.signOut() }
     }
 
@@ -1226,6 +1238,8 @@ final class ChatViewModel {
 
     func clearHistory() {
         frontRoom?.clearHistory()
+        TelemetryManager.shared.track(.clearHistoryConfirmed,  // CL13
+                                      properties: ["session_count": matrixSession.rooms.count])
     }
 }
 

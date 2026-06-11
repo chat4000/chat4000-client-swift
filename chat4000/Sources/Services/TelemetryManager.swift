@@ -30,11 +30,19 @@ final class TelemetryManager {
         return id.isEmpty ? nil : id
     }
 
+    /// IDN1 — the analytics `client_id` to send (`X-Client-Id`, FLW1/FLW5) and use
+    /// as the PostHog distinct_id. nil whenever telemetry is off, so callers omit
+    /// the header entirely then.
+    var clientId: String? {
+        guard isCollectionEnabled else { return nil }
+        return ClientIdentity.existingClientId()
+    }
+
     func configure(from json: [String: Any]?) {
         config = Config(
             sentryDsn: json?["sentryDsn"] as? String,
             postHogApiKey: json?["posthogApiKey"] as? String,
-            postHogHost: json?["posthogHost"] as? String ?? "https://us.i.posthog.com",
+            postHogHost: json?["posthogHost"] as? String ?? "https://posthog.chat4000.com",
             postHogProjectId: json?["posthogProjectId"] as? String,
             postHogSessionReplayEnabled: (json?["posthogSessionReplayEnabled"] as? Bool) ?? false
         )
@@ -181,6 +189,46 @@ final class TelemetryManager {
               config.postHogProjectId ?? "unknown",
               config.postHogHost,
               config.postHogSessionReplayEnabled ? "true" : "false")
+        bootstrapIdentity()
+    }
+
+    /// IDN1/IDN3/INF6 — establish this device's analytics identity once telemetry
+    /// is live: classify the (re)install, set `client_id` as the distinct_id, tag
+    /// Sentry, and emit exactly one CL3/CL4/CL5 event.
+    private func bootstrapIdentity() {
+        // IDN3: read marker state BEFORE creating either marker.
+        let classification = ClientIdentity.classifyFirstLaunch()
+        // IDN1/IDN2: ensure both markers now exist; client_id is the distinct_id.
+        let clientId = ClientIdentity.ensureClientId()
+        ClientIdentity.ensureAppDeviceId()
+        PostHogSDK.shared.identify(clientId)
+        // INF6: crashes join product analytics.
+        if sentryStarted {
+            SentrySDK.configureScope { $0.setTag(value: clientId, key: "client_id") }
+        }
+        // CL3/CL4/CL5 — at most one, never on an ordinary launch.
+        switch classification {
+        case .normalLaunch: break
+        case .installed: track(.appInstalled)
+        case .reinstalled: track(.appReinstalled)
+        case .deviceSwapped: track(.deviceSwapped)
+        }
+    }
+
+    /// IDN4 / CL6 — once at pairing: emit `account_linked`, $set the `user_id`
+    /// person property, and register it as a super property so every later event
+    /// (and all of a user's devices) joins natively.
+    func linkAccount(userId: String) {
+        guard postHogStarted, isCollectionEnabled, !userId.isEmpty else { return }
+        PostHogSDK.shared.register(["user_id": userId])
+        setPersonProperties(["user_id": userId])
+        track(.accountLinked, properties: ["user_id": userId])
+    }
+
+    /// Clear the `user_id` super property on disconnect / sign-out (IDN4).
+    func clearAccount() {
+        guard postHogStarted else { return }
+        PostHogSDK.shared.unregister("user_id")
     }
 
     private func stopSentryIfNeeded() {
@@ -192,6 +240,10 @@ final class TelemetryManager {
 
     private func stopPostHogIfNeeded() {
         guard postHogStarted else { return }
+        // IDN1: opt-out deletes the keychain client_id (and the local marker) so a
+        // later reinstall cannot re-link, and resets the SDK's stored ids.
+        ClientIdentity.clearForOptOut()
+        PostHogSDK.shared.reset()
         PostHogSDK.shared.optOut()
         PostHogSDK.shared.close()
         postHogStarted = false

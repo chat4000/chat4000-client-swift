@@ -161,7 +161,14 @@ struct chat4000App: App {
                     }
                     Task { await runVersionCheck() }
                     PushNotificationManager.shared.clearBadge()
-                    TelemetryManager.shared.track(.appOpened)
+                    // CL24 app_opened (CHANGED): push attribution + session count.
+                    let opened = PushNotificationManager.consumeOpenSource()
+                    var openedProps: [String: Any] = [
+                        "source": opened.source,
+                        "session_count": chatViewModel.matrixSession.rooms.count
+                    ]
+                    if let pushId = opened.pushId { openedProps["push_id"] = pushId }
+                    TelemetryManager.shared.track(.appOpened, properties: openedProps)
                     presentPendingFounderPromptIfPossible()
                 case .background:
                     // v2: leave the Matrix sync running; silent push + SDK
@@ -171,10 +178,17 @@ struct chat4000App: App {
                     break
                 }
             }
+            // Custom scheme (chat4000://…) and, on some iOS versions, universal links.
             .onOpenURL { url in
                 AppLog.log("🎯 onOpenURL %@", url.absoluteString)
-                guard let action = LaunchActionStore.action(for: url) else { return }
-                LaunchActionStore.set(action)
+                handleIncomingURL(url)
+            }
+            // Universal links (https://chat4000.com/…) are delivered as a browsing-web
+            // user activity.
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                guard let url = activity.webpageURL else { return }
+                AppLog.log("🎯 universalLink %@", url.absoluteString)
+                handleIncomingURL(url)
             }
             .onReceive(NotificationCenter.default.publisher(for: PushNotificationManager.founderChatPromptRequested)) { _ in
                 presentPendingFounderPromptIfPossible()
@@ -370,6 +384,48 @@ struct chat4000App: App {
     /// v2 pairing: the input is a provisioning pairing code (or a
     /// `chat4000://pair?code=…` URI). Redeem → `m.login.token` → Matrix client.
     /// Connection state drives routing (see `onChange(connectionState)`).
+    /// Route an incoming URL (universal link or custom scheme). A `/pair?code=…`
+    /// link starts pairing with that code via the SAME flow as manual entry; any
+    /// other URL falls through to the launch-action store (record/compose) and is
+    /// otherwise ignored silently. Never crashes on a malformed URL.
+    private func handleIncomingURL(_ url: URL) {
+        if let code = pairingCode(from: url) {
+            TelemetryManager.shared.track(
+                .pairingLinkOpened,
+                properties: ["source": url.scheme?.lowercased() == "chat4000" ? "url_scheme" : "universal_link"]
+            )
+            startJoinPairing(code)
+            return
+        }
+        if let action = LaunchActionStore.action(for: url) {
+            LaunchActionStore.set(action)
+        }
+        // Any other path / malformed URL: ignore.
+    }
+
+    /// Returns the 6-digit pairing code IFF `url` is a pairing link —
+    /// `https://chat4000.com/pair?code=NNNNNN` or `chat4000://pair?code=NNNNNN`.
+    /// Any other host/path/scheme, or a non-6-digit code, returns nil.
+    private func pairingCode(from url: URL) -> String? {
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let isPairLink: Bool
+        switch comps.scheme?.lowercased() {
+        case "https", "http":
+            guard comps.host?.lowercased() == "chat4000.com" else { return nil }
+            isPairLink = comps.path.lowercased() == "/pair"
+        case "chat4000":
+            // chat4000://pair?code=… → host is "pair"; tolerate chat4000:///pair too.
+            isPairLink = (comps.host?.lowercased() == "pair") || comps.path.lowercased() == "/pair"
+        default:
+            return nil
+        }
+        guard isPairLink,
+              let raw = comps.queryItems?.first(where: { $0.name.lowercased() == "code" })?.value
+        else { return nil }
+        let digits = raw.filter(\.isNumber)
+        return digits.count == 6 ? digits : nil
+    }
+
     private func startJoinPairing(_ input: String) {
         if currentScreen == .pairingConnecting {
             AppLog.log("🔗 Ignoring duplicate pairing while already connecting")

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0074E4CED22D8224F9A75456 /* Vortex in Frameworks */ = {isa = PBXBuildFile; productRef = 17C44517B3E0325CF69F0E3C /* Vortex */; };
 		00A7628C7B55491FDE2CDDD0 /* HapticsLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E7B14B025FB6F40EE0AC93 /* HapticsLab.swift */; };
+		023A38F1C99E034E5DF1CDA2 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */; };
 		02794D67F6CA9B2669FC742E /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 27DD8B1B5470369FA558FD3B /* PostHog */; };
 		0364B3874AAF31DED6B7C459 /* MatrixPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E310131C1553FBB80D41A92D /* MatrixPairing.swift */; };
 		037D7F783761A291BCD4C3EE /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
@@ -110,6 +111,7 @@
 		8E54EB443783828799BEB98C /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */; };
 		8EAA0DB6BE568DE1EFD8D966 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF80C3D35458420BB02536E /* PushNotificationService.swift */; };
 		901B4441638C91545DFBF037 /* VersionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D22FFACA5DC05AF48ADCA48 /* VersionPolicy.swift */; };
+		9414C8FA74298DE0DF48D759 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */; };
 		951BDD41D642B4F282A7394A /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
 		97641E21234E8E7EF2BCD7DF /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC626D09942862C10A3DE4B /* SlidingSync.swift */; };
 		99E8BC0DAC306E76C0685513 /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
@@ -153,6 +155,7 @@
 		C0A642664DD26D34F0EF7473 /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
 		C0E817156022C9EA75130D3A /* SPConfetti in Frameworks */ = {isa = PBXBuildFile; productRef = 0BDCF56CEA31C1B624465D7C /* SPConfetti */; };
 		C265CC61705A11DF0DF9B14B /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
+		C57FE15325AD5536DBA5C4B1 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */; };
 		C5D9C9266871FE067F588E12 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
 		C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
@@ -257,6 +260,7 @@
 		8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryPreferences.swift; sourceTree = "<group>"; };
 		987E633C3AE8037A73BDD2D2 /* dev-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dev-config.json"; sourceTree = "<group>"; };
 		9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsEvent.swift; sourceTree = "<group>"; };
+		A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientIdentity.swift; sourceTree = "<group>"; };
 		A816A1C283669BC3405C6770 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		A98FA24EA5A373862282F6C4 /* VersionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionPolicyTests.swift; sourceTree = "<group>"; };
 		ABF80C3D35458420BB02536E /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
@@ -480,6 +484,7 @@
 				9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */,
 				7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */,
 				D577136CE593FD82EF78E86F /* AppLog.swift */,
+				A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */,
 				180349B31809B66A001D8B94 /* DiagnosticReportService.swift */,
 				261757F4308024D0CDBD8824 /* ErrorReporter.swift */,
 				F20986EDB38AB39E9B87CF73 /* Haptics.swift */,
@@ -813,6 +818,7 @@
 				C265CC61705A11DF0DF9B14B /* CameraCaptureView.swift in Sources */,
 				61C94687A4B83B85DB92D515 /* ChatMessage.swift in Sources */,
 				8736C6B4AD69A58019841C2E /* ChatView.swift in Sources */,
+				023A38F1C99E034E5DF1CDA2 /* ClientIdentity.swift in Sources */,
 				0D290EDD37589C80800A63D9 /* ConfettiLab.swift in Sources */,
 				79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */,
 				061DD07107510A886DFB24F6 /* ConnectionState.swift in Sources */,
@@ -874,6 +880,7 @@
 				3B682D685AF528D32A08FF03 /* CameraCaptureView.swift in Sources */,
 				CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */,
 				17FF7D222DEC65AB68EE2188 /* ChatView.swift in Sources */,
+				C57FE15325AD5536DBA5C4B1 /* ClientIdentity.swift in Sources */,
 				F01BAE5B0DB77740AB438AC1 /* ConfettiLab.swift in Sources */,
 				E0CDCB82C7CE9FAA666FC30F /* ConnectingView.swift in Sources */,
 				8ACDD02C4B7F64F036A9424F /* ConnectionState.swift in Sources */,
@@ -935,6 +942,7 @@
 				3C51C0C38CA6BCC5EE598377 /* CameraCaptureView.swift in Sources */,
 				B32DEB39084257E9A8EEA90F /* ChatMessage.swift in Sources */,
 				037D7F783761A291BCD4C3EE /* ChatView.swift in Sources */,
+				9414C8FA74298DE0DF48D759 /* ClientIdentity.swift in Sources */,
 				EA71EAA46A46B7ED3009A942 /* ConfettiLab.swift in Sources */,
 				BBFCF7DD06B72A18B1DBC63E /* ConnectingView.swift in Sources */,
 				60342C78A130F40DD1726710 /* ConnectionState.swift in Sources */,

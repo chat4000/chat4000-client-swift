@@ -238,6 +238,7 @@ final class PushNotificationManager: NSObject {
 
         do {
             try await UNUserNotificationCenter.current().add(request)
+            TelemetryManager.shared.track(.notificationDisplayed, properties: ["type": "message"])  // CL16
             AppLog.log(
                 "🔔 [push] local notification scheduled id=%@ title=%@ body_length=%ld body_prefix=%@",
                 request.identifier,
@@ -255,6 +256,38 @@ final class PushNotificationManager: NSObject {
     private func isSilentPush(_ userInfo: [AnyHashable: Any]) -> Bool {
         guard let aps = userInfo["aps"] as? [String: Any] else { return false }
         return (aps["content-available"] as? Int) == 1
+    }
+
+    // MARK: - Analytics helpers (CL16 / CL17 / CL24)
+
+    private nonisolated static let pendingOpenViaPushKey = "chat4000.analytics.pendingOpenViaPush"
+    private nonisolated static let pendingOpenPushIdKey = "chat4000.analytics.pendingOpenPushId"
+
+    /// CL16/CL17 notification `type`: a founder-chat prompt vs an ordinary message.
+    nonisolated static func notificationType(_ userInfo: [AnyHashable: Any]) -> String {
+        (userInfo["type"] as? String) == "founder_chat_prompt" ? "founder_prompt" : "message"
+    }
+
+    /// CL24: record that the app is being entered via a notification tap; the next
+    /// `app_opened` consumes this to attribute `source=push`. UserDefaults so the
+    /// nonisolated delegate callback can write it synchronously off the main actor.
+    nonisolated static func markOpenedViaPush(pushId: String?) {
+        UserDefaults.standard.set(true, forKey: pendingOpenViaPushKey)
+        if let pushId {
+            UserDefaults.standard.set(pushId, forKey: pendingOpenPushIdKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: pendingOpenPushIdKey)
+        }
+    }
+
+    /// CL24: read + clear the open attribution. Returns `("push", pushId?)` once
+    /// after a tap, else `("direct", nil)`.
+    nonisolated static func consumeOpenSource() -> (source: String, pushId: String?) {
+        let viaPush = UserDefaults.standard.bool(forKey: pendingOpenViaPushKey)
+        let pushId = UserDefaults.standard.string(forKey: pendingOpenPushIdKey)
+        UserDefaults.standard.removeObject(forKey: pendingOpenViaPushKey)
+        UserDefaults.standard.removeObject(forKey: pendingOpenPushIdKey)
+        return viaPush ? ("push", pushId) : ("direct", nil)
     }
 
     private static func notificationMatches(roomId: String, request: UNNotificationRequest) -> Bool {
@@ -288,7 +321,12 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             let source = (userInfo["source"] as? String) ?? "push"
             let modalTitle = userInfo["modal_title"] as? String
             let modalBody = userInfo["modal_body"] as? String
+            let pushId = userInfo["push_id"] as? String
             Task { @MainActor in
+                // CL16 notification_displayed (founder prompt, foreground present).
+                var props: [String: Any] = ["type": "founder_prompt"]
+                if let pushId { props["push_id"] = pushId }
+                TelemetryManager.shared.track(.notificationDisplayed, properties: props)
                 Self.shared.handleFounderChatPromptPush(
                     source: source,
                     modalTitle: modalTitle,
@@ -311,6 +349,15 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             response.notification.request.identifier,
             userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
         )
+        // CL17 notification_tapped + CL24 push attribution for the next app_opened.
+        let tapType = Self.notificationType(userInfo)
+        let tapPushId = userInfo["push_id"] as? String
+        Self.markOpenedViaPush(pushId: tapPushId)
+        Task { @MainActor in
+            var props: [String: Any] = ["type": tapType]
+            if let tapPushId { props["push_id"] = tapPushId }
+            TelemetryManager.shared.track(.notificationTapped, properties: props)
+        }
         if let type = userInfo["type"] as? String, type == "founder_chat_prompt" {
             let source = (userInfo["source"] as? String) ?? "push_tap"
             let modalTitle = userInfo["modal_title"] as? String

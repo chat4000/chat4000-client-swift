@@ -560,6 +560,7 @@ final class RoomViewModel {
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "receive_image") else { return }
+        if sender == .agent { emitMessageReceived(kind: "image") }
         Haptics.success()
         persistContext()
         requestScrollToBottom()
@@ -581,6 +582,7 @@ final class RoomViewModel {
             audioDuration: Double(durationMs) / 1000, audioWaveform: waveform,
             sender: sender, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "receive_audio") else { return }
+        if sender == .agent { emitMessageReceived(kind: "audio") }
         Haptics.success()
         persistContext()
         requestScrollToBottom()
@@ -613,18 +615,24 @@ final class RoomViewModel {
             htmlCardHTML: sanitizedHTML
         )
         guard appendAndInsertUnique(message, reason: "receive_html_card") else { return }
-        // Fire once per unique card that actually lands on this device (past the
-        // dedup/append guards), not on gateway re-deliveries.
-        TelemetryManager.shared.track(
-            .htmlCardReceived,
-            properties: [
-                "from": sender == .user ? "self" : "agent",
-                "html_length_bucket": AnalyticsBuckets.lengthBucket(for: sanitizedHTML)
-            ]
-        )
+        if sender == .agent { emitMessageReceived(kind: "html_card") }
         Haptics.success()
         persistContext()
         requestScrollToBottom()
+    }
+
+    /// CL18 `message_received` — a FINAL agent answer landed (one of text | image |
+    /// audio | html_card). Fires once per unique message (called past the dedup/
+    /// append guards). `turn_duration_bucket` is derived from the busy clock (B2):
+    /// final-answer now minus `busyStartTime` (the turn's earliest `chat4000.status`
+    /// ts); OMITTED entirely when no status preceded the answer.
+    private func emitMessageReceived(kind: String) {
+        var props: [String: Any] = ["kind": kind]
+        if let start = busyStartTime {
+            props["turn_duration_bucket"] = AnalyticsBuckets.turnDurationBucket(
+                for: Date().timeIntervalSince(start))
+        }
+        TelemetryManager.shared.track(.messageReceived, properties: props)
     }
 
     private func receiveUnavailable(id: String, sender: MessageSender) {
@@ -709,6 +717,9 @@ final class RoomViewModel {
             let message = ChatMessage(msgId: streamId, text: text, sender: sender, roomId: roomId)
             _ = appendAndInsertUnique(message, reason: "stream_finalize")
         }
+        // CL18 — the streamed agent answer settled (streaming is always a live
+        // agent turn).
+        if sender == .agent { emitMessageReceived(kind: "text") }
         currentStreamId = nil
         currentStreamText = ""
         currentStreamMessageId = nil

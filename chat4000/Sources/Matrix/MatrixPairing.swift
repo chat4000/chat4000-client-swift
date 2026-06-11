@@ -40,6 +40,11 @@ enum MatrixPairing {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // FLW1: phone client_id on /pair/redeem (omitted when telemetry off) so the
+        // registrar can stamp it on the pairing rows + hand it to the plugin.
+        if let clientId = ClientIdentity.headerClientId() {
+            request.setValue(clientId, forHTTPHeaderField: "X-Client-Id")
+        }
         guard let body = try? JSONSerialization.data(withJSONObject: ["code": code, "device_name": deviceName]) else {
             throw AppError.encode("pairing request body")
         }

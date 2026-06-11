@@ -109,7 +109,13 @@ final class GatewayClient: GatewayRequesting {
     /// Open the socket, send `auth`, and resolve when `auth_ok` arrives.
     func connect() async throws(AppError) -> AuthResult {
         let session = URLSession(configuration: .default)
-        let socket = session.webSocketTask(with: url)
+        // FLW5: phone client_id on the /ws upgrade (omitted when telemetry off), so
+        // every gateway row carries it. Build a request to attach the header.
+        var upgradeRequest = URLRequest(url: url)
+        if let clientId = ClientIdentity.headerClientId() {
+            upgradeRequest.setValue(clientId, forHTTPHeaderField: "X-Client-Id")
+        }
+        let socket = session.webSocketTask(with: upgradeRequest)
         self.session = session
         self.socket = socket
         socket.resume()
