@@ -183,8 +183,8 @@ struct chat4000App: App {
                 AppLog.log("🎯 onOpenURL %@", url.absoluteString)
                 handleIncomingURL(url)
             }
-            // Universal links (https://chat4000.com/…) are delivered as a browsing-web
-            // user activity.
+            // Universal links (https://pair.chat4000.com/pair…) are delivered as a
+            // browsing-web user activity.
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 guard let url = activity.webpageURL else { return }
                 AppLog.log("🎯 universalLink %@", url.absoluteString)
@@ -404,14 +404,16 @@ struct chat4000App: App {
     }
 
     /// Returns the 6-digit pairing code IFF `url` is a pairing link —
-    /// `https://chat4000.com/pair?code=NNNNNN` or `chat4000://pair?code=NNNNNN`.
+    /// `https://pair.chat4000.com/pair?code=NNNNNN` or `chat4000://pair?code=NNNNNN`.
     /// Any other host/path/scheme, or a non-6-digit code, returns nil.
+    private static let pairLinkHosts: Set<String> = ["pair.chat4000.com", "chat4000.com"]
+
     private func pairingCode(from url: URL) -> String? {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         let isPairLink: Bool
         switch comps.scheme?.lowercased() {
         case "https", "http":
-            guard comps.host?.lowercased() == "chat4000.com" else { return nil }
+            guard let host = comps.host?.lowercased(), Self.pairLinkHosts.contains(host) else { return nil }
             isPairLink = comps.path.lowercased() == "/pair"
         case "chat4000":
             // chat4000://pair?code=… → host is "pair"; tolerate chat4000:///pair too.
