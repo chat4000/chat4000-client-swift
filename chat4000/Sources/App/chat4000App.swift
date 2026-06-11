@@ -413,8 +413,11 @@ struct chat4000App: App {
         let isPairLink: Bool
         switch comps.scheme?.lowercased() {
         case "https", "http":
+            // Pairing links live on a dedicated host, so any path carrying a `code`
+            // is a pair link — covers the QR form `https://pair.chat4000.com/?code=`
+            // (root path) and the older `/pair?code=` alike.
             guard let host = comps.host?.lowercased(), Self.pairLinkHosts.contains(host) else { return nil }
-            isPairLink = comps.path.lowercased() == "/pair"
+            isPairLink = ["/", "", "/pair"].contains(comps.path.lowercased())
         case "chat4000":
             // chat4000://pair?code=… → host is "pair"; tolerate chat4000:///pair too.
             isPairLink = (comps.host?.lowercased() == "pair") || comps.path.lowercased() == "/pair"

@@ -663,9 +663,12 @@ struct AddDevicePairingSheet: View {
         }
     }
 
-    /// The pairing code as a `chat4000://pair?code=NNNNNN` URI — the form the
-    /// in-app QR scanner (`QRScannerView`) expects to decode.
-    private func pairURI(_ code: String) -> String { "chat4000://pair?code=\(code)" }
+    /// The pairing code as a Universal Link — `https://pair.chat4000.com/?code=NNNNNN`.
+    /// Using the web URL (not the `chat4000://` custom scheme) means the system
+    /// Camera app can scan it: it opens the link, which the AASA routes straight
+    /// into the app. The in-app scanner still decodes it too (`extractCode` reads
+    /// the `code` query param regardless of host/scheme).
+    private func pairURI(_ code: String) -> String { "https://pair.chat4000.com/?code=\(code)" }
 
     @ViewBuilder
     private var pairingBody: some View {
@@ -776,8 +779,9 @@ struct AddDevicePairingSheet: View {
     }
 }
 
-/// Renders a scannable QR code for a pairing payload (a `chat4000://pair?code=…`
-/// URI). Black modules on a transparent ground — caller puts it on white. Uses
+/// Renders a scannable QR code for a pairing payload (a
+/// `https://pair.chat4000.com/?code=…` Universal Link). Black modules on a
+/// transparent ground — caller puts it on white. Uses
 /// CoreImage's built-in generator; nearest-neighbor scaling keeps edges crisp.
 struct PairingQRCode: View {
     let payload: String
