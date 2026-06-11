@@ -6,5 +6,9 @@
 	<string>$(APP_APNS_ENV)</string>
 	<key>com.apple.developer.devicecheck.appattest-environment</key>
 	<string>$(APP_APPATTEST_ENV)</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:chat4000.com</string>
+	</array>
 </dict>
 </plist>
