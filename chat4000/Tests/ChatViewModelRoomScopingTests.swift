@@ -252,6 +252,87 @@ struct ChatViewModelRoomScopingTests {
         #expect((try? ctx.fetch(descriptor).count) == 0)
     }
 
+    @Test
+    func htmlLookingTextMessageIsNotSniffedAsCard() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        let body = "<article><p>plain text, not a card</p></article>"
+        room.ingest(Self.textEvent(eventId: "$html-text", body: body, push: true), live: true)
+
+        let message = try #require(room.messages.first)
+        #expect(room.messages.count == 1)
+        #expect(message.kind == .message)
+        #expect(message.text == body)
+        #expect(message.htmlCardHTML == nil)
+    }
+
+    @Test
+    func htmlCardSanitizesAndRendersFromCustomType() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        let html = """
+        <article onclick="bad()">
+          <script>bad()</script>
+          <p onclick="bad()">Safe</p>
+          <a href="java
+        script:alert(1)">link</a>
+          <img src="https://example.test/card.png">
+          <iframe src="https://example.test"></iframe>
+        </article>
+        """
+        room.ingest(Self.htmlCardEvent(eventId: "$card", html: html), live: true)
+
+        let message = try #require(room.messages.first)
+        let sanitized = try #require(message.htmlCardHTML)
+        let lowercased = sanitized.lowercased()
+        #expect(room.messages.count == 1)
+        #expect(message.kind == .htmlCard)
+        #expect(message.text.isEmpty)
+        #expect(sanitized.contains("Safe"))
+        #expect(sanitized.contains("link"))
+        #expect(lowercased.contains("script") == false)
+        #expect(lowercased.contains("onclick") == false)
+        #expect(lowercased.contains("javascript:") == false)
+        #expect(lowercased.contains("<img") == false)
+        #expect(lowercased.contains("<iframe") == false)
+        #expect(lowercased.contains("href=") == false)
+    }
+
+    @Test
+    func htmlCardReplacesActiveStreamAsFinalAnswer() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        room.ingest(Self.textEvent(eventId: "$stream", body: "partial answer", push: false), live: true)
+        room.ingest(Self.htmlCardEvent(eventId: "$card", html: "<article><p>Final card</p></article>"), live: true)
+
+        let message = try #require(room.messages.first)
+        #expect(room.messages.count == 1)
+        #expect(message.msgId == "$card")
+        #expect(message.kind == .htmlCard)
+        #expect(message.htmlCardHTML?.contains("Final card") == true)
+    }
+
+    @Test
+    func htmlCardDeduplicatesByEventId() throws {
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        room.ingest(Self.htmlCardEvent(eventId: "$card", html: "<p>One</p>"), live: true)
+        room.ingest(Self.htmlCardEvent(eventId: "$card", html: "<p>Two</p>"), live: true)
+
+        let message = try #require(room.messages.first)
+        #expect(room.messages.count == 1)
+        #expect(message.kind == .htmlCard)
+        #expect(message.htmlCardHTML?.contains("One") == true)
+    }
+
     private static func undecryptableEvent(eventId: String, push: Bool) -> DecryptedRoomEvent {
         DecryptedRoomEvent(
             outer: SyncEvent(
@@ -278,6 +359,21 @@ struct ChatViewModelRoomScopingTests {
                 rawJSON: #"{"content":{"chat4000.push":\#(push)}}"#
             ),
             clear: #"{"type":"m.room.message","content":{"msgtype":"m.text","body":\#(jsonStringLiteral(body))}}"#,
+            isOwn: false
+        )
+    }
+
+    private static func htmlCardEvent(eventId: String, html: String, push: Bool = true) -> DecryptedRoomEvent {
+        DecryptedRoomEvent(
+            outer: SyncEvent(
+                type: "m.room.encrypted",
+                eventId: eventId,
+                sender: "@plugin:x",
+                stateKey: nil,
+                originServerTs: 1,
+                rawJSON: #"{"content":{"chat4000.push":\#(push)}}"#
+            ),
+            clear: #"{"type":"chat4000.html_card","content":{"html":\#(jsonStringLiteral(html))}}"#,
             isOwn: false
         )
     }

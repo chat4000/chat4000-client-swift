@@ -13,7 +13,7 @@ struct ToolCallBubble: View {
         HStack(spacing: 5) {
             iconView
             Text(message.toolName ?? "tool")
-                .font(AppFonts.mono(nameFontSize, weight: .regular))
+                .font(AppFonts.sans(nameFontSize, weight: .regular))
                 .foregroundStyle(AppColors.textSecondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -28,6 +28,9 @@ struct ToolCallBubble: View {
         // chips read consistently with the rest of the UI. `.frame` keeps every
         // icon the same width so the names line up.
         Image(systemName: Self.symbolName(forTool: message.toolName))
+            // `.fill` = the inverted/solid variant; auto-falls back to the outline
+            // for symbols that have no filled form.
+            .symbolVariant(.fill)
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(AppColors.textSecondary)
             .frame(width: 12, alignment: .center)
@@ -40,9 +43,9 @@ struct ToolCallBubble: View {
         let n = (name ?? "").lowercased()
         switch true {
         case n.contains("snapshot"), n.contains("screenshot"):
-            return "camera.viewfinder"
+            return "camera"
         case n.contains("console"), n.contains("log"):
-            return "apple.terminal"
+            return "terminal"
         case n.contains("browser"), n.contains("navigate"), n.contains("http"), n.contains("url"), n.contains("fetch"):
             return "globe"
         case n.contains("search"):

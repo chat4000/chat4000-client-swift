@@ -31,10 +31,13 @@ struct EnterPairingCodeView: View {
 
     /// v2 pairing codes are exactly 6 digits (OTP-style, protocol section 3).
     private static let codeLength = 6
-    /// Attribution ref appended to the in-app → website install link so the site
-    /// can match an app-originated install visit (see the "Fresh Plugin Install"
-    /// help button). Emitted with the `installRefOpened` event, diagnostics-gated.
-    private static let installRef = "OIQJWDOIJW"
+    /// IDN6/CL22 — a fresh one-time attribution token, minted per tap of the
+    /// in-app install link, so each app→website install visit joins exactly. A
+    /// short URL-safe random string (no client_id ever reaches the site).
+    private static func makeInstallRef() -> String {
+        let alphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        return String((0..<10).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] })
+    }
 
     /// Digits-only, capped at the code length — what the boxes show and we submit.
     private var sanitizedCode: String {
@@ -261,6 +264,7 @@ extension EnterPairingCodeView {
             Button {
                 focused = false
                 helpRoute = .menu
+                TelemetryManager.shared.track(.helpMenuOpened, properties: ["source": "setup"])  // CL19
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "questionmark.circle")
@@ -321,6 +325,7 @@ extension EnterPairingCodeView {
 
             helpButton(title: "Connect with a Paired Device") {
                 helpRoute = .pairedDevice
+                TelemetryManager.shared.track(.helpRouteSelected, properties: ["route": "paired_device"])  // CL20
             }
 
             helpButton(title: "Fresh Plugin Install") {
@@ -334,7 +339,12 @@ extension EnterPairingCodeView {
                 // nothing is sent — and we still open the page — when the user has
                 // diagnostics disabled. The `ref` query param must precede the
                 // `#install` fragment to survive URL parsing on the web side.
-                let ref = Self.installRef
+                // IDN6/CL22: a fresh one-time ref per tap (replaces the static
+                // constant) so install_ref_opened {ref} joins to the website's
+                // install_page_viewed {ref} for THIS tap, without client_id ever
+                // reaching the site.
+                TelemetryManager.shared.track(.helpRouteSelected, properties: ["route": "fresh_install"])  // CL20
+                let ref = Self.makeInstallRef()
                 TelemetryManager.shared.track(
                     .installRefOpened,
                     properties: ["ref": ref, "source": "setup_help_menu"]
@@ -421,7 +431,7 @@ extension EnterPairingCodeView {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("\(number)")
-                    .font(AppFonts.mono(11, weight: .bold))
+                    .font(AppFonts.sans(11, weight: .bold))
                     .foregroundStyle(AppColors.textPrimary)
                     .frame(width: 22, height: 22)
                     .background(Color.white.opacity(0.08))
@@ -435,7 +445,7 @@ extension EnterPairingCodeView {
 
             if let command {
                 Text(command)
-                    .font(AppFonts.mono(11, weight: .regular))
+                    .font(AppFonts.sans(11, weight: .regular))
                     .foregroundStyle(AppColors.textPrimary)
                     .textSelection(.enabled)
                     .lineLimit(nil)
@@ -529,7 +539,7 @@ struct PairingCodeBoxes: View {
                         .stroke(characters[index].isEmpty ? Color.white.opacity(0.06) : Color.white.opacity(0.16), lineWidth: 1)
 
                     Text(characters[index].isEmpty ? " " : characters[index])
-                        .font(AppFonts.mono(24, weight: .bold))
+                        .font(AppFonts.sans(24, weight: .bold))
                         .foregroundStyle(AppColors.textPrimary)
                 }
                 .frame(width: 38, height: 54)
