@@ -601,13 +601,6 @@ struct AddDevicePairingSheet: View {
                     .font(AppFonts.sheetTitle)
                     .foregroundStyle(AppColors.textPrimary)
                 Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(AppColors.textSecondary)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
             }
 
             pairingBody
@@ -620,18 +613,6 @@ struct AddDevicePairingSheet: View {
                 step(1, "Open chat4000 on the new device", "The phone or Mac you want to add.")
                 step(2, "Scan the QR, or enter the code", "Either one joins this same account.")
                 step(3, "Keep this screen open", "The code is short-lived; leave it up until it connects.")
-            }
-
-            if session.devicePairingState.canCancel {
-                Button(role: .destructive) {
-                    session.cancelDevicePairing()
-                } label: {
-                    Text("Cancel Pairing")
-                        .font(AppFonts.button)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                }
-                .buttonStyle(.plain)
             }
 
             Button {
