@@ -257,9 +257,19 @@ final class MatrixSession {
     // MARK: - Pairing / connect
 
     func pair(code: String) async {
-        // A pairing is a fresh start — clear any previous session's rooms, active
-        // chat, and cached events so we never surface an old session the user is
-        // no longer connected to.
+        // A pairing is a fresh start. A pairing link can arrive while a previous
+        // session is still CONNECTED (handleIncomingURL starts pairing from any
+        // screen), so tear the old transport down first — otherwise the old
+        // socket keeps syncing into the reset state (re-saving the room snapshot
+        // we're about to remove) and `wipeCryptoStore` below would yank the key
+        // DB out from under a live CryptoEngine. `GatewayClient.disconnect()`
+        // suppresses `onClosed`, so this never triggers a spurious reconnect.
+        // Then clear any previous session's rooms, active chat, and cached
+        // events so we never surface an old session the user is no longer
+        // connected to.
+        gateway?.disconnect()
+        gateway = nil
+        crypto = nil
         resetSessionState()
         connectionState = .connecting
         do {
@@ -280,6 +290,16 @@ final class MatrixSession {
             // crypto store left by a previous pairing so the new device doesn't
             // inherit a stale key DB (different user / device_id).
             Self.wipeCryptoStore()
+            // One user per plugin (protocol C.1/C.2): every redeem adds a DEVICE
+            // to the same fixed user, so this user_id may have paired on this
+            // phone before. The persisted sync cursors and room snapshot belong
+            // to that PREVIOUS device — a new device has no cursor (D.1: the
+            // device is the source of truth for both) — so drop them, or
+            // startClient would resume the old device's positions on the new
+            // device's connection.
+            UserDefaults.standard.removeObject(forKey: Self.syncPosKey(redeemed.userId))
+            UserDefaults.standard.removeObject(forKey: Self.toDevicePosKey(redeemed.userId))
+            removeRoomSnapshot(userId: redeemed.userId)
             try await startClient(stored)
             // CL1 pairing_completed (declared-but-never-emitted regression fix) +
             // CL6 account_linked (event + $set + register super prop), once per pair.
