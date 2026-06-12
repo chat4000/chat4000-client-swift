@@ -147,13 +147,21 @@ struct SetupProgressScreen: View {
             AppColors.background
                 .ignoresSafeArea()
 
-            SetupProgressView(
-                phase: phase,
-                stalled: stalled,
-                onRetry: onRetry,
-                onStartOver: onStartOver
-            )
-            .padding(.horizontal, 12)
+            // Sit in the upper third — below the top, but clearly above center.
+            // Top spacer : bottom spacers = 1 : 2 → content centered at ~1/3 height.
+            VStack(spacing: 0) {
+                Spacer()
+                SetupProgressView(
+                    phase: phase,
+                    stalled: stalled,
+                    onRetry: onRetry,
+                    onStartOver: onStartOver
+                )
+                .padding(.horizontal, 12)
+                Spacer()
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
