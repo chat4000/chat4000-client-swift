@@ -16,7 +16,9 @@ enum AppColors {
     static let agentBubble = Color(hex: 0x1A1A1A)
     static let agentBubbleText = Color(hex: 0xE0E0E0)
 
-    static let connected = Color(hex: 0x10B981)
+    // Connected / online / success accent — the chat4000 site brand pink
+    // (--color-accent #EC4899) instead of the old green, for brand consistency.
+    static let connected = Color(hex: 0xEC4899)
     static let reconnecting = Color(hex: 0xF59E0B)
     static let disconnected = Color(hex: 0xEF4444)
 
