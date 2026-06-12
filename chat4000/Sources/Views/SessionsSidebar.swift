@@ -90,12 +90,23 @@ struct ChatShell: View {
                 guard armedForNewRoomHaptic else { knownRoomIds = ids; return }
                 let added = ids.subtracting(knownRoomIds)
                 knownRoomIds = ids
-                if !added.isEmpty { Haptics.celebrate() }
+                guard !added.isEmpty else { return }
+                Haptics.celebrate()
+                var userCreated = false
                 for _ in added {  // CL7 session_created — one per brand-new room
                     let source = viewModel.matrixSession.consumeSessionCreateSource()
+                    if source == "user" { userCreated = true }
                     TelemetryManager.shared.track(.sessionCreated,
                                                   properties: ["source": source, "session_count": ids.count])
                 }
+                // The new room is already auto-selected (applyAutoOpen). When the
+                // user created it, jump straight in on iOS by closing the sidebar.
+                // macOS keeps its persistent column.
+                #if os(iOS)
+                if userCreated {
+                    withAnimation(.easeInOut(duration: 0.2)) { showSidebar = false }
+                }
+                #endif
             }
             #if os(macOS)
             // macOS Settings: a tap-to-dismiss overlay (a sheet would be modal and
