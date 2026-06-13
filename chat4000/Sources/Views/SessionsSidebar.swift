@@ -83,6 +83,15 @@ struct ChatShell: View {
                 knownRoomIds = Set(viewModel.matrixSession.rooms.map(\.id))
                 armedForNewRoomHaptic = true
             }
+            // ChatShell mounts only AFTER setup completes, so the isWorkspaceReady
+            // false→true transition fires before this view exists and the onChange
+            // above never arms. Arm here too when we mount already-ready — otherwise
+            // the new-session haptic + sidebar-close never trigger.
+            .onAppear {
+                guard viewModel.matrixSession.isWorkspaceReady, !armedForNewRoomHaptic else { return }
+                knownRoomIds = Set(viewModel.matrixSession.rooms.map(\.id))
+                armedForNewRoomHaptic = true
+            }
             // A room id appearing after we're armed = a brand-new session was
             // created (by the user or the plugin) → celebratory haptic.
             .onChange(of: viewModel.matrixSession.rooms) { _, rooms in
