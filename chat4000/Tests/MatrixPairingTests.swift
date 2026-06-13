@@ -3,8 +3,10 @@ import Testing
 @testable import chat4000
 
 struct MatrixPairingTests {
-    /// Worth 9 — the exact wire contract with the registrar's `/pair/redeem`.
-    /// A field rename on either side silently breaks pairing.
+    /// Worth 9 — the exact wire contract with the registrar's redeem response
+    /// (`POST /codes/{code}/redeem`, protocol C.3.2). The success shape is
+    /// unchanged from the old `/pair/redeem`; a field rename on either side
+    /// silently breaks pairing.
     @Test
     func decodesRedeemResponse() throws {
         let json = Data("""

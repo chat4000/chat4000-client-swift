@@ -3,12 +3,13 @@ import Foundation
 /// v2 (gateway) runtime configuration. The client talks ONLY to the WS gateway
 /// and the registrar — the homeserver has no public hostname (protocol D.3),
 /// so there is no `homeserverURL` here anymore. The gateway WS URL is per-pair
-/// (returned by `/pair/redeem` as `gateway_url`) and lives in the stored
+/// (returned by redeem as `gateway_url`) and lives in the stored
 /// credentials; this type provides the registrar base URL and on-disk paths for
 /// the standalone crypto store.
 struct MatrixEnvironment {
-    /// Registrar service base URL — accounts, device onboarding (`/pair/*`),
-    /// and the version/terms policy (`/version`, protocol C.5).
+    /// Registrar service base URL — accounts, device onboarding
+    /// (`POST /codes/{code}/redeem`, protocol C.3.2), and the version/terms
+    /// policy (`/version`, protocol C.5).
     let registrarBaseURL: String
 
     /// Placeholder pusher callback URL. The gateway OVERWRITES `data.url` with

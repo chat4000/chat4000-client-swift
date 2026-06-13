@@ -1,7 +1,7 @@
 import Foundation
 
 /// File-based persistence of the device's gateway credentials (what
-/// `/pair/redeem` returns, protocol C.2) plus the passphrase that encrypts the
+/// redeem returns, protocol C.3.2) plus the passphrase that encrypts the
 /// standalone crypto store at rest. No SDK `Session` type anymore — v2 talks the
 /// gateway frame protocol directly. JSON in Application Support, namespaced per
 /// environment.

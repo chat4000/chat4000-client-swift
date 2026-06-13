@@ -1,12 +1,16 @@
 import Foundation
 
-/// Device-side onboarding for v2 (protocol C.2). The plugin reserves a 6-digit
+/// Device-side onboarding for v2 (protocol C.3). The plugin reserves a 6-digit
 /// code with the registrar; the user enters it here, this app redeems it at
-/// `POST /pair/redeem`, and the registrar returns ready-to-use gateway
-/// credentials (`gateway_url`, `user_id`, `device_id`, `access_token`). No SDK
-/// types — the result feeds `GatewayClient` + `CryptoEngine` directly.
+/// `POST /codes/{code}/redeem` (the code in the URL path — protocol C.3.2), and
+/// the registrar returns ready-to-use gateway credentials (`gateway_url`,
+/// `user_id`, `device_id`, `access_token`). No SDK types — the result feeds
+/// `GatewayClient` + `CryptoEngine` directly.
+///
+/// (The registrar retains `POST /pair/redeem` with the code in the body as a
+/// back-compat alias for old app builds; this build uses the new path.)
 enum MatrixPairing {
-    /// Credentials returned by `/pair/redeem` (protocol C.2).
+    /// Credentials returned by redeem (protocol C.3.2).
     struct Credentials: Decodable {
         let gatewayUrl: String
         let userId: String
@@ -27,25 +31,29 @@ enum MatrixPairing {
         deviceName: String,
         registrarBaseURL: String
     ) async throws(AppError) -> Credentials {
-        guard let url = URL(string: registrarBaseURL.trimmedTrailingSlash + "/pair/redeem") else {
+        // v2 (protocol C.3.2): the code is the secret in the URL PATH, not the body.
+        guard let encodedCode = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: registrarBaseURL.trimmedTrailingSlash + "/codes/" + encodedCode + "/redeem") else {
             throw AppError.pairing("invalid registrar URL")
         }
-        return try await post(url: url, code: code, deviceName: deviceName)
+        return try await post(url: url, deviceName: deviceName)
     }
 
     /// One redeem attempt with a single retry on transient failure. Safe because
     /// redeem is idempotent within `REDEEM_RESULT_TTL` (C.4): a retry returns the
     /// same credentials.
-    private static func post(url: URL, code: String, deviceName: String, attempt: Int = 0) async throws(AppError) -> Credentials {
+    private static func post(url: URL, deviceName: String, attempt: Int = 0) async throws(AppError) -> Credentials {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // FLW1: phone client_id on /pair/redeem (omitted when telemetry off) so the
+        // FLW1: phone client_id on redeem (omitted when telemetry off) so the
         // registrar can stamp it on the pairing rows + hand it to the plugin.
         if let clientId = ClientIdentity.headerClientId() {
             request.setValue(clientId, forHTTPHeaderField: "X-Client-Id")
         }
-        guard let body = try? JSONSerialization.data(withJSONObject: ["code": code, "device_name": deviceName]) else {
+        // v2 (protocol C.3.2): the code is in the URL path; the body carries only
+        // the optional device_name.
+        guard let body = try? JSONSerialization.data(withJSONObject: ["device_name": deviceName]) else {
             throw AppError.encode("pairing request body")
         }
         request.httpBody = body
@@ -64,7 +72,7 @@ enum MatrixPairing {
             // 503 leaves the code redeemable — retry once.
             if http.statusCode == 503, attempt == 0 {
                 try? await Task.sleep(for: .milliseconds(600))
-                return try await post(url: url, code: code, deviceName: deviceName, attempt: 1)
+                return try await post(url: url, deviceName: deviceName, attempt: 1)
             }
             throw AppError.pairing(friendlyMessage(status: http.statusCode, body: data))
         } catch let error as AppError {
@@ -78,7 +86,7 @@ enum MatrixPairing {
             // Network-level failure — retry once (idempotent within the TTL window).
             if attempt == 0 {
                 try? await Task.sleep(for: .milliseconds(600))
-                return try await post(url: url, code: code, deviceName: deviceName, attempt: 1)
+                return try await post(url: url, deviceName: deviceName, attempt: 1)
             }
             throw AppError.pairing(networkMessage(for: error))
         }
