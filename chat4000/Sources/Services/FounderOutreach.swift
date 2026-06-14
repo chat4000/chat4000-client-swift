@@ -42,7 +42,7 @@ enum FounderOutreach {
             app.open(url)
             return .whatsApp
         }
-        if !disableTelegram, let url = URL(string: "tg://resolve?domain=\(telegramUsername)"), app.canOpenURL(url) {
+        if !disableTelegram, let url = telegramURL(message: text), app.canOpenURL(url) {
             AppLog.log("🤝 [founder] Telegram installed → opening source=%@", source)
             app.open(url)
             return .telegram
@@ -57,6 +57,21 @@ enum FounderOutreach {
     }
 
     #if os(iOS)
+    /// Telegram supports prefilling the input bar via `text` (draft_text) on a
+    /// username resolve link (core.telegram.org/api/links). Prepend a space if the
+    /// text starts with `@` so it isn't read as an inline query (per the spec).
+    private static func telegramURL(message: String) -> URL? {
+        let draft = message.hasPrefix("@") ? " \(message)" : message
+        var comps = URLComponents()
+        comps.scheme = "tg"
+        comps.host = "resolve"
+        comps.queryItems = [
+            URLQueryItem(name: "domain", value: telegramUsername),
+            URLQueryItem(name: "text", value: draft)
+        ]
+        return comps.url
+    }
+
     private static func whatsAppURL(message: String) -> URL? {
         var comps = URLComponents()
         comps.scheme = "whatsapp"
