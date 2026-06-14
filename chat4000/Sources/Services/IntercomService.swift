@@ -66,7 +66,7 @@ enum IntercomService {
     /// Open the Intercom messenger (native iOS SDK / Mac WKWebView).
     /// Tracks `founder_chat_opened` with the requested source for funnel
     /// analysis.
-    static func openMessenger(source: String) {
+    static func openMessenger(source: String, initialMessage: String? = nil) {
         TelemetryManager.shared.track(
             .founderChatOpened,
             properties: ["source": source]
@@ -77,7 +77,13 @@ enum IntercomService {
             AppLog.log("💬 [intercom] openMessenger called before start (placeholder creds)")
             return
         }
-        Intercom.present()
+        // `initialMessage` (founder-outreach fallback) prefills the composer with a
+        // ready-to-send draft; otherwise just open the inbox.
+        if let initialMessage, !initialMessage.isEmpty {
+            Intercom.presentMessageComposer(initialMessage)
+        } else {
+            Intercom.present()
+        }
         #elseif os(macOS)
         AppLog.log("💬 [intercom] opening mac web messenger window source=%@", source)
         IntercomMacWindowController.shared.present(source: source)

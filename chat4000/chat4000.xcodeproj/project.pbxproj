@@ -159,15 +159,18 @@
 		C5D9C9266871FE067F588E12 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
 		C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
+		CB01EEBA373523CC59166F46 /* FounderOutreach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78AD31081E6091BD749DF44D /* FounderOutreach.swift */; };
 		CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
 		CBD9415E86196C507B48311C /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
 		CBF9C19ECD484466C60C197E /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
+		CD5F09A06E1587080F0072CD /* FounderOutreach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78AD31081E6091BD749DF44D /* FounderOutreach.swift */; };
 		CECD701C81C1A5420877FB98 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC091E5444DA21F658F41CE /* RoomViewModel.swift */; };
 		CFB9A345D88CDCEA35C22EF2 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */; };
 		D02C328A2EDEFFB92700EB9E /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F449FB76C90C5D54D497DDCA /* ProtocolModels.swift */; };
 		D0C76657330EBA5D20213B2C /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		D1123A5FFD13BDE42BCFDD0B /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
+		D19E4F7AD2D2372F6795BC42 /* FounderOutreach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78AD31081E6091BD749DF44D /* FounderOutreach.swift */; };
 		D47B5B456C4F439AC588E559 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		D4FCBCFFBE18E3ABF9590132 /* MatrixPairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */; };
 		D6725C71873E18476DE50DFF /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
@@ -254,6 +257,7 @@
 		74805CCF8BC6DBBDD7FC666E /* MatrixCredentialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixCredentialStoreTests.swift; sourceTree = "<group>"; };
 		7579907A305146E2DEA5C23F /* MatrixTimelineMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTimelineMapper.swift; sourceTree = "<group>"; };
 		75B42D7242579BD437991A3C /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		78AD31081E6091BD749DF44D /* FounderOutreach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FounderOutreach.swift; sourceTree = "<group>"; };
 		7E4C2242D46F0F1BBF019CAC /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallBubble.swift; sourceTree = "<group>"; };
 		853062E21AF8E7B8FDDD38D4 /* MatrixEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixEnvironment.swift; sourceTree = "<group>"; };
@@ -487,6 +491,7 @@
 				A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */,
 				180349B31809B66A001D8B94 /* DiagnosticReportService.swift */,
 				261757F4308024D0CDBD8824 /* ErrorReporter.swift */,
+				78AD31081E6091BD749DF44D /* FounderOutreach.swift */,
 				F20986EDB38AB39E9B87CF73 /* Haptics.swift */,
 				AC864A0C51C9B9647423BC9F /* IntercomService.swift */,
 				E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */,
@@ -826,6 +831,7 @@
 				A2E10BB4BC56CC9C20CA478B /* DiagnosticReportService.swift in Sources */,
 				06A3761B4213833BD05E388F /* ErrorReporter.swift in Sources */,
 				E8436C5B504D38765372E21B /* FounderChatPromptModal.swift in Sources */,
+				CD5F09A06E1587080F0072CD /* FounderOutreach.swift in Sources */,
 				E3B1CDFE6CC7AFB2E4EACBEE /* GatewayClient.swift in Sources */,
 				0B109A8011F376F344AE74BF /* HTMLCardBubble.swift in Sources */,
 				F76F3F4C0F5B22E79814406A /* HTMLCardSanitizer.swift in Sources */,
@@ -888,6 +894,7 @@
 				733F83E70D072B59B90ECE90 /* DiagnosticReportService.swift in Sources */,
 				A2D4032429C03DA3F87B7C0F /* ErrorReporter.swift in Sources */,
 				A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */,
+				CB01EEBA373523CC59166F46 /* FounderOutreach.swift in Sources */,
 				425F525EF0BEA5A6001EB4F8 /* GatewayClient.swift in Sources */,
 				CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */,
 				B0EEACC8B6E90E1E3EB0B781 /* HTMLCardSanitizer.swift in Sources */,
@@ -950,6 +957,7 @@
 				37AEB826FD4E4255BEF0A8CE /* DiagnosticReportService.swift in Sources */,
 				7E7C85F28D65340254A2F302 /* ErrorReporter.swift in Sources */,
 				452474235E7C879E9686978B /* FounderChatPromptModal.swift in Sources */,
+				D19E4F7AD2D2372F6795BC42 /* FounderOutreach.swift in Sources */,
 				851A2D6926F3E4E057C96E21 /* GatewayClient.swift in Sources */,
 				DBA6749ED450A352E7A54FEA /* HTMLCardBubble.swift in Sources */,
 				B29686244A17ABDF9A0DAE35 /* HTMLCardSanitizer.swift in Sources */,

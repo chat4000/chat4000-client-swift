@@ -27,6 +27,7 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>tg</string>
+		<string>whatsapp</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>

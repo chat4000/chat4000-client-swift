@@ -263,6 +263,15 @@ final class PushNotificationManager: NSObject {
     private nonisolated static let pendingOpenViaPushKey = "chat4000.analytics.pendingOpenViaPush"
     private nonisolated static let pendingOpenPushIdKey = "chat4000.analytics.pendingOpenPushId"
 
+    /// Lenient bool from a push payload field (JSON `true`, NSNumber 1, or the
+    /// strings "true"/"1"/"yes"). Used for `disable_whatsapp` / `disable_telegram`.
+    nonisolated static func boolFlag(_ value: Any?) -> Bool {
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let s = value as? String { return ["true", "1", "yes"].contains(s.lowercased()) }
+        return false
+    }
+
     /// CL16/CL17 notification `type`: a founder-chat prompt vs an ordinary message.
     nonisolated static func notificationType(_ userInfo: [AnyHashable: Any]) -> String {
         (userInfo["type"] as? String) == "founder_chat_prompt" ? "founder_prompt" : "message"
@@ -322,6 +331,9 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             let modalTitle = userInfo["modal_title"] as? String
             let modalBody = userInfo["modal_body"] as? String
             let pushId = userInfo["push_id"] as? String
+            let contactMessage = userInfo["contact_message"] as? String
+            let disableWhatsApp = Self.boolFlag(userInfo["disable_whatsapp"])
+            let disableTelegram = Self.boolFlag(userInfo["disable_telegram"])
             Task { @MainActor in
                 // CL16 notification_displayed (founder prompt, foreground present).
                 var props: [String: Any] = ["type": "founder_prompt"]
@@ -330,7 +342,10 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                 Self.shared.handleFounderChatPromptPush(
                     source: source,
                     modalTitle: modalTitle,
-                    modalBody: modalBody
+                    modalBody: modalBody,
+                    contactMessage: contactMessage,
+                    disableWhatsApp: disableWhatsApp,
+                    disableTelegram: disableTelegram
                 )
             }
         }
@@ -362,11 +377,17 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             let source = (userInfo["source"] as? String) ?? "push_tap"
             let modalTitle = userInfo["modal_title"] as? String
             let modalBody = userInfo["modal_body"] as? String
+            let contactMessage = userInfo["contact_message"] as? String
+            let disableWhatsApp = Self.boolFlag(userInfo["disable_whatsapp"])
+            let disableTelegram = Self.boolFlag(userInfo["disable_telegram"])
             Task { @MainActor in
                 Self.shared.handleFounderChatPromptPush(
                     source: source,
                     modalTitle: modalTitle,
-                    modalBody: modalBody
+                    modalBody: modalBody,
+                    contactMessage: contactMessage,
+                    disableWhatsApp: disableWhatsApp,
+                    disableTelegram: disableTelegram
                 )
             }
         }
@@ -381,7 +402,10 @@ extension PushNotificationManager {
     func handleFounderChatPromptPush(
         source: String,
         modalTitle: String? = nil,
-        modalBody: String? = nil
+        modalBody: String? = nil,
+        contactMessage: String? = nil,
+        disableWhatsApp: Bool = false,
+        disableTelegram: Bool = false
     ) {
         guard !FounderChatPromptStore.shared.isSnoozed else {
             AppLog.log("🔔 [push] founder_chat_prompt suppressed (snoozed) source=%@", source)
@@ -392,16 +416,21 @@ extension PushNotificationManager {
             return
         }
         AppLog.log(
-            "🔔 [push] founder_chat_prompt firing source=%@ title=%@ body=%@",
+            "🔔 [push] founder_chat_prompt firing source=%@ title=%@ body=%@ disable_wa=%@ disable_tg=%@",
             source,
             modalTitle ?? "<default>",
-            modalBody ?? "<default>"
+            modalBody ?? "<default>",
+            String(disableWhatsApp),
+            String(disableTelegram)
         )
         FounderChatPromptStore.shared.storePendingPrompt(
             FounderChatPromptRequest(
                 source: source,
                 modalTitle: modalTitle,
-                modalBody: modalBody
+                modalBody: modalBody,
+                contactMessage: contactMessage,
+                disableWhatsApp: disableWhatsApp,
+                disableTelegram: disableTelegram
             )
         )
         var info: [AnyHashable: Any] = ["source": source]

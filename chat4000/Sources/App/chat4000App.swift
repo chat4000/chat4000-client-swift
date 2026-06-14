@@ -201,7 +201,10 @@ struct chat4000App: App {
                     FounderChatPromptModal(
                         source: founderPromptRequest.source,
                         modalTitle: founderPromptRequest.modalTitle ?? FounderChatPromptModal.defaultTitle,
-                        modalBody: founderPromptRequest.modalBody ?? FounderChatPromptModal.defaultBody
+                        modalBody: founderPromptRequest.modalBody ?? FounderChatPromptModal.defaultBody,
+                        contactMessage: founderPromptRequest.contactMessage,
+                        disableWhatsApp: founderPromptRequest.disableWhatsApp ?? false,
+                        disableTelegram: founderPromptRequest.disableTelegram ?? false
                     )
                 }
             }
