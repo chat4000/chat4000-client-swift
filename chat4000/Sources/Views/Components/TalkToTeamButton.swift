@@ -5,9 +5,9 @@ import UIKit
 import AppKit
 #endif
 
-/// Tappable button that opens Intercom (iOS) or a mailto fallback (Mac).
-/// "Chat with a founder" is the post-rename of the older "Chat with the team"
-/// label — same surface, more direct ask.
+/// Tappable button for the "Chat with founder" CTA. Runs the same escalation as
+/// the founder push modal: WhatsApp → Telegram → Intercom (`FounderOutreach`).
+/// On macOS it goes straight to the Intercom web messenger.
 struct ChatWithFounderButton: View {
     /// Funnel source for analytics. e.g. "settings", "setup_pair_failed".
     let source: String
@@ -35,7 +35,16 @@ struct ChatWithFounderButton: View {
 
     private func tap() {
         Haptics.impact()
-        IntercomService.openMessenger(source: source)
+        // Same escalation as the founder push modal. No push context here, so no
+        // channel overrides — WhatsApp → Telegram → Intercom, default message.
+        // (Analytics for the chosen channel is owned by the analytics agent; the
+        // Intercom fallback still fires founder_chat_opened via openMessenger.)
+        FounderOutreach.contactFounder(
+            message: nil,
+            disableWhatsApp: false,
+            disableTelegram: false,
+            source: source
+        )
     }
 }
 
