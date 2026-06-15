@@ -499,6 +499,12 @@ struct ChatView: View {
         dismissKeyboardIfNeeded()
         voiceErrorMessage = nil
 
+        // Let the mic-button tap haptic actually play before we activate the
+        // `.record` audio session: iOS suppresses the Taptic Engine while audio
+        // input is live, so activating it immediately cuts the buzz off and you
+        // feel nothing. A short gap (imperceptible for recording start) fixes it.
+        try? await Task.sleep(for: .milliseconds(90))
+
         do {
             try await voiceRecorder.start()
             TelemetryManager.shared.track(
