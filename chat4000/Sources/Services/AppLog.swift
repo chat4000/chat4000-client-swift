@@ -73,7 +73,11 @@ enum AppLog {
             }
 
             do {
-                let handle = try FileHandle(forWritingTo: logFileURL)
+                // forUpdating (read+write), NOT forWritingTo: rotate() below reads
+                // the file back to trim it, and readToEnd() on a write-only handle
+                // fails with EBADF ("Bad file descriptor") — which made rotation
+                // throw on every append once the log passed maxBytes.
+                let handle = try FileHandle(forUpdating: logFileURL)
                 defer { try? handle.close() }
                 try handle.seekToEnd()
                 try handle.write(contentsOf: data)
