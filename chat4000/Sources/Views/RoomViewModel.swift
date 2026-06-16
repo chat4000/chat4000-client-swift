@@ -97,7 +97,32 @@ final class RoomViewModel {
         merged.sort { $0.timestamp < $1.timestamp }
         persistContext()
         messages = merged
+        reenqueuePendingSends()
         requestScrollToBottom()
+    }
+
+    /// Re-queue any `.sending` user rows — a send that never completed (offline, or
+    /// the app was killed mid-send) — so the outbox flushes them once we're
+    /// connected. Safe to call on every load: the session dedups by local id, and a
+    /// row that already went out is `.sent`/`.delivered`, never `.sending`.
+    private func reenqueuePendingSends() {
+        for row in messages where row.sender == .user && row.status == .sending {
+            guard let localId = row.msgId, let content = outboxContent(for: row) else { continue }
+            session.enqueueSend(content, roomId: roomId, localId: localId)
+        }
+    }
+
+    private func outboxContent(for row: ChatMessage) -> MatrixSession.OutboxContent? {
+        if let imageData = row.imageData {
+            // Stored rows don't keep the original image mime; clawConnect always
+            // sends JPEG, so default to that for a resumed image send.
+            return .image(imageData, mimeType: "image/jpeg")
+        }
+        if let audioData = row.audioData {
+            let durationMs = Int(((row.audioDuration ?? 0) * 1000).rounded())
+            return .audio(audioData, mimeType: row.audioMimeType ?? VoiceNoteConstants.mimeType, durationMs: durationMs)
+        }
+        return row.text.isEmpty ? nil : .text(row.text)
     }
 
     private func deduplicatedStoredMessages(_ stored: [ChatMessage], modelContext: ModelContext) -> [ChatMessage] {
@@ -779,10 +804,14 @@ final class RoomViewModel {
 
     // MARK: - Ack / read routing (broadcast from the global model)
 
-    /// The send completed → remember the homeserver event_id on the matching row.
+    /// The send completed → remember the homeserver event_id on the matching row and
+    /// flip it from `.sending` (clock) to `.sent` (one tick). This is the ONLY place
+    /// an outbound row becomes `.sent`: it now reflects a real delivery to the
+    /// homeserver, not an optimistic guess made before the socket was even up.
     func handleSentEventId(localId: String, eventId: String) {
         guard let row = messages.first(where: { $0.msgId == localId }) else { return }
         row.matrixEventId = eventId
+        if row.status == .sending { row.status = .sent }
         persistContext()
     }
 
@@ -896,6 +925,11 @@ final class RoomViewModel {
 
     // MARK: - Outbound (only the front room sends; each uses its own roomId)
 
+    // Sends go through the session OUTBOX: the row stays `.sending` (clock) until the
+    // send actually returns a homeserver event_id, which flips it to `.sent` via
+    // `handleSentEventId`. When offline / not yet keyed, the outbox holds it and
+    // flushes on connect — no optimistic `.sent` that lies about an un-sent message.
+
     func send(text: String) {
         let localId = UUID().uuidString
         let message = ChatMessage(msgId: localId, text: text, sender: .user, status: .sending, roomId: roomId)
@@ -903,24 +937,22 @@ final class RoomViewModel {
         persistContext()
         requestScrollToBottom()
 
-        Task { await session.sendText(text, roomId: roomId, localId: localId) }
+        session.enqueueSend(.text(text), roomId: roomId, localId: localId)
         TelemetryManager.shared.track(
             .messageSentText,
             properties: ["source": "keyboard", "length_bucket": AnalyticsBuckets.lengthBucket(for: text)]
         )
-        if message.status == .sending { message.status = .sent }
     }
 
-    func sendImage(data: Data, mimeType: String) {
+    func sendImage(data: Data, mimeType: String, source: String) {
         let localId = UUID().uuidString
         let message = ChatMessage(msgId: localId, imageData: data, sender: .user, status: .sending, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "send_image") else { return }
         persistContext()
         requestScrollToBottom()
 
-        Task { await session.sendImage(data, mimeType: mimeType, roomId: roomId, localId: localId) }
-        TelemetryManager.shared.track(.messageSentImage, properties: ["source": "camera", "count": 1])
-        if message.status == .sending { message.status = .sent }
+        session.enqueueSend(.image(data, mimeType: mimeType), roomId: roomId, localId: localId)
+        TelemetryManager.shared.track(.messageSentImage, properties: ["source": source, "count": 1])
         Haptics.impact()
     }
 
@@ -934,16 +966,13 @@ final class RoomViewModel {
         persistContext()
         requestScrollToBottom()
 
-        Task {
-            await session.sendAudio(
-                data, mimeType: mimeType, durationMs: Int((duration * 1000).rounded()),
-                roomId: roomId, localId: localId)
-        }
+        session.enqueueSend(
+            .audio(data, mimeType: mimeType, durationMs: Int((duration * 1000).rounded())),
+            roomId: roomId, localId: localId)
         TelemetryManager.shared.track(
             .messageSentAudio,
             properties: ["source": source, "duration_bucket": AnalyticsBuckets.durationBucket(for: duration)]
         )
-        if message.status == .sending { message.status = .sent }
     }
 
     func markRead() {

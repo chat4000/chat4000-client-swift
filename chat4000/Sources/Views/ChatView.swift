@@ -110,6 +110,13 @@ struct ChatView: View {
             guard newPhase == .active else { return }
             handlePendingLaunchActionIfNeeded()
         }
+        // A deferred action (e.g. a shared image) waits for a session. The 1.5s
+        // retry loop in the handler can expire before connect+sync finishes, and
+        // nothing else re-fires it — so re-run it the moment a session appears.
+        .onChange(of: viewModel.hasActiveSession) { _, hasSession in
+            guard hasSession else { return }
+            handlePendingLaunchActionIfNeeded()
+        }
         .onReceive(NotificationCenter.default.publisher(for: LaunchActionStore.didSetNotification)) { _ in
             handlePendingLaunchActionIfNeeded()
         }
@@ -205,7 +212,8 @@ struct ChatView: View {
         case .reconnecting:
             connectionStrip(text: "Reconnecting…", color: AppColors.reconnecting, spinner: true)
         case .disconnected, .failed:
-            connectionStrip(text: "Offline", color: AppColors.disconnected, spinner: false)
+            connectionStrip(text: "Offline — messages will send when you reconnect",
+                            color: AppColors.disconnected, spinner: false)
         }
     }
 
@@ -623,21 +631,30 @@ struct ChatView: View {
             return
         }
 
-        switch SharedImageInbox.consumeNext() {
-        case .success(let payload?):
-            viewModel.sendImageData(payload.data, mimeType: payload.mimeType, source: "ios_share")
-            AppLog.log(
-                "🎯 ChatView.sendSharedImageFromLaunchAction success id=%@ bytes=%d mime=%@",
-                payload.id,
-                payload.data.count,
-                payload.mimeType
-            )
-        case .success(nil):
-            AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction no_pending_image")
-        case .failure(let error):
-            voiceErrorMessage = error.message
-            AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction error=%@", error.message)
-            Haptics.error()
+        // Drain the WHOLE queue: several images can be shared before a session is
+        // ready (the inbox holds up to 10, but the launch flag is single-shot), so a
+        // single consume would strand all but one. Send every pending image.
+        var sentCount = 0
+        while true {
+            switch SharedImageInbox.consumeNext() {
+            case .success(let payload?):
+                viewModel.sendImageData(payload.data, mimeType: payload.mimeType, source: "ios_share")
+                sentCount += 1
+                AppLog.log(
+                    "🎯 ChatView.sendSharedImageFromLaunchAction success id=%@ bytes=%d mime=%@",
+                    payload.id,
+                    payload.data.count,
+                    payload.mimeType
+                )
+            case .success(nil):
+                AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction drained sent=%d", sentCount)
+                return
+            case .failure(let error):
+                voiceErrorMessage = error.message
+                AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction error=%@", error.message)
+                Haptics.error()
+                return
+            }
         }
     }
 

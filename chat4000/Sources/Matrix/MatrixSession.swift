@@ -27,6 +27,8 @@ final class MatrixSession {
         didSet {
             guard oldValue != connectionState else { return }
             onConnectionStateChange?(connectionState)
+            // Just came up → flush anything composed while we were offline.
+            if connectionState == .connected { drainOutbox() }
         }
     }
     private(set) var userId: String?
@@ -666,6 +668,9 @@ final class MatrixSession {
         rebuildRoomList()
         applyAutoOpen()
         updateSetupPhase()
+        // A sync may have just keyed a room (made it reachable) — flush any sends
+        // that were queued waiting on that.
+        drainOutbox()
 
         // Durable-ack BOTH cursors (protocol D.1, "Sync cursor & key delivery"):
         // processSync persisted the to-device Megolm keys + crypto state and the
@@ -978,31 +983,94 @@ final class MatrixSession {
         if rebuild { rebuildRoomList() }
     }
 
-    // MARK: - Sending (called by the transport)
+    // MARK: - Sending (outbox)
 
-    /// Encrypt + send a plain-text message into a room. `localId` correlates the
-    /// returned event_id back to the caller's local row (for read ticks).
-    func sendText(_ text: String, roomId: String, localId: String) async {
-        let recipients = roomMembers[roomId] ?? []
-        do {
-            let eventId = try await crypto?.encryptAndSend(
-                roomId: roomId,
-                recipients: recipients,
-                content: ["msgtype": "m.text", "body": text]
-            )
-            if let eventId { onSentEventId?(localId, eventId) }
-        } catch {
-            ErrorReporter.capture(error, context: "MatrixSession.sendText")
-            AppLog.log("⚠️ Matrix sendText failed: \(error)")
+    /// One queued outbound message's payload. The DURABLE copy is the `.sending`
+    /// `ChatMessage` row (RoomViewModel re-enqueues stranded rows on history load),
+    /// so a send survives the app being killed mid-flight; this carries the payload
+    /// for the live session.
+    enum OutboxContent {
+        case text(String)
+        case image(Data, mimeType: String)
+        case audio(Data, mimeType: String, durationMs: Int)
+    }
+
+    private struct OutboxItem {
+        let localId: String
+        let roomId: String
+        let content: OutboxContent
+    }
+
+    @ObservationIgnored private var outbox: [OutboxItem] = []
+    /// Local ids of sends currently awaiting an event_id (so a re-enqueue or a drain
+    /// can never fire the same row twice within a session).
+    @ObservationIgnored private var inFlightSends: Set<String> = []
+
+    /// Queue an outbound message and try to flush immediately. Held when we're
+    /// offline or the room isn't keyed yet, and flushed in order the moment both are
+    /// true — so a message composed before the socket is up still goes out, exactly
+    /// once it can. `localId` correlates the returned event_id back to the caller's
+    /// local row (for the read tick). Idempotent per `localId`.
+    func enqueueSend(_ content: OutboxContent, roomId: String, localId: String) {
+        guard !inFlightSends.contains(localId),
+              !outbox.contains(where: { $0.localId == localId }) else { return }
+        outbox.append(OutboxItem(localId: localId, roomId: roomId, content: content))
+        drainOutbox()
+    }
+
+    /// Flush every queued send that can go now: we're connected AND the target room
+    /// is keyed (so it encrypts to the plugin, not to 0 devices — the I2 gate).
+    /// Order-preserving; an item that can't go yet stays queued for the next drain
+    /// (on `.connected`, or after a sync makes its room reachable).
+    private func drainOutbox() {
+        guard connectionState == .connected, crypto != nil, !outbox.isEmpty else { return }
+        for item in outbox where !inFlightSends.contains(item.localId) {
+            guard isRoomReady(item.roomId) else { continue }
+            inFlightSends.insert(item.localId)
+            Task { [weak self] in await self?.deliverOutboxItem(item) }
         }
     }
 
-    /// Encrypt the blob, upload the ciphertext (protocol D.3), and send an
-    /// `m.image` referencing the resulting `mxc://` + decryption key.
-    func sendImage(_ data: Data, mimeType: String, roomId: String, localId: String) async {
-        let filename = Self.imageFilename(mimeType: mimeType)
-        await sendMedia(data, mimeType: mimeType, roomId: roomId, localId: localId,
-                        msgtype: "m.image", filename: filename, info: ["mimetype": mimeType, "size": data.count])
+    private func deliverOutboxItem(_ item: OutboxItem) async {
+        let eventId: String?
+        switch item.content {
+        case .text(let text):
+            eventId = await deliverText(text, roomId: item.roomId)
+        case .image(let data, let mimeType):
+            eventId = await deliverMedia(
+                data, mimeType: mimeType, roomId: item.roomId,
+                msgtype: "m.image", filename: Self.imageFilename(mimeType: mimeType),
+                info: ["mimetype": mimeType, "size": data.count])
+        case .audio(let data, let mimeType, let durationMs):
+            eventId = await deliverMedia(
+                data, mimeType: mimeType, roomId: item.roomId,
+                msgtype: "m.audio", filename: "voice.m4a",
+                info: ["mimetype": mimeType, "size": data.count, "duration": durationMs])
+        }
+        inFlightSends.remove(item.localId)
+        guard let eventId else {
+            // Failed (offline / transient / not-yet-keyed) — leave it queued; the
+            // next drain retries. The row stays `.sending`.
+            return
+        }
+        outbox.removeAll { $0.localId == item.localId }
+        onSentEventId?(item.localId, eventId)
+    }
+
+    /// Encrypt + send plain text. Returns the homeserver event_id on success, nil on
+    /// any (expected, offline-ish) failure so the outbox can retry.
+    private func deliverText(_ text: String, roomId: String) async -> String? {
+        do {
+            return try await crypto?.encryptAndSend(
+                roomId: roomId,
+                recipients: roomMembers[roomId] ?? [],
+                content: ["msgtype": "m.text", "body": text]
+            )
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.deliverText")
+            AppLog.log("⚠️ Matrix text send failed: \(error)")
+            return nil
+        }
     }
 
     nonisolated static func imageFilename(mimeType: String) -> String {
@@ -1016,31 +1084,27 @@ final class MatrixSession {
         }
     }
 
-    /// Same as `sendImage` for a voice note (`m.audio` + duration).
-    func sendAudio(_ data: Data, mimeType: String, durationMs: Int, roomId: String, localId: String) async {
-        await sendMedia(data, mimeType: mimeType, roomId: roomId, localId: localId,
-                        msgtype: "m.audio", filename: "voice.m4a",
-                        info: ["mimetype": mimeType, "size": data.count, "duration": durationMs])
-    }
-
-    private func sendMedia(
-        _ data: Data, mimeType: String, roomId: String, localId: String,
+    /// Encrypt the blob, upload the ciphertext (protocol D.3), and send an
+    /// `m.image`/`m.audio` referencing the resulting `mxc://` + decryption key.
+    /// Returns the event_id on success, nil on failure (so the outbox can retry).
+    private func deliverMedia(
+        _ data: Data, mimeType: String, roomId: String,
         msgtype: String, filename: String, info: [String: Any]
-    ) async {
+    ) async -> String? {
         guard let creds, let mediaBase = mediaBaseURL else {
-            AppLog.log("⚠️ media send dropped — no media base / creds")
-            return
+            AppLog.log("⚠️ media send held — no media base / creds yet")
+            return nil
         }
         do {
             let file = try await MatrixMedia.encryptAndUpload(
                 data, mediaBaseURL: mediaBase, accessToken: creds.accessToken, filename: filename)
             let content: [String: Any] = ["msgtype": msgtype, "body": filename, "file": file, "info": info]
-            let eventId = try await crypto?.encryptAndSend(
+            return try await crypto?.encryptAndSend(
                 roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content)
-            if let eventId { onSentEventId?(localId, eventId) }
         } catch {
-            ErrorReporter.capture(error, context: "MatrixSession.sendMedia")
+            ErrorReporter.capture(error, context: "MatrixSession.deliverMedia")
             AppLog.log("⚠️ Matrix media send failed: \(error)")
+            return nil
         }
     }
 
