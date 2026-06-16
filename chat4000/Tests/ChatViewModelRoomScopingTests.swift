@@ -269,7 +269,7 @@ struct ChatViewModelRoomScopingTests {
     }
 
     @Test
-    func htmlCardSanitizesAndRendersFromCustomType() throws {
+    func htmlCardStoresAuthoredHTMLFromCustomType() throws {
         let ctx = try makeContext()
         let room = RoomViewModel(roomId: "!A", session: MatrixSession())
         room.attach(modelContext: ctx)
@@ -287,19 +287,19 @@ struct ChatViewModelRoomScopingTests {
         room.ingest(Self.htmlCardEvent(eventId: "$card", html: html), live: true)
 
         let message = try #require(room.messages.first)
-        let sanitized = try #require(message.htmlCardHTML)
-        let lowercased = sanitized.lowercased()
+        let authoredHTML = try #require(message.htmlCardHTML)
+        let lowercased = authoredHTML.lowercased()
         #expect(room.messages.count == 1)
         #expect(message.kind == .htmlCard)
         #expect(message.text.isEmpty)
-        #expect(sanitized.contains("Safe"))
-        #expect(sanitized.contains("link"))
-        #expect(lowercased.contains("script") == false)
-        #expect(lowercased.contains("onclick") == false)
-        #expect(lowercased.contains("javascript:") == false)
-        #expect(lowercased.contains("<img") == false)
-        #expect(lowercased.contains("<iframe") == false)
-        #expect(lowercased.contains("href=") == false)
+        #expect(authoredHTML == html)
+        #expect(authoredHTML.contains("Safe"))
+        #expect(authoredHTML.contains("link"))
+        #expect(lowercased.contains("script"))
+        #expect(lowercased.contains("onclick"))
+        #expect(lowercased.contains("<img"))
+        #expect(lowercased.contains("<iframe"))
+        #expect(lowercased.contains("href="))
     }
 
     @Test
