@@ -44,8 +44,18 @@ struct chat4000App: App {
         let initialViewModel = ChatViewModel()
 
         _chatViewModel = State(initialValue: initialViewModel)
-        // v2: route on the persisted Matrix session, not a v1 group key.
-        _currentScreen = State(initialValue: initialViewModel.isPaired ? .appConnecting : .enterPairingCode)
+        // v2: route on the persisted Matrix session, not a v1 group key. A returning
+        // user (already set up at least once) goes STRAIGHT to the chat — local rooms
+        // and history restore from disk and the socket connects in the background, so
+        // there's no full-screen "connecting" wall. Only a never-set-up pairing still
+        // shows the first-run connecting screen.
+        let initialScreen: AppScreen
+        if initialViewModel.isPaired {
+            initialScreen = initialViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting
+        } else {
+            initialScreen = .enterPairingCode
+        }
+        _currentScreen = State(initialValue: initialScreen)
         _showLegalReconsentModal = State(initialValue: false)
         _currentTermsVersion = State(initialValue: nil)
 
@@ -106,8 +116,15 @@ struct chat4000App: App {
                     chatViewModel.refreshMessages()
                     routeAfterConnectionProgress()
                 case .reconnecting:
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        currentScreen = .reconnecting
+                    // In the chat a transient drop is a slim in-chat banner (see
+                    // ChatView.connectionBanner), not a full-screen takeover — never
+                    // eject the user from the conversation. Only the first-connect
+                    // path (still on a connecting screen) shows the full reconnecting
+                    // screen.
+                    if currentScreen != .chat {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            currentScreen = .reconnecting
+                        }
                     }
                 case .failed(let message):
                     // Pairing or restore failed — surface the error on the

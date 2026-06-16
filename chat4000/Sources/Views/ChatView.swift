@@ -44,6 +44,8 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 navBar
 
+                connectionBanner
+
                 if versionPolicy.showNag, case .recommendUpgrade(let recommended, _) = versionPolicy.action {
                     UpgradeRecommendedBanner(recommendedVersion: recommended) {
                         versionPolicy.dismissNag()
@@ -186,6 +188,48 @@ struct ChatView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 48)
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Connection banner
+
+    /// Slim, non-blocking status strip shown in-chat while the socket is not up.
+    /// Replaces the old full-screen "connecting"/"reconnecting" takeover so a launch
+    /// or a transient drop never hides the conversation. Hidden when connected.
+    @ViewBuilder
+    private var connectionBanner: some View {
+        switch viewModel.connectionState {
+        case .connected:
+            EmptyView()
+        case .connecting:
+            connectionStrip(text: "Connecting…", color: AppColors.reconnecting, spinner: true)
+        case .reconnecting:
+            connectionStrip(text: "Reconnecting…", color: AppColors.reconnecting, spinner: true)
+        case .disconnected, .failed:
+            connectionStrip(text: "Offline", color: AppColors.disconnected, spinner: false)
+        }
+    }
+
+    private func connectionStrip(text: String, color: Color, spinner: Bool) -> some View {
+        HStack(spacing: 8) {
+            if spinner {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(color)
+            } else {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+            }
+            Text(text)
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textSecondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(color.opacity(0.10))
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     // MARK: - Nav Bar
@@ -571,6 +615,32 @@ struct ChatView: View {
         }
     }
 
+    private func sendSharedImageFromLaunchAction() {
+        AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction begin")
+        guard viewModel.hasActiveSession else {
+            LaunchActionStore.set(.sendSharedImage)
+            AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction deferred=no_active_session")
+            return
+        }
+
+        switch SharedImageInbox.consumeNext() {
+        case .success(let payload?):
+            viewModel.sendImageData(payload.data, mimeType: payload.mimeType, source: "ios_share")
+            AppLog.log(
+                "🎯 ChatView.sendSharedImageFromLaunchAction success id=%@ bytes=%d mime=%@",
+                payload.id,
+                payload.data.count,
+                payload.mimeType
+            )
+        case .success(nil):
+            AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction no_pending_image")
+        case .failure(let error):
+            voiceErrorMessage = error.message
+            AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction error=%@", error.message)
+            Haptics.error()
+        }
+    }
+
     private func stopVoiceRecording() async {
         guard let clip = await voiceRecorder.stop() else {
             voiceErrorMessage = "Recording failed. Try again."
@@ -619,17 +689,24 @@ struct ChatView: View {
         pendingLaunchActionTask = Task { @MainActor in
             for attempt in 0..<6 {
                 AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded attempt=%d", attempt)
-                if let action = LaunchActionStore.consume() {
-                    isHandlingLaunchAction = true
-                    defer { isHandlingLaunchAction = false }
+                if let action = LaunchActionStore.peek() {
+                    if action == .sendSharedImage, !viewModel.hasActiveSession {
+                        AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded waiting_for_session")
+                    } else {
+                        _ = LaunchActionStore.consume()
+                        isHandlingLaunchAction = true
+                        defer { isHandlingLaunchAction = false }
 
-                    switch action {
-                    case .startVoiceRecording:
-                        await startVoiceRecordingFromLaunchAction()
-                    case .openComposer:
-                        openComposerFromLaunchAction()
+                        switch action {
+                        case .startVoiceRecording:
+                            await startVoiceRecordingFromLaunchAction()
+                        case .openComposer:
+                            openComposerFromLaunchAction()
+                        case .sendSharedImage:
+                            sendSharedImageFromLaunchAction()
+                        }
+                        return
                     }
-                    return
                 }
 
                 if attempt < 5 {
@@ -1150,14 +1227,24 @@ final class ChatViewModel {
         syncActiveRoomFromSession()
     }
 
-    /// v2 chat-screen setup: attach persistence and restore the Matrix session.
+    /// v2 chat-screen setup: attach persistence, restore the session from disk so
+    /// rooms + history are on screen immediately, then connect in the background.
+    /// Re-entrancy-safe: both onAppear paths (ModelContextBinder + ChatShell) call
+    /// this on a returning user, and the synchronous `.connecting` flip below makes
+    /// the second call a no-op so we never open two clients.
     func setupMatrix(modelContext: ModelContext) {
         attach(modelContext: modelContext)
-        guard connectionState != .connected else {
-            syncActiveRoomFromSession()
-            return
+        matrixSession.restoreFromDisk()
+        syncActiveRoomFromSession()
+        // Only kick a connect from a cold/failed state; a re-entrant onAppear that
+        // arrives while we're already connecting/connected/reconnecting is a no-op.
+        switch connectionState {
+        case .disconnected, .failed:
+            connectionState = .connecting
+            Task { await matrixSession.connect() }
+        case .connecting, .connected, .reconnecting:
+            break
         }
-        Task { await matrixSession.connect() }
     }
 
     /// Bring a room to front. The session's `selectRoom` is the single source of
@@ -1227,11 +1314,15 @@ final class ChatViewModel {
 
     func sendImage(_ image: PlatformImage) {
         guard let jpegData = image.clawConnectJPEGData else { return }
+        sendImageData(jpegData, mimeType: "image/jpeg", source: "camera")
+    }
+
+    func sendImageData(_ data: Data, mimeType: String, source: String) {
         guard let front = frontRoom else {
             AppLog.log("✋ image send blocked — no active session")
             return
         }
-        front.sendImage(data: jpegData, mimeType: "image/jpeg")
+        front.sendImage(data: data, mimeType: mimeType, source: source)
     }
 
     func sendAudio(_ audioData: Data, mimeType: String, duration: TimeInterval, waveform: [Float], source: String) {

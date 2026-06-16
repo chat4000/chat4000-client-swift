@@ -320,9 +320,20 @@ final class MatrixSession {
         }
     }
 
-    /// Restore a paired session on launch / foreground. No-op if already up.
+    /// Restore a paired session on launch / foreground. Idempotent: re-entrant
+    /// calls while we're already up, bringing the socket up, or reconnecting are
+    /// ignored, so the two `setupMatrix` onAppear paths (ModelContextBinder +
+    /// ChatShell) and the foreground handler can never open two clients. Restores
+    /// local state from disk FIRST so the chat is already on screen; the socket then
+    /// comes up in the background.
     func connect() async {
-        if gateway != nil, connectionState == .connected { return }
+        restoreFromDisk()
+        switch connectionState {
+        case .connected, .connecting, .reconnecting:
+            return
+        case .disconnected, .failed:
+            break
+        }
         guard let stored = MatrixCredentialStore.load() else {
             connectionState = .disconnected
             return
@@ -338,6 +349,74 @@ final class MatrixSession {
             connectionState = .failed(error.message)
             AppLog.log("❌ Matrix connect failed: \(error)")
         }
+    }
+
+    /// Build the gateway + crypto from persisted creds WITHOUT any networking, so a
+    /// returning user's room list + history render immediately (chat shown before
+    /// the socket). The crypto store is local (sqlite) and `GatewayClient.connect()`
+    /// is the only network call, so both can be constructed offline. Idempotent — a
+    /// no-op once a transport exists or a user is already in memory (e.g. a live
+    /// reconnect, which `reconnectLoop` owns). Returns true when a session is now
+    /// restored in memory.
+    @discardableResult
+    func restoreFromDisk() -> Bool {
+        guard gateway == nil, crypto == nil, userId == nil else { return userId != nil }
+        guard let stored = MatrixCredentialStore.load(),
+              let url = URL(string: stored.gatewayURL) else {
+            return false
+        }
+        let gateway = makeGateway(stored, url: url)
+        let crypto: CryptoEngine
+        do {
+            crypto = try CryptoEngine(
+                userId: stored.userId,
+                deviceId: stored.deviceId,
+                storePath: MatrixEnvironment.current.cryptoStorePath,
+                gateway: gateway
+            )
+        } catch {
+            // Crypto store unopenable offline — fall back to the online path, which
+            // rebuilds from scratch once the socket is up. Not fatal: just no instant
+            // chat this launch. (`gateway` is a local that is simply discarded; it was
+            // never connected, so there is nothing to tear down.)
+            ErrorReporter.capture(error, context: "MatrixSession.restoreFromDisk")
+            AppLog.log("⚙️ offline restore skipped (crypto open failed): \(error)")
+            return false
+        }
+        creds = stored
+        userId = stored.userId
+        mediaBaseURL = MatrixEnvironment.mediaBaseURL(fromGatewayURL: stored.gatewayURL)
+        self.gateway = gateway
+        self.crypto = crypto
+        restoreRoomSnapshotIfNeeded(userId: stored.userId)
+        restoreCryptoStateForRoomSnapshot()
+        AppLog.log("📴 offline restore: user=%@ rooms=%d (chat shown before socket)",
+                   stored.userId, roomOrder.count)
+        return true
+    }
+
+    /// Construct (but DO NOT connect) a fully-wired `GatewayClient` for `stored`.
+    /// Shared by the offline restore and the online start paths so the
+    /// sync/close/reauth handlers are identical in both.
+    private func makeGateway(_ stored: MatrixCredentialStore.Stored, url: URL) -> GatewayClient {
+        let identity = GatewayClient.Identity(
+            appId: Bundle.main.bundleIdentifier ?? "com.neonnode.chat94app",
+            clientVersion: AppRegistrationIdentity.currentAppVersion,
+            platform: Self.platform,
+            releaseChannel: VersionPolicyManager.releaseChannel
+        )
+        let gateway = GatewayClient(url: url, accessToken: stored.accessToken, identity: identity)
+        gateway.onReauthNeeded = { [weak self] in
+            guard let self, let token = self.creds?.accessToken else { return }
+            self.gateway?.reauth(token: token)
+        }
+        gateway.onSync = { [weak self] frame in
+            Task { @MainActor in await self?.handleSync(frame) }
+        }
+        gateway.onClosed = { [weak self] in
+            Task { @MainActor in await self?.handleSocketClosed() }
+        }
+        return gateway
     }
 
     func disconnect() async {
@@ -416,23 +495,10 @@ final class MatrixSession {
         }
         creds = stored
         mediaBaseURL = MatrixEnvironment.mediaBaseURL(fromGatewayURL: stored.gatewayURL)
-        let identity = GatewayClient.Identity(
-            appId: Bundle.main.bundleIdentifier ?? "com.neonnode.chat94app",
-            clientVersion: AppRegistrationIdentity.currentAppVersion,
-            platform: Self.platform,
-            releaseChannel: VersionPolicyManager.releaseChannel
-        )
-        let gateway = GatewayClient(url: url, accessToken: stored.accessToken, identity: identity)
-        gateway.onReauthNeeded = { [weak self] in
-            guard let self, let token = self.creds?.accessToken else { return }
-            self.gateway?.reauth(token: token)
-        }
-        gateway.onSync = { [weak self] frame in
-            Task { @MainActor in await self?.handleSync(frame) }
-        }
-        gateway.onClosed = { [weak self] in
-            Task { @MainActor in await self?.handleSocketClosed() }
-        }
+        // Reuse the transport built offline by `restoreFromDisk` (launch fast-path);
+        // otherwise build it now (fresh pair / reconnect, where both were cleared).
+        let gateway = self.gateway ?? makeGateway(stored, url: url)
+        self.gateway = gateway
 
         let auth = try await gateway.connect()
         // Connected as a DIFFERENT account than the one currently in memory → the
@@ -443,14 +509,21 @@ final class MatrixSession {
             AppLog.log("🔄 identity changed %@ → %@; clearing stale session state", previous, auth.userId)
             resetSessionState()
         }
-        let crypto = try CryptoEngine(
-            userId: auth.userId,
-            deviceId: auth.deviceId,
-            storePath: MatrixEnvironment.current.cryptoStorePath,
-            gateway: gateway
-        )
+        // Reuse the offline-built OlmMachine when the authed identity matches the
+        // creds it was opened with (avoids opening the crypto sqlite twice); else
+        // build it now for the authed identity (fresh pair, or an identity change).
+        let crypto: CryptoEngine
+        if let existing = self.crypto, auth.userId == stored.userId, auth.deviceId == stored.deviceId {
+            crypto = existing
+        } else {
+            crypto = try CryptoEngine(
+                userId: auth.userId,
+                deviceId: auth.deviceId,
+                storePath: MatrixEnvironment.current.cryptoStorePath,
+                gateway: gateway
+            )
+        }
 
-        self.gateway = gateway
         self.crypto = crypto
         self.userId = auth.userId
         self.reconnectAttempts = 0
@@ -927,8 +1000,20 @@ final class MatrixSession {
     /// Encrypt the blob, upload the ciphertext (protocol D.3), and send an
     /// `m.image` referencing the resulting `mxc://` + decryption key.
     func sendImage(_ data: Data, mimeType: String, roomId: String, localId: String) async {
+        let filename = Self.imageFilename(mimeType: mimeType)
         await sendMedia(data, mimeType: mimeType, roomId: roomId, localId: localId,
-                        msgtype: "m.image", filename: "image.jpg", info: ["mimetype": mimeType, "size": data.count])
+                        msgtype: "m.image", filename: filename, info: ["mimetype": mimeType, "size": data.count])
+    }
+
+    nonisolated static func imageFilename(mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/png": return "image.png"
+        case "image/gif": return "image.gif"
+        case "image/heic": return "image.heic"
+        case "image/heif": return "image.heif"
+        case "image/webp": return "image.webp"
+        default: return "image.jpg"
+        }
     }
 
     /// Same as `sendImage` for a voice note (`m.audio` + duration).
