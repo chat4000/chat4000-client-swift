@@ -21,10 +21,20 @@ enum SharedImageInbox {
     private static let defaultMimeType = "image/jpeg"
     private static let maxStoredItems = 10
 
+    /// Shared container between the app and the Share Extension. The extension
+    /// writes incoming images here; the app reads them. MUST match the App Group id
+    /// in both targets' entitlements (and registered in the Apple Developer portal).
+    static let appGroupId = "group.com.neonnode.chat94app"
+
+    /// The UserDefaults suite shared with the extension via the App Group. Falls
+    /// back to `.standard` when the group isn't provisioned yet (pre-portal / older
+    /// builds), so behavior degrades gracefully instead of crashing.
+    static var sharedDefaults: UserDefaults { UserDefaults(suiteName: appGroupId) ?? .standard }
+
     static func enqueue(
         fileURL: URL,
         baseURL: URL? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SharedImageInbox.sharedDefaults
     ) -> Result<SharedImagePayload, AppError> {
         let didAccess = fileURL.startAccessingSecurityScopedResource()
         defer {
@@ -53,7 +63,7 @@ enum SharedImageInbox {
         suggestedFilename: String?,
         mimeType: String?,
         baseURL: URL? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SharedImageInbox.sharedDefaults
     ) -> Result<SharedImagePayload, AppError> {
         guard !data.isEmpty else {
             return .failure(.storage("shared image is empty"))
@@ -107,7 +117,7 @@ enum SharedImageInbox {
 
     static func consumeNext(
         baseURL: URL? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SharedImageInbox.sharedDefaults
     ) -> Result<SharedImagePayload?, AppError> {
         var items = loadManifest(defaults: defaults)
 
@@ -149,7 +159,7 @@ enum SharedImageInbox {
         return .success(nil)
     }
 
-    static func hasPendingImage(defaults: UserDefaults = .standard) -> Bool {
+    static func hasPendingImage(defaults: UserDefaults = SharedImageInbox.sharedDefaults) -> Bool {
         !loadManifest(defaults: defaults).isEmpty
     }
 
@@ -157,6 +167,11 @@ enum SharedImageInbox {
         let root: URL
         if let baseURL {
             root = baseURL
+        } else if let group = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId
+        ) {
+            // Shared with the extension once the App Group is provisioned.
+            root = group
         } else if let support = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

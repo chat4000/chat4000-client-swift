@@ -35,6 +35,7 @@
 		1E339EE4124888C06623B7EA /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
 		21AA69DB860A21EA7248D57C /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */; };
 		2247288E706BC0A2CE49AA35 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
+		24CF629CAF816EE11A4445CE /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D55986C8E06D534926C18D /* ShareViewController.swift */; };
 		254205589902EB00DB9B618A /* MatrixCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74805CCF8BC6DBBDD7FC666E /* MatrixCredentialStoreTests.swift */; };
 		267BBE8419C5B010B5B892E0 /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		2720FC65EA9DDAC856774B90 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = 0F2511B4D08991E82A7177B4 /* Intercom */; };
@@ -117,6 +118,7 @@
 		92008A1B23585FAFDED1FE7B /* SharedImageInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D6AF1188169F2A12E2CA3F /* SharedImageInbox.swift */; };
 		9414C8FA74298DE0DF48D759 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */; };
 		951BDD41D642B4F282A7394A /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
+		96CF2D932A817FE93875DB90 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D55986C8E06D534926C18D /* ShareViewController.swift */; };
 		97641E21234E8E7EF2BCD7DF /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC626D09942862C10A3DE4B /* SlidingSync.swift */; };
 		99E8BC0DAC306E76C0685513 /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
 		9BB49FF0EC2415E7E31D445B /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
@@ -138,8 +140,10 @@
 		B02F39E74B2C5CDAE84AFECE /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
 		B0BE4C42C5F53E1A1B1AE53C /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
 		B0EEACC8B6E90E1E3EB0B781 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
+		B0EFB63A85435661F561407A /* chat4000ShareAppStore.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14E5E4C10F34301C720D6307 /* chat4000ShareAppStore.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B16AEEC41FE3E265CAEB1488 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
 		B17C5F03F9550287E214BE74 /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
+		B259DCDE6910CC1A52E0038D /* chat4000ShareDev.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B0EE1E8B23CBFA41823E3101 /* chat4000ShareDev.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B28C845296443884C4AD197C /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		B29686244A17ABDF9A0DAE35 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
 		B3191AE96E6215A7F3A2DF25 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
@@ -223,7 +227,46 @@
 			remoteGlobalIDString = 0E98DC1C8258F3BA8ED9744C;
 			remoteInfo = chat4000iphonedev;
 		};
+		8ACB277540AF8FAF95A1A2D2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8170F8DB11ABA22193CB59FB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9F04EE1E55AFB7430670E0C5;
+			remoteInfo = chat4000ShareAppStore;
+		};
+		A379EEB7A6841338769F24D4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8170F8DB11ABA22193CB59FB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD4B4201BF47C45B483104EC;
+			remoteInfo = chat4000ShareDev;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0F9DAA6E75267072522743DB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B0EFB63A85435661F561407A /* chat4000ShareAppStore.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		266C13AE89983C728C7CB0CA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B259DCDE6910CC1A52E0038D /* chat4000ShareDev.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		01E7B14B025FB6F40EE0AC93 /* HapticsLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticsLab.swift; sourceTree = "<group>"; };
@@ -231,6 +274,7 @@
 		0A112720006071299AA14823 /* chat4000iphoneappstore.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = chat4000iphoneappstore.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		11EEBAD5675C62C828868186 /* MatrixTimelineMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTimelineMapperTests.swift; sourceTree = "<group>"; };
 		14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntercomMacSheet.swift; sourceTree = "<group>"; };
+		14E5E4C10F34301C720D6307 /* chat4000ShareAppStore.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = chat4000ShareAppStore.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1574D1CDAB67C60CD828BBEE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		15D6AF1188169F2A12E2CA3F /* SharedImageInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedImageInbox.swift; sourceTree = "<group>"; };
 		173C0E4A4F3F06EDCF887C4B /* chat4000iphonedev.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = chat4000iphonedev.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -279,8 +323,10 @@
 		AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixPairingTests.swift; sourceTree = "<group>"; };
 		B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpgradeViews.swift; sourceTree = "<group>"; };
 		B050664DE997644E80B7EBD8 /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
+		B0EE1E8B23CBFA41823E3101 /* chat4000ShareDev.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = chat4000ShareDev.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2921479514ABE106F4A0EE2 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		B9C463E211CCE7A8B204A526 /* MessageTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTransport.swift; sourceTree = "<group>"; };
+		B9D55986C8E06D534926C18D /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		BCC626D09942862C10A3DE4B /* SlidingSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlidingSync.swift; sourceTree = "<group>"; };
 		BD5502614502BB36DCC28ED7 /* MatrixMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMedia.swift; sourceTree = "<group>"; };
 		BE09C299166305E96D81033B /* CryptoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoEngine.swift; sourceTree = "<group>"; };
@@ -353,6 +399,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		074AEA42A579E5EAF081CBB4 /* ShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				B9D55986C8E06D534926C18D /* ShareViewController.swift */,
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
 		1C2AB8301B27E765CE09C77F /* Gateway */ = {
 			isa = PBXGroup;
 			children = (
@@ -402,6 +456,8 @@
 				0A112720006071299AA14823 /* chat4000iphoneappstore.app */,
 				173C0E4A4F3F06EDCF887C4B /* chat4000iphonedev.app */,
 				37FDEE452BAC9D3CA968AC4E /* chat4000mac.app */,
+				14E5E4C10F34301C720D6307 /* chat4000ShareAppStore.appex */,
+				B0EE1E8B23CBFA41823E3101 /* chat4000ShareDev.appex */,
 				C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */,
 			);
 			name = Products;
@@ -441,6 +497,7 @@
 			children = (
 				784E8F4F0AF893A5BCD43FC2 /* Packages */,
 				5B741E0F226F4AE2279ACCB6 /* Resources */,
+				074AEA42A579E5EAF081CBB4 /* ShareExtension */,
 				CFB5EE924E19E1329DA7CAFF /* Sources */,
 				EC0F7BC08D3CACB0FF9992D4 /* Tests */,
 				5C87E010D131127349B69FD9 /* Products */,
@@ -539,11 +596,13 @@
 				1E72328B7EDD9A8D5382A041 /* Sources */,
 				5AA6AD9FCCF58DFA84B4D9BF /* Resources */,
 				4916E4CF70281DC4B34DF2C8 /* Frameworks */,
+				266C13AE89983C728C7CB0CA /* Embed Foundation Extensions */,
 				3208A8A6BFB11053A4C88207 /* Upload dSYM to Sentry */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6F8CEBD95968E41386179C1D /* PBXTargetDependency */,
 			);
 			name = chat4000iphonedev;
 			packageProductDependencies = (
@@ -603,6 +662,40 @@
 			productReference = C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		9F04EE1E55AFB7430670E0C5 /* chat4000ShareAppStore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BDF8A32F1724969196FF92E4 /* Build configuration list for PBXNativeTarget "chat4000ShareAppStore" */;
+			buildPhases = (
+				69416D2917A18643D7A1B6B8 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = chat4000ShareAppStore;
+			packageProductDependencies = (
+			);
+			productName = chat4000ShareAppStore;
+			productReference = 14E5E4C10F34301C720D6307 /* chat4000ShareAppStore.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		DD4B4201BF47C45B483104EC /* chat4000ShareDev */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0C539388AA63FA8FFBD9F3D0 /* Build configuration list for PBXNativeTarget "chat4000ShareDev" */;
+			buildPhases = (
+				8FDFA25C9C16EFB49CDDBEB6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = chat4000ShareDev;
+			packageProductDependencies = (
+			);
+			productName = chat4000ShareDev;
+			productReference = B0EE1E8B23CBFA41823E3101 /* chat4000ShareDev.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		F5A1478ECCF1B164155FCFB4 /* chat4000iphoneappstore */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F660539E8465EAA836AA513C /* Build configuration list for PBXNativeTarget "chat4000iphoneappstore" */;
@@ -611,11 +704,13 @@
 				23936579A3E2825DC9760E43 /* Sources */,
 				EBBDB14C200F47E242C26B16 /* Resources */,
 				765DFF621903E29985F8DF5F /* Frameworks */,
+				0F9DAA6E75267072522743DB /* Embed Foundation Extensions */,
 				52754A409DE7431FB4772D2D /* Upload dSYM to Sentry */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2507EB19BD9E6F94C8E947C3 /* PBXTargetDependency */,
 			);
 			name = chat4000iphoneappstore;
 			packageProductDependencies = (
@@ -653,6 +748,14 @@
 						DevelopmentTeam = H45JD827CU;
 						ProvisioningStyle = Automatic;
 					};
+					9F04EE1E55AFB7430670E0C5 = {
+						DevelopmentTeam = H45JD827CU;
+						ProvisioningStyle = Automatic;
+					};
+					DD4B4201BF47C45B483104EC = {
+						DevelopmentTeam = H45JD827CU;
+						ProvisioningStyle = Automatic;
+					};
 					F5A1478ECCF1B164155FCFB4 = {
 						DevelopmentTeam = H45JD827CU;
 						ProvisioningStyle = Automatic;
@@ -683,6 +786,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				9F04EE1E55AFB7430670E0C5 /* chat4000ShareAppStore */,
+				DD4B4201BF47C45B483104EC /* chat4000ShareDev */,
 				8FCB569B42B4FD8AACCBF568 /* chat4000Tests */,
 				F5A1478ECCF1B164155FCFB4 /* chat4000iphoneappstore */,
 				0E98DC1C8258F3BA8ED9744C /* chat4000iphonedev */,
@@ -1028,9 +1133,35 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		69416D2917A18643D7A1B6B8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				96CF2D932A817FE93875DB90 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8FDFA25C9C16EFB49CDDBEB6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				24CF629CAF816EE11A4445CE /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		2507EB19BD9E6F94C8E947C3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9F04EE1E55AFB7430670E0C5 /* chat4000ShareAppStore */;
+			targetProxy = 8ACB277540AF8FAF95A1A2D2 /* PBXContainerItemProxy */;
+		};
+		6F8CEBD95968E41386179C1D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD4B4201BF47C45B483104EC /* chat4000ShareDev */;
+			targetProxy = A379EEB7A6841338769F24D4 /* PBXContainerItemProxy */;
+		};
 		71A55B04B3C5831EB38F65CE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 0E98DC1C8258F3BA8ED9744C /* chat4000iphonedev */;
@@ -1039,6 +1170,24 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		1656E388E4751E3A3500F17A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.neonnode.chat94app.dev.share;
+				PRODUCT_MODULE_NAME = ShareExtension;
+				SDKROOT = iphoneos;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		34E5C3F9F7320905A73016B7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1120,6 +1269,24 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.neonnode.chat94app.dev;
 				PRODUCT_MODULE_NAME = chat4000;
+				SDKROOT = iphoneos;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		9820D04FFDAD220555667835 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.neonnode.chat94app.dev.share;
+				PRODUCT_MODULE_NAME = ShareExtension;
 				SDKROOT = iphoneos;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -1351,9 +1518,54 @@
 			};
 			name = Debug;
 		};
+		FA31E3ED94FA87DAB9F02672 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.neonnode.chat94app.Share;
+				PRODUCT_MODULE_NAME = ShareExtension;
+				SDKROOT = iphoneos;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		FB747E3F34E9781B795E69A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.neonnode.chat94app.Share;
+				PRODUCT_MODULE_NAME = ShareExtension;
+				SDKROOT = iphoneos;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0C539388AA63FA8FFBD9F3D0 /* Build configuration list for PBXNativeTarget "chat4000ShareDev" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1656E388E4751E3A3500F17A /* Debug */,
+				9820D04FFDAD220555667835 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		84F7B8EDC57BA6F384FCD9F5 /* Build configuration list for PBXNativeTarget "chat4000iphonedev" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1377,6 +1589,15 @@
 			buildConfigurations = (
 				A3E8525B508B8C7698A5B519 /* Debug */,
 				34E5C3F9F7320905A73016B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BDF8A32F1724969196FF92E4 /* Build configuration list for PBXNativeTarget "chat4000ShareAppStore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FB747E3F34E9781B795E69A1 /* Debug */,
+				FA31E3ED94FA87DAB9F02672 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

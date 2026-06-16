@@ -742,11 +742,16 @@ struct ChatView: View {
         pendingLaunchActionTask = Task { @MainActor in
             for attempt in 0..<6 {
                 AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded attempt=%d", attempt)
-                if let action = LaunchActionStore.peek() {
+                // A launch action (Open-in / deep link) OR an image dropped into the
+                // shared inbox by the Share Extension (which can't set our launch flag
+                // across processes) both mean "handle a shared image".
+                let storedAction = LaunchActionStore.peek()
+                let action = storedAction ?? (SharedImageInbox.hasPendingImage() ? .sendSharedImage : nil)
+                if let action {
                     if action == .sendSharedImage, !viewModel.hasActiveSession {
                         AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded waiting_for_session")
                     } else {
-                        _ = LaunchActionStore.consume()
+                        if storedAction != nil { _ = LaunchActionStore.consume() }
                         isHandlingLaunchAction = true
                         defer { isHandlingLaunchAction = false }
 

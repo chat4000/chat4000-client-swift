@@ -10,5 +10,9 @@
 	<array>
 		<string>applinks:pair.chat4000.com</string>
 	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.neonnode.chat94app</string>
+	</array>
 </dict>
 </plist>

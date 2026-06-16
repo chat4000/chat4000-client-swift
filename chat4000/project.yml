@@ -114,6 +114,25 @@ targetTemplates:
         script: |
           "$SRCROOT/scripts/upload-dsym-to-sentry.sh"
 
+  # Share Sheet entry point — saves images shared from other apps into the App
+  # Group inbox; the host app picks them up on next foreground. Self-contained
+  # (no app/Sentry deps) so it stays small and within an extension's memory budget.
+  shareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+        excludes:
+          - "Info.plist"
+          - "*.entitlements"
+    settings:
+      base:
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
+        PRODUCT_MODULE_NAME: ShareExtension
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
+
 targets:
   chat4000iphoneappstore:
     templates: [iOSApp]
@@ -130,6 +149,8 @@ targets:
           APP_DISTRIBUTION_CHANNEL: appstore
           APP_APNS_ENV: production
           APP_APPATTEST_ENV: production
+    dependencies:
+      - target: chat4000ShareAppStore
     scheme:
       gatherCoverageData: false
   chat4000iphonedev:
@@ -141,6 +162,8 @@ targets:
         APP_DISTRIBUTION_CHANNEL: dev
         APP_APNS_ENV: development
         APP_APPATTEST_ENV: development
+    dependencies:
+      - target: chat4000ShareDev
     scheme:
       # Wire the unit-test bundle into the dev scheme so local verification does
       # not build or host against the App Store app target.
@@ -189,6 +212,19 @@ targets:
           else
             echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
           fi
+
+  # One extension target per app so each extension's bundle id is prefixed by its
+  # host app's id (App Store validation requires it).
+  chat4000ShareAppStore:
+    templates: [shareExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.Share
+  chat4000ShareDev:
+    templates: [shareExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.share
 
   chat4000Tests:
     type: bundle.unit-test
