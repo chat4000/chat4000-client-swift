@@ -254,12 +254,18 @@ final class CryptoEngine {
     /// events, `m.relates_to`. Ensures olm sessions + shares the room key first.
     /// Returns the homeserver `event_id`.
     @discardableResult
+    /// `transactionId`, when supplied, is used as the Matrix send transaction id
+    /// (the `{txnId}` in the send URL). Matrix dedupes by txnId, so passing a STABLE
+    /// id (e.g. the outbox row's local id) makes a re-send after a crash idempotent:
+    /// the homeserver returns the already-stored event instead of creating a
+    /// duplicate. Omit (nil) for a fresh random id when idempotency isn't needed.
     func encryptAndSend(
         roomId: String,
         recipients: [String],
         eventType: String = "m.room.message",
         content: [String: Any],
-        cleartextEnvelope: [String: Any] = [:]
+        cleartextEnvelope: [String: Any] = [:],
+        transactionId: String? = nil
     ) async throws(AppError) -> String? {
         AppLog.debug("🔐 encryptAndSend room=%@ type=%@ recipients=%d", roomId, eventType, recipients.count)
         if let claim = try getMissingSessions(recipients) {
@@ -282,7 +288,7 @@ final class CryptoEngine {
         var outer = (try? dict(fromJSON: encrypted)) ?? [:]
         for (key, value) in cleartextEnvelope { outer[key] = value }
 
-        let txnId = UUID().uuidString
+        let txnId = transactionId ?? UUID().uuidString
         let path = "/_matrix/client/v3/rooms/\(encode(roomId))/send/m.room.encrypted/\(encode(txnId))"
         let resp = try await put(path, dictBody: outer)
         let eventId = (try? dict(fromJSON: resp))?["event_id"] as? String

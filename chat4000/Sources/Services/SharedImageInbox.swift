@@ -112,14 +112,18 @@ enum SharedImageInbox {
         var items = loadManifest(defaults: defaults)
 
         while let item = items.first {
-            items.removeFirst()
-            saveManifest(items, defaults: defaults)
-
             switch pendingDirectory(baseURL: baseURL) {
             case .success(let directory):
                 let fileURL = directory.appendingPathComponent(item.filename, isDirectory: false)
                 do {
+                    // Read the bytes BEFORE committing the manifest removal, so a
+                    // crash mid-consume leaves the item re-consumable rather than
+                    // silently lost. (Durability after this point is the caller's
+                    // outbox: the returned payload becomes a persisted `.sending`
+                    // row, so dropping it from this inbox here is safe.)
                     let data = try Data(contentsOf: fileURL)
+                    items.removeFirst()
+                    saveManifest(items, defaults: defaults)
                     try? FileManager.default.removeItem(at: fileURL)
                     return .success(SharedImagePayload(
                         id: item.id,
@@ -128,7 +132,11 @@ enum SharedImageInbox {
                         filename: item.filename
                     ))
                 } catch {
+                    // Unreadable (missing / corrupt) — drop just this entry so the
+                    // queue can still drain; keeping it would loop on the bad item.
                     ErrorReporter.capture(error, context: "SharedImageInbox.consumeNext")
+                    items.removeFirst()
+                    saveManifest(items, defaults: defaults)
                     try? FileManager.default.removeItem(at: fileURL)
                     continue
                 }

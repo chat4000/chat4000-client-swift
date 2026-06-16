@@ -26,7 +26,7 @@ struct ChatView: View {
     @Binding var showSettings: Bool
     @State private var showCamera = false
     @State private var voiceRecorder = VoiceNoteRecorder()
-    @State private var voiceErrorMessage: String?
+    @State private var bannerErrorMessage: String?
     @FocusState private var inputFocused: Bool
     @State private var hasPrimedInitialFocus = false
     @State private var isHandlingLaunchAction = false
@@ -54,8 +54,8 @@ struct ChatView: View {
 
                 messageArea
 
-                if let voiceErrorMessage {
-                    errorBanner(voiceErrorMessage)
+                if let bannerErrorMessage {
+                    errorBanner(bannerErrorMessage)
                 }
 
                 // No session → no composer at all (the empty state's New chat
@@ -549,7 +549,7 @@ struct ChatView: View {
     private func toggleVoiceRecording() async {
         activeRecordingSource = .inputBar
         dismissKeyboardIfNeeded()
-        voiceErrorMessage = nil
+        bannerErrorMessage = nil
 
         // Let the mic-button tap haptic actually play before we activate the
         // `.record` audio session: iOS suppresses the Taptic Engine while audio
@@ -566,7 +566,7 @@ struct ChatView: View {
         } catch {
             // start() already reported truly unexpected device failures at its
             // boundary; permission denial is expected. Surface the user message.
-            voiceErrorMessage = error.message
+            bannerErrorMessage = error.message
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
@@ -595,7 +595,7 @@ struct ChatView: View {
         activeRecordingSource = .launchAction
         messageText = ""
         dismissKeyboardIfNeeded()
-        voiceErrorMessage = nil
+        bannerErrorMessage = nil
 
         do {
             try await voiceRecorder.start()
@@ -611,7 +611,7 @@ struct ChatView: View {
         } catch {
             // start() reported unexpected device failures at its boundary already.
             AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.message)
-            voiceErrorMessage = error.message
+            bannerErrorMessage = error.message
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
@@ -650,7 +650,7 @@ struct ChatView: View {
                 AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction drained sent=%d", sentCount)
                 return
             case .failure(let error):
-                voiceErrorMessage = error.message
+                bannerErrorMessage = error.message
                 AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction error=%@", error.message)
                 Haptics.error()
                 return
@@ -660,7 +660,7 @@ struct ChatView: View {
 
     private func stopVoiceRecording() async {
         guard let clip = await voiceRecorder.stop() else {
-            voiceErrorMessage = "Recording failed. Try again."
+            bannerErrorMessage = "Recording failed. Try again."
             Haptics.error()
             return
         }

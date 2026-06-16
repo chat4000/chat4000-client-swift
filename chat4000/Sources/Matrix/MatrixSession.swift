@@ -1032,18 +1032,21 @@ final class MatrixSession {
     }
 
     private func deliverOutboxItem(_ item: OutboxItem) async {
+        // Use the row's local id as the send transaction id so a re-send after a
+        // crash is idempotent at the homeserver (exactly-once — no duplicate event).
+        let txnId = item.localId
         let eventId: String?
         switch item.content {
         case .text(let text):
-            eventId = await deliverText(text, roomId: item.roomId)
+            eventId = await deliverText(text, roomId: item.roomId, txnId: txnId)
         case .image(let data, let mimeType):
             eventId = await deliverMedia(
-                data, mimeType: mimeType, roomId: item.roomId,
+                data, mimeType: mimeType, roomId: item.roomId, txnId: txnId,
                 msgtype: "m.image", filename: Self.imageFilename(mimeType: mimeType),
                 info: ["mimetype": mimeType, "size": data.count])
         case .audio(let data, let mimeType, let durationMs):
             eventId = await deliverMedia(
-                data, mimeType: mimeType, roomId: item.roomId,
+                data, mimeType: mimeType, roomId: item.roomId, txnId: txnId,
                 msgtype: "m.audio", filename: "voice.m4a",
                 info: ["mimetype": mimeType, "size": data.count, "duration": durationMs])
         }
@@ -1059,12 +1062,13 @@ final class MatrixSession {
 
     /// Encrypt + send plain text. Returns the homeserver event_id on success, nil on
     /// any (expected, offline-ish) failure so the outbox can retry.
-    private func deliverText(_ text: String, roomId: String) async -> String? {
+    private func deliverText(_ text: String, roomId: String, txnId: String) async -> String? {
         do {
             return try await crypto?.encryptAndSend(
                 roomId: roomId,
                 recipients: roomMembers[roomId] ?? [],
-                content: ["msgtype": "m.text", "body": text]
+                content: ["msgtype": "m.text", "body": text],
+                transactionId: txnId
             )
         } catch {
             ErrorReporter.capture(error, context: "MatrixSession.deliverText")
@@ -1088,7 +1092,7 @@ final class MatrixSession {
     /// `m.image`/`m.audio` referencing the resulting `mxc://` + decryption key.
     /// Returns the event_id on success, nil on failure (so the outbox can retry).
     private func deliverMedia(
-        _ data: Data, mimeType: String, roomId: String,
+        _ data: Data, mimeType: String, roomId: String, txnId: String,
         msgtype: String, filename: String, info: [String: Any]
     ) async -> String? {
         guard let creds, let mediaBase = mediaBaseURL else {
@@ -1100,7 +1104,8 @@ final class MatrixSession {
                 data, mediaBaseURL: mediaBase, accessToken: creds.accessToken, filename: filename)
             let content: [String: Any] = ["msgtype": msgtype, "body": filename, "file": file, "info": info]
             return try await crypto?.encryptAndSend(
-                roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content)
+                roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content,
+                transactionId: txnId)
         } catch {
             ErrorReporter.capture(error, context: "MatrixSession.deliverMedia")
             AppLog.log("⚠️ Matrix media send failed: \(error)")
