@@ -33,6 +33,8 @@ struct ChatView: View {
     @State private var pendingLaunchActionTask: Task<Void, Never>?
     /// Shown when a shared image arrives and there's more than one session to pick.
     @State private var showSharedImageSessionPicker = false
+    /// Thumbnail of the pending shared image, shown in the picker header.
+    @State private var sharedImagePreviewData: Data?
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
     @State private var versionPolicy = VersionPolicyManager.shared
@@ -107,6 +109,7 @@ struct ChatView: View {
         .sheet(isPresented: $showSharedImageSessionPicker) {
             SharedImageSessionPicker(
                 rooms: Array(viewModel.matrixSession.rooms.prefix(10)),
+                previewImageData: sharedImagePreviewData,
                 onPick: { roomId in
                     showSharedImageSessionPicker = false
                     sendPendingSharedImages(toRoomId: roomId)
@@ -660,6 +663,7 @@ struct ChatView: View {
         let rooms = viewModel.matrixSession.rooms
         if rooms.count > 1 {
             AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction picker sessions=%d", rooms.count)
+            sharedImagePreviewData = SharedImageInbox.peekFirst()?.data
             showSharedImageSessionPicker = true
             return
         }
@@ -780,6 +784,7 @@ struct ChatView: View {
 /// passes the top 10. Picking sends every queued image there.
 private struct SharedImageSessionPicker: View {
     let rooms: [MatrixSession.RoomSummary]
+    var previewImageData: Data?
     var onPick: (String) -> Void
     var onCancel: () -> Void
 
@@ -787,8 +792,15 @@ private struct SharedImageSessionPicker: View {
         ZStack {
             AppColors.background.ignoresSafeArea()
             VStack(spacing: 0) {
-                HStack {
-                    Text("Send image to…")
+                HStack(spacing: 10) {
+                    if let preview = previewImageData.flatMap(Self.previewImage) {
+                        preview
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 34, height: 34)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    Text("Share image to session…")
                         .font(AppFonts.navTitle)
                         .foregroundStyle(AppColors.textPrimary)
                     Spacer()
@@ -830,9 +842,20 @@ private struct SharedImageSessionPicker: View {
                             Divider().background(Color.white.opacity(0.06))
                         }
                     }
+                    .padding(.top, 8)
                 }
             }
         }
+    }
+
+    private static func previewImage(_ data: Data) -> Image? {
+        #if os(iOS)
+        return UIImage(data: data).map(Image.init(uiImage:))
+        #elseif os(macOS)
+        return NSImage(data: data).map(Image.init(nsImage:))
+        #else
+        return nil
+        #endif
     }
 }
 

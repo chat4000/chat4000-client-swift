@@ -37,9 +37,7 @@ final class ShareViewController: UIViewController {
             await saveSharedImages()
             // Bring chat4000 to the foreground so it sends the just-saved image
             // immediately (auto-send for one session, one-tap picker for several).
-            openHostApp()
-            // Small grace period so the openURL takes effect before we tear down.
-            try? await Task.sleep(for: .milliseconds(300))
+            await openHostApp()
             complete()
         }
     }
@@ -48,13 +46,21 @@ final class ShareViewController: UIViewController {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 
-    /// There is no public API for a share extension to launch its host app, so we
-    /// walk the responder chain to an object that implements `openURL:` and call it
-    /// — the long-standing technique shipping apps (WhatsApp et al.) use. Best effort:
-    /// if no responder handles it, the image still lands in the App Group inbox and
-    /// the app picks it up on its next foreground.
-    private func openHostApp() {
-        guard let url = Self.hostAppURL else { return }
+    /// Launch the host app. Primary path is `NSExtensionContext.open` (a share
+    /// extension has no `UIApplication`, so a responder-chain walk usually finds
+    /// nothing — that was why the first attempt didn't open the app). Fall back to
+    /// the responder-chain `openURL:` technique if `open` reports failure. Best
+    /// effort either way: if neither works the image is already in the App Group
+    /// inbox and the app sends it on next foreground.
+    private func openHostApp() async {
+        guard let url = Self.hostAppURL, let context = extensionContext else { return }
+        let opened = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            context.open(url) { success in continuation.resume(returning: success) }
+        }
+        if !opened { openViaResponderChain(url) }
+    }
+
+    private func openViaResponderChain(_ url: URL) {
         let selector = NSSelectorFromString("openURL:")
         var responder: UIResponder? = self
         while let current = responder {

@@ -163,6 +163,19 @@ enum SharedImageInbox {
         !loadManifest(defaults: defaults).isEmpty
     }
 
+    /// The next pending image WITHOUT consuming it (for a preview thumbnail). nil if
+    /// none queued or the file can't be read.
+    static func peekFirst(
+        baseURL: URL? = nil,
+        defaults: UserDefaults = SharedImageInbox.sharedDefaults
+    ) -> SharedImagePayload? {
+        guard let item = loadManifest(defaults: defaults).first,
+              case .success(let directory) = pendingDirectory(baseURL: baseURL),
+              let data = try? Data(contentsOf: directory.appendingPathComponent(item.filename, isDirectory: false))
+        else { return nil }
+        return SharedImagePayload(id: item.id, data: data, mimeType: item.mimeType, filename: item.filename)
+    }
+
     private static func pendingDirectory(baseURL: URL?) -> Result<URL, AppError> {
         let root: URL
         if let baseURL {
