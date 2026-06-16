@@ -1535,6 +1535,10 @@ struct SetupProgressView: View {
     /// Bail out and re-enter a pairing code.
     var onStartOver: () -> Void = {}
 
+    /// How many step boxes we've already buzzed for, so each checkmark fires its
+    /// haptic exactly once across phase changes (and a backward phase can re-arm).
+    @State private var buzzedCheckCount = 0
+
     // Order MUST match SetupPhase's rawValue order so the checkmarks fill
     // top-to-bottom (done = a lower-rawValue phase). You wait for the plugin's
     // invite first, THEN join the workspace.
@@ -1577,6 +1581,10 @@ struct SetupProgressView: View {
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.2), value: phase.rawValue)
         .animation(.easeInOut(duration: 0.2), value: stalled)
+        // One vibration per checkbox that ticks — on appear for any already-done at
+        // first paint, then one per box as the phase advances.
+        .onAppear { buzzNewlyCheckedBoxes() }
+        .onChange(of: phase.rawValue) { _, _ in buzzNewlyCheckedBoxes() }
     }
 
     @ViewBuilder
@@ -1645,6 +1653,27 @@ struct SetupProgressView: View {
                 .foregroundStyle(isActive ? AppColors.textPrimary
                                  : (isDone ? AppColors.textSecondary : AppColors.textTimestamp))
             Spacer(minLength: 0)
+        }
+    }
+
+    /// Fire one success haptic for each step box that has newly become checked
+    /// (`phase.rawValue > stepPhase.rawValue`). A box's checkmark and its buzz stay
+    /// in lock-step: we track `buzzedCheckCount` so a box never double-buzzes, and a
+    /// backward phase re-arms it. Multiple boxes ticking at once are staggered so
+    /// each is felt as its own tap.
+    private func buzzNewlyCheckedBoxes() {
+        let doneCount = min(phase.rawValue, Self.steps.count)
+        guard doneCount > buzzedCheckCount else {
+            buzzedCheckCount = doneCount   // unchanged or went backward — re-arm
+            return
+        }
+        let newChecks = doneCount - buzzedCheckCount
+        buzzedCheckCount = doneCount
+        Task { @MainActor in
+            for index in 0..<newChecks {
+                if index > 0 { try? await Task.sleep(for: .milliseconds(130)) }
+                Haptics.success()
+            }
         }
     }
 }
