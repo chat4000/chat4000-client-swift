@@ -31,6 +31,8 @@ struct ChatView: View {
     @State private var hasPrimedInitialFocus = false
     @State private var isHandlingLaunchAction = false
     @State private var pendingLaunchActionTask: Task<Void, Never>?
+    /// Shown when a shared image arrives and there's more than one session to pick.
+    @State private var showSharedImageSessionPicker = false
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
     @State private var versionPolicy = VersionPolicyManager.shared
@@ -102,6 +104,27 @@ struct ChatView: View {
             .ignoresSafeArea()
         }
         #endif
+        .sheet(isPresented: $showSharedImageSessionPicker) {
+            SharedImageSessionPicker(
+                rooms: Array(viewModel.matrixSession.rooms.prefix(10)),
+                onPick: { roomId in
+                    showSharedImageSessionPicker = false
+                    sendPendingSharedImages(toRoomId: roomId)
+                },
+                onCancel: {
+                    showSharedImageSessionPicker = false
+                    // Keep the images queued and re-arm the launch action so the
+                    // next foreground re-offers the picker rather than stranding them.
+                    if SharedImageInbox.hasPendingImage() {
+                        LaunchActionStore.set(.sendSharedImage)
+                    }
+                }
+            )
+            #if os(iOS)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            #endif
+        }
         .onAppear {
             primeInitialFocus()
             handlePendingLaunchActionIfNeeded()
@@ -631,27 +654,40 @@ struct ChatView: View {
             return
         }
 
-        // Drain the WHOLE queue: several images can be shared before a session is
-        // ready (the inbox holds up to 10, but the launch flag is single-shot), so a
-        // single consume would strand all but one. Send every pending image.
+        // Choose the target session. One session → send straight there. More than
+        // one → let the user pick (the images stay queued in the inbox until they
+        // do). Rooms are already sorted pinned-first, most-recent next.
+        let rooms = viewModel.matrixSession.rooms
+        if rooms.count > 1 {
+            AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction picker sessions=%d", rooms.count)
+            showSharedImageSessionPicker = true
+            return
+        }
+        let targetRoomId = rooms.first?.id ?? viewModel.activeRoomId
+        guard let targetRoomId else { return }
+        sendPendingSharedImages(toRoomId: targetRoomId)
+    }
+
+    /// Drain every queued shared image into `roomId` and bring that session to front
+    /// so the user sees the result. Called for the single-session case and after the
+    /// user picks in the multi-session picker.
+    private func sendPendingSharedImages(toRoomId roomId: String) {
         var sentCount = 0
         while true {
             switch SharedImageInbox.consumeNext() {
             case .success(let payload?):
-                viewModel.sendImageData(payload.data, mimeType: payload.mimeType, source: "ios_share")
+                viewModel.sendImageData(payload.data, mimeType: payload.mimeType,
+                                        source: "ios_share", toRoomId: roomId)
                 sentCount += 1
-                AppLog.log(
-                    "🎯 ChatView.sendSharedImageFromLaunchAction success id=%@ bytes=%d mime=%@",
-                    payload.id,
-                    payload.data.count,
-                    payload.mimeType
-                )
+                AppLog.log("🎯 ChatView.sendPendingSharedImages success id=%@ bytes=%d room=%@",
+                           payload.id, payload.data.count, roomId)
             case .success(nil):
-                AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction drained sent=%d", sentCount)
+                AppLog.log("🎯 ChatView.sendPendingSharedImages drained sent=%d room=%@", sentCount, roomId)
+                if sentCount > 0 { viewModel.switchRoom(id: roomId) }
                 return
             case .failure(let error):
                 bannerErrorMessage = error.message
-                AppLog.log("🎯 ChatView.sendSharedImageFromLaunchAction error=%@", error.message)
+                AppLog.log("🎯 ChatView.sendPendingSharedImages error=%@", error.message)
                 Haptics.error()
                 return
             }
@@ -728,6 +764,67 @@ struct ChatView: View {
 
                 if attempt < 5 {
                     try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+        }
+    }
+}
+
+/// Lets the user choose which session a shared image goes into when more than one
+/// exists. Rooms arrive already sorted (pinned first, then most recent); the caller
+/// passes the top 10. Picking sends every queued image there.
+private struct SharedImageSessionPicker: View {
+    let rooms: [MatrixSession.RoomSummary]
+    var onPick: (String) -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            AppColors.background.ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Send image to…")
+                        .font(AppFonts.navTitle)
+                        .foregroundStyle(AppColors.textPrimary)
+                    Spacer()
+                    Button("Cancel", action: onCancel)
+                        .font(AppFonts.label)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(rooms) { room in
+                            Button {
+                                Haptics.impact()
+                                onPick(room.id)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    if room.isPinned {
+                                        Image(systemName: "pin.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(AppColors.textSecondary)
+                                    }
+                                    Text(room.name)
+                                        .font(AppFonts.body)
+                                        .foregroundStyle(AppColors.textPrimary)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(AppColors.textTimestamp)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().background(Color.white.opacity(0.06))
+                        }
+                    }
                 }
             }
         }
@@ -1340,6 +1437,13 @@ final class ChatViewModel {
             return
         }
         front.sendImage(data: data, mimeType: mimeType, source: source)
+    }
+
+    /// Send an image into a SPECIFIC room (used by the shared-image session picker),
+    /// not necessarily the front one. The room's view model is created/attached on
+    /// demand, so a background room receives it correctly.
+    func sendImageData(_ data: Data, mimeType: String, source: String, toRoomId roomId: String) {
+        room(for: roomId).sendImage(data: data, mimeType: mimeType, source: source)
     }
 
     func sendAudio(_ audioData: Data, mimeType: String, duration: TimeInterval, waveform: [Float], source: String) {
