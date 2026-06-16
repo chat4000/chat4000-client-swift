@@ -27,16 +27,43 @@ final class ShareViewController: UIViewController {
         let createdAt: Date
     }
 
+    /// Deep link the host app opens itself with; `chat4000App.handleIncomingURL`
+    /// routes it to the shared-image flow (which reads the App Group inbox).
+    private static let hostAppURL = URL(string: "chat4000://share-image")
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         Task {
             await saveSharedImages()
+            // Bring chat4000 to the foreground so it sends the just-saved image
+            // immediately (auto-send for one session, one-tap picker for several).
+            openHostApp()
+            // Small grace period so the openURL takes effect before we tear down.
+            try? await Task.sleep(for: .milliseconds(300))
             complete()
         }
     }
 
     private func complete() {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+    }
+
+    /// There is no public API for a share extension to launch its host app, so we
+    /// walk the responder chain to an object that implements `openURL:` and call it
+    /// — the long-standing technique shipping apps (WhatsApp et al.) use. Best effort:
+    /// if no responder handles it, the image still lands in the App Group inbox and
+    /// the app picks it up on its next foreground.
+    private func openHostApp() {
+        guard let url = Self.hostAppURL else { return }
+        let selector = NSSelectorFromString("openURL:")
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current.responds(to: selector) {
+                _ = current.perform(selector, with: url)
+                return
+            }
+            responder = current.next
+        }
     }
 
     private func saveSharedImages() async {
