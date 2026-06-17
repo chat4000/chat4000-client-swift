@@ -1385,6 +1385,19 @@ final class ChatViewModel {
                                       properties: ["session_count": matrixSession.rooms.count])
     }
 
+    /// Cycle the front room to the next/previous session in the sidebar's display
+    /// order (`matrixSession.rooms`, already sorted), wrapping around at the ends.
+    /// Backs the macOS Ctrl+Tab / Ctrl+Shift+Tab shortcuts. No-op with <2 rooms.
+    func cycleActiveRoom(forward: Bool) {
+        let rooms = matrixSession.rooms
+        guard rooms.count > 1 else { return }
+        let current = activeRoomId.flatMap { id in rooms.firstIndex(where: { $0.id == id }) } ?? 0
+        let next = forward
+            ? (current + 1) % rooms.count
+            : (current - 1 + rooms.count) % rooms.count
+        switchRoom(id: rooms[next].id)
+    }
+
     /// Session reset (new pairing / signed out) — no room is front.
     func clearActiveRoom() {
         setFrontRoom(nil)

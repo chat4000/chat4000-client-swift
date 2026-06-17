@@ -253,6 +253,29 @@ struct chat4000App: App {
         .windowStyle(.hiddenTitleBar)
         .defaultPosition(.center)
         .defaultSize(width: 950, height: 700)
+        .commands {
+            // Cmd+T → new session (sits next to "New" in the File menu).
+            CommandGroup(after: .newItem) {
+                Button("New Session") {
+                    guard currentScreen == .chat else { return }
+                    chatViewModel.matrixSession.requestNewSession()
+                }
+                .keyboardShortcut("t", modifiers: .command)
+            }
+            // Ctrl+Tab / Ctrl+Shift+Tab → cycle through sessions, like browser tabs.
+            CommandMenu("Sessions") {
+                Button("Next Session") {
+                    guard currentScreen == .chat else { return }
+                    chatViewModel.cycleActiveRoom(forward: true)
+                }
+                .keyboardShortcut(.tab, modifiers: .control)
+                Button("Previous Session") {
+                    guard currentScreen == .chat else { return }
+                    chatViewModel.cycleActiveRoom(forward: false)
+                }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+            }
+        }
         #endif
         .modelContainer(for: [ChatMessage.self, MatrixRoomSnapshot.self])
     }
