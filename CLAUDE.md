@@ -1,5 +1,29 @@
 # clawconnect-client-swift — agent notes
 
+## Deploying the macOS app — ALWAYS copy the build into /Applications
+
+The macOS app the user actually launches (Spotlight, Dock, the Cmd+Shift+2
+hotkey — everything LaunchServices resolves) is `/Applications/chat4000.app`.
+`xcodebuild` only writes to DerivedData; `open`-ing that DerivedData bundle by
+path runs a DIFFERENT binary than the user's normal launch target, even though
+both share bundle id `com.neonnode.chat94app` and the same version — so the user
+never sees your changes through their normal launch.
+
+Therefore: every time you build the macOS app (`chat4000mac` scheme), copy the
+result into `/Applications/chat4000.app` and relaunch from there. This is a
+standing, pre-authorized write to `/Applications` for THIS bundle only.
+
+```
+xcodebuild -project /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000/chat4000.xcodeproj \
+  -scheme chat4000mac -destination 'platform=macOS' build
+APP="$(xcodebuild -project /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000/chat4000.xcodeproj \
+  -scheme chat4000mac -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{d=$2} /WRAPPER_NAME/{w=$2} END{print d"/"w}')"
+pkill -x chat4000; sleep 1
+rm -rf /Applications/chat4000.app
+cp -R "$APP" /Applications/chat4000.app
+open /Applications/chat4000.app
+```
+
 ## Reading the iOS app's logs off the device
 
 To read chat4000's own logs from the iPhone, **pull the app's log file** — do NOT
