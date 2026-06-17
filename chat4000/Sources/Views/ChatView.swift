@@ -22,6 +22,12 @@ struct ChatView: View {
     /// When set, a leading sidebar-toggle button appears in the nav bar.
     var onToggleSidebar: (() -> Void)?
     @State private var messageText = ""
+    /// Terminal/zsh-style sent-message recall. `historyIndex` is the cursor into
+    /// `sentMessageHistory` (nil = composing fresh, not navigating). `historyRecallText`
+    /// is the exact text we last placed in the box, so we can tell an *unedited*
+    /// recall (keep navigating) from a draft the user has typed/edited (leave it).
+    @State private var historyIndex: Int?
+    @State private var historyRecallText: String?
     /// Owned by `ChatShell` so the sidebar's Settings button can open this sheet.
     @Binding var showSettings: Bool
     @State private var showCamera = false
@@ -268,6 +274,8 @@ struct ChatView: View {
             }
         }
         .background(AppColors.background)
+        // History recall is per-room: switching sessions starts fresh.
+        .onChange(of: viewModel.activeRoomId) { _, _ in resetHistoryNavigation() }
     }
 
     #if os(iOS)
@@ -377,7 +385,9 @@ struct ChatView: View {
                     minHeight: MacComposerTextView.minimumHeight,
                     maxHeight: macComposerMaxHeight,
                     onSubmit: sendMessage,
-                    onTextChange: { _ in }
+                    onTextChange: { _ in },
+                    onHistoryUp: recallPreviousMessage,
+                    onHistoryDown: recallNextMessage
                 )
 
             if messageText.isEmpty {
@@ -420,6 +430,9 @@ struct ChatView: View {
             .onSubmit {
                 sendMessage()
             }
+            // Hardware-keyboard history recall (iPad / external keyboard).
+            .onKeyPress(.upArrow) { recallPreviousMessage() ? .handled : .ignored }
+            .onKeyPress(.downArrow) { recallNextMessage() ? .handled : .ignored }
             .simultaneousGesture(
                 TapGesture().onEnded {
                     Haptics.impact()
@@ -508,6 +521,62 @@ struct ChatView: View {
         Haptics.impact()
         viewModel.send(text: text)
         messageText = ""
+        resetHistoryNavigation()
+    }
+
+    // MARK: - Terminal-style sent-message history recall
+
+    /// The user's own sent text messages in the active room, oldest→newest. Drives
+    /// Up/Down recall in the composer. Image/audio (empty-text) rows are skipped.
+    private var sentMessageHistory: [String] {
+        guard let room = viewModel.frontRoom else { return [] }
+        return room.messages.compactMap { message in
+            guard message.sender == .user else { return nil }
+            return message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : message.text
+        }
+    }
+
+    /// Up arrow: walk BACK through previously-sent messages (newer→older). Only
+    /// engages when the box is empty or holds an unedited recall, so a typed draft
+    /// is never clobbered. Returns true if it consumed the key.
+    private func recallPreviousMessage() -> Bool {
+        guard messageText.isEmpty || messageText == historyRecallText else { return false }
+        let history = sentMessageHistory
+        guard !history.isEmpty else { return false }
+        let newIndex: Int
+        if let idx = historyIndex {
+            guard idx > 0 else { return true }   // already at the oldest — consume, no-op
+            newIndex = idx - 1
+        } else {
+            newIndex = history.count - 1          // first Up → most recent
+        }
+        historyIndex = newIndex
+        historyRecallText = history[newIndex]
+        messageText = history[newIndex]
+        return true
+    }
+
+    /// Down arrow: walk FORWARD (older→newer); past the newest returns to an empty
+    /// fresh draft. Only engages while navigating an unedited recall.
+    private func recallNextMessage() -> Bool {
+        guard let idx = historyIndex, messageText == historyRecallText else { return false }
+        let history = sentMessageHistory
+        guard !history.isEmpty else { return false }
+        if idx < history.count - 1 {
+            let newIndex = idx + 1
+            historyIndex = newIndex
+            historyRecallText = history[newIndex]
+            messageText = history[newIndex]
+        } else {
+            resetHistoryNavigation()
+            messageText = ""
+        }
+        return true
+    }
+
+    private func resetHistoryNavigation() {
+        historyIndex = nil
+        historyRecallText = nil
     }
 
     private func dismissKeyboard() {
@@ -969,6 +1038,10 @@ private struct MacComposerTextView: NSViewRepresentable {
     let maxHeight: CGFloat
     let onSubmit: () -> Void
     let onTextChange: (String) -> Void
+    /// Up/Down history recall. Return true if the key was consumed (so the text
+    /// view skips its default caret move). See ChatView.recall{Previous,Next}Message.
+    var onHistoryUp: () -> Bool = { false }
+    var onHistoryDown: () -> Bool = { false }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -1012,6 +1085,8 @@ private struct MacComposerTextView: NSViewRepresentable {
         textView.minSize = NSSize(width: 0, height: minHeight)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.onSubmit = onSubmit
+        textView.onHistoryUp = onHistoryUp
+        textView.onHistoryDown = onHistoryDown
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -1028,9 +1103,14 @@ private struct MacComposerTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? ComposerNSTextView else { return }
         textView.onSubmit = onSubmit
+        textView.onHistoryUp = onHistoryUp
+        textView.onHistoryDown = onHistoryDown
 
         if textView.string != text {
+            // External change (history recall, or clear-on-send): replace and park
+            // the caret at the end so the user types after the recalled text.
             textView.string = text
+            textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
         }
 
         DispatchQueue.main.async {
@@ -1073,6 +1153,34 @@ private struct MacComposerTextView: NSViewRepresentable {
 
     final class ComposerNSTextView: NSTextView {
         var onSubmit: (() -> Void)?
+        /// Up/Down history recall; return true if consumed. Only fired when the
+        /// caret is on the first (Up) / last (Down) line, so multi-line editing
+        /// still moves the caret normally.
+        var onHistoryUp: (() -> Bool)?
+        var onHistoryDown: (() -> Bool)?
+
+        /// True when the caret sits on the first line (nothing before it but the
+        /// current line) — i.e. an Up press should recall history, not move up.
+        private var caretOnFirstLine: Bool {
+            let caret = min(selectedRange().location, (string as NSString).length)
+            return !(string as NSString).substring(to: caret).contains("\n")
+        }
+
+        /// True when the caret sits on the last line — Down should recall history.
+        private var caretOnLastLine: Bool {
+            let caret = min(selectedRange().location, (string as NSString).length)
+            return !(string as NSString).substring(from: caret).contains("\n")
+        }
+
+        override func moveUp(_ sender: Any?) {
+            if caretOnFirstLine, onHistoryUp?() == true { return }
+            super.moveUp(sender)
+        }
+
+        override func moveDown(_ sender: Any?) {
+            if caretOnLastLine, onHistoryDown?() == true { return }
+            super.moveDown(sender)
+        }
 
         /// Auto-focus the composer the moment it's installed in a
         /// window. SwiftUI's `@FocusState`/`.focused()` isn't bound to
