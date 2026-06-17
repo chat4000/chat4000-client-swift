@@ -163,6 +163,25 @@ enum SharedImageInbox {
         !loadManifest(defaults: defaults).isEmpty
     }
 
+    /// One-line snapshot for debugging the share flow from a pulled log. If the app
+    /// can read the extension's breadcrumbs (extLastRunAt/extContainerOK), App Group
+    /// sharing is wired correctly; if extLastRunAt is nil but you know you shared,
+    /// the extension's App ID is missing the App Group entitlement (portal step A5).
+    static func diagnosticsSummary(defaults: UserDefaults = SharedImageInbox.sharedDefaults) -> String {
+        let appContainerOK = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId) != nil
+        let pending = loadManifest(defaults: defaults).count
+        let extRun = defaults.object(forKey: "chat4000.shareExt.lastRunAt") as? Double
+        let extContainerOK = defaults.object(forKey: "chat4000.shareExt.containerOK") as? Bool
+        let extAttach = defaults.object(forKey: "chat4000.shareExt.attachmentCount") as? Int
+        let extSaved = defaults.object(forKey: "chat4000.shareExt.savedCount") as? Int
+        return "appContainerOK=\(appContainerOK) pending=\(pending) "
+            + "extLastRunAt=\(extRun.map { String(format: "%.0f", $0) } ?? "nil") "
+            + "extContainerOK=\(extContainerOK.map(String.init) ?? "nil") "
+            + "extAttachments=\(extAttach.map(String.init) ?? "nil") "
+            + "extSaved=\(extSaved.map(String.init) ?? "nil")"
+    }
+
     /// The next pending image WITHOUT consuming it (for a preview thumbnail). nil if
     /// none queued or the file can't be read.
     static func peekFirst(

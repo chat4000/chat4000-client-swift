@@ -73,18 +73,42 @@ final class ShareViewController: UIViewController {
     }
 
     private func saveSharedImages() async {
-        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else { return }
-        for item in items {
-            for provider in item.attachments ?? [] {
-                guard let typeId = Self.imageTypeIdentifier(provider),
-                      let data = await Self.loadData(provider, typeId: typeId),
-                      !data.isEmpty else { continue }
-                let type = UTType(typeId)
-                let mimeType = type?.preferredMIMEType ?? "image/jpeg"
-                let ext = type?.preferredFilenameExtension ?? "jpg"
-                Self.store(data: data, mimeType: mimeType, fileExtension: ext)
+        var attachmentCount = 0
+        var savedCount = 0
+        if let items = extensionContext?.inputItems as? [NSExtensionItem] {
+            for item in items {
+                for provider in item.attachments ?? [] {
+                    attachmentCount += 1
+                    guard let typeId = Self.imageTypeIdentifier(provider),
+                          let data = await Self.loadData(provider, typeId: typeId),
+                          !data.isEmpty else { continue }
+                    let type = UTType(typeId)
+                    let mimeType = type?.preferredMIMEType ?? "image/jpeg"
+                    let ext = type?.preferredFilenameExtension ?? "jpg"
+                    if Self.store(data: data, mimeType: mimeType, fileExtension: ext) {
+                        savedCount += 1
+                    }
+                }
             }
         }
+        Self.recordDiagnostics(attachments: attachmentCount, saved: savedCount)
+    }
+
+    /// Leave a breadcrumb the host app can read + log, so we can tell from a pulled
+    /// log whether the extension ran AND whether App Group sharing actually works
+    /// (if the app sees `containerOK`/`lastRunAt`, the group is wired; if not, the
+    /// extension's App ID is missing the App Group entitlement). Also NSLog'd
+    /// (numbers survive unified-log redaction) as a backup.
+    private static func recordDiagnostics(attachments: Int, saved: Int) {
+        let containerOK = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId) != nil
+        NSLog("chat4000 ShareExt ran attachments=%d saved=%d containerOK=%d",
+              attachments, saved, containerOK ? 1 : 0)
+        guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+        defaults.set(Date().timeIntervalSince1970, forKey: "chat4000.shareExt.lastRunAt")
+        defaults.set(containerOK, forKey: "chat4000.shareExt.containerOK")
+        defaults.set(attachments, forKey: "chat4000.shareExt.attachmentCount")
+        defaults.set(saved, forKey: "chat4000.shareExt.savedCount")
     }
 
     /// First registered type that is an image (e.g. `public.jpeg`, `public.png`).
@@ -100,10 +124,11 @@ final class ShareViewController: UIViewController {
         }
     }
 
-    private static func store(data: Data, mimeType: String, fileExtension: String) {
+    @discardableResult
+    private static func store(data: Data, mimeType: String, fileExtension: String) -> Bool {
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupId
-        ) else { return }
+        ) else { return false }
         let directory = container.appendingPathComponent(directoryName, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -113,10 +138,10 @@ final class ShareViewController: UIViewController {
         do {
             try data.write(to: fileURL, options: [.atomic])
         } catch {
-            return
+            return false
         }
 
-        guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+        guard let defaults = UserDefaults(suiteName: appGroupId) else { return false }
         var items = loadManifest(defaults)
         items.append(ManifestItem(id: id, filename: filename, mimeType: mimeType, createdAt: Date()))
         if items.count > maxStoredItems {
@@ -129,6 +154,7 @@ final class ShareViewController: UIViewController {
         if let encoded = try? JSONEncoder().encode(items) {
             defaults.set(encoded, forKey: manifestKey)
         }
+        return true
     }
 
     private static func loadManifest(_ defaults: UserDefaults) -> [ManifestItem] {

@@ -730,7 +730,10 @@ struct ChatView: View {
     }
 
     private func primeInitialFocus() {
-        guard !hasPrimedInitialFocus, !voiceRecorder.isRecording else { return }
+        // Don't pop the keyboard when we launched to handle a shared image — the
+        // session picker (or an auto-send) is what should appear, not the composer.
+        guard !hasPrimedInitialFocus, !voiceRecorder.isRecording,
+              !SharedImageInbox.hasPendingImage() else { return }
         hasPrimedInitialFocus = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
@@ -741,6 +744,7 @@ struct ChatView: View {
     private func handlePendingLaunchActionIfNeeded() {
         guard !isHandlingLaunchAction else { return }
         AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded check")
+        AppLog.log("🖼️ share diag: %@", SharedImageInbox.diagnosticsSummary())
 
         pendingLaunchActionTask?.cancel()
         pendingLaunchActionTask = Task { @MainActor in
