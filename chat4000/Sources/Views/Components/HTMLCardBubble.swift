@@ -68,7 +68,13 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = coordinator
         #if os(iOS)
-        webView.scrollView.isScrollEnabled = true   // tall (capped) cards scroll internally
+        // The card must NEVER own the scroll gesture: dragging over it should scroll
+        // the CHAT, not the card's HTML. The web view's internal scrollView otherwise
+        // swallows the pan. The bubble frame is already sized to the reported content
+        // height (capped at maxHeight), so the whole card scrolls with the page; a
+        // rare over-cap card clips rather than trapping the gesture.
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
         webView.isOpaque = false
         webView.backgroundColor = .clear
         #else
