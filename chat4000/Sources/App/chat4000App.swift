@@ -116,16 +116,13 @@ struct chat4000App: App {
                     chatViewModel.refreshMessages()
                     routeAfterConnectionProgress()
                 case .reconnecting:
-                    // In the chat a transient drop is a slim in-chat banner (see
-                    // ChatView.connectionBanner), not a full-screen takeover — never
-                    // eject the user from the conversation. Only the first-connect
-                    // path (still on a connecting screen) shows the full reconnecting
-                    // screen.
-                    if currentScreen != .chat {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            currentScreen = .reconnecting
-                        }
-                    }
+                    // Reconnect silently (product decision): a transient socket drop
+                    // shows NO visual anywhere — no full-screen takeover and no
+                    // in-chat strip (see ChatView.connectionBanner). Whatever screen
+                    // the user is on (chat, or a first-connect/setup screen) stays put
+                    // while the socket layer reconnects and redrives queued sends. The
+                    // `.reconnecting` AppScreen is consequently never entered.
+                    break
                 case .failed(let message):
                     // Pairing or restore failed — surface the error on the
                     // entry screen.

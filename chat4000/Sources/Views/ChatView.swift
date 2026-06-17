@@ -225,45 +225,15 @@ struct ChatView: View {
 
     // MARK: - Connection banner
 
-    /// Slim, non-blocking status strip shown in-chat while the socket is not up.
-    /// Replaces the old full-screen "connecting"/"reconnecting" takeover so a launch
-    /// or a transient drop never hides the conversation. Hidden when connected.
+    /// Connection status is intentionally NOT surfaced in the chat. Per product
+    /// decision the app reconnects silently — a transient drop, a cold-launch
+    /// connect, or an offline state never shows a strip or takeover; the socket
+    /// layer redrives queued sends on its own. Kept as an `EmptyView` (rather than
+    /// removing the call site) so the layout slot is preserved and re-enabling is a
+    /// one-spot change.
     @ViewBuilder
     private var connectionBanner: some View {
-        switch viewModel.connectionState {
-        case .connected:
-            EmptyView()
-        case .connecting:
-            connectionStrip(text: "Connecting…", color: AppColors.reconnecting, spinner: true)
-        case .reconnecting:
-            connectionStrip(text: "Reconnecting…", color: AppColors.reconnecting, spinner: true)
-        case .disconnected, .failed:
-            connectionStrip(text: "Offline — messages will send when you reconnect",
-                            color: AppColors.disconnected, spinner: false)
-        }
-    }
-
-    private func connectionStrip(text: String, color: Color, spinner: Bool) -> some View {
-        HStack(spacing: 8) {
-            if spinner {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(color)
-            } else {
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
-            }
-            Text(text)
-                .font(AppFonts.caption)
-                .foregroundStyle(AppColors.textSecondary)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
-        .background(color.opacity(0.10))
-        .transition(.move(edge: .top).combined(with: .opacity))
+        EmptyView()
     }
 
     // MARK: - Nav Bar

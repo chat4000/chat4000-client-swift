@@ -303,7 +303,13 @@ struct ChatViewModelRoomScopingTests {
     }
 
     @Test
-    func htmlCardReplacesActiveStreamAsFinalAnswer() throws {
+    func htmlCardPreservesPriorStreamedTextAndAppendsCard() throws {
+        // A real agent turn is often [streamed text answer] + [final_card] (the
+        // weather flow: a sentence PLUS the glanceable card). The card must NOT
+        // silently delete the preceding text — the only way to abandon a stream is an
+        // explicit `text_end reset=true` (protocol §6.4.2). The old behaviour deleted
+        // the open stream on every card, which is exactly why a real text answer
+        // "never showed up" on catch-up / cross-device replay. Both must survive.
         let ctx = try makeContext()
         let room = RoomViewModel(roomId: "!A", session: MatrixSession())
         room.attach(modelContext: ctx)
@@ -311,11 +317,29 @@ struct ChatViewModelRoomScopingTests {
         room.ingest(Self.textEvent(eventId: "$stream", body: "partial answer", push: false), live: true)
         room.ingest(Self.htmlCardEvent(eventId: "$card", html: "<article><p>Final card</p></article>"), live: true)
 
-        let message = try #require(room.messages.first)
-        #expect(room.messages.count == 1)
-        #expect(message.msgId == "$card")
-        #expect(message.kind == .htmlCard)
-        #expect(message.htmlCardHTML?.contains("Final card") == true)
+        #expect(room.messages.count == 2)
+        let text = try #require(room.messages.first { $0.kind == .message })
+        #expect(text.text == "partial answer")
+        let card = try #require(room.messages.first { $0.kind == .htmlCard })
+        #expect(card.msgId == "$card")
+        #expect(card.htmlCardHTML?.contains("Final card") == true)
+    }
+
+    @Test
+    func timelineRendersInOriginServerTsOrderNotDeliveryOrder() throws {
+        // Protocol §6.4.2: rendering follows wall-clock `ts`, NOT socket delivery
+        // order. A live catch-up sync delivers a room's backlog scrambled; the client
+        // must still show it chronologically. Deliver three finalized texts whose ts
+        // are out of order and assert the rendered order is by ts.
+        let ctx = try makeContext()
+        let room = RoomViewModel(roomId: "!A", session: MatrixSession())
+        room.attach(modelContext: ctx)
+
+        room.ingest(Self.textEvent(eventId: "$b", body: "second", push: true, ts: 2000), live: true)
+        room.ingest(Self.textEvent(eventId: "$c", body: "third", push: true, ts: 3000), live: true)
+        room.ingest(Self.textEvent(eventId: "$a", body: "first", push: true, ts: 1000), live: true)
+
+        #expect(room.messages.map(\.text) == ["first", "second", "third"])
     }
 
     @Test
@@ -348,14 +372,14 @@ struct ChatViewModelRoomScopingTests {
         )
     }
 
-    private static func textEvent(eventId: String, body: String, push: Bool) -> DecryptedRoomEvent {
+    private static func textEvent(eventId: String, body: String, push: Bool, ts: Int64 = 1) -> DecryptedRoomEvent {
         DecryptedRoomEvent(
             outer: SyncEvent(
                 type: "m.room.encrypted",
                 eventId: eventId,
                 sender: "@plugin:x",
                 stateKey: nil,
-                originServerTs: 1,
+                originServerTs: ts,
                 rawJSON: #"{"content":{"chat4000.push":\#(push)}}"#
             ),
             clear: #"{"type":"m.room.message","content":{"msgtype":"m.text","body":\#(jsonStringLiteral(body))}}"#,

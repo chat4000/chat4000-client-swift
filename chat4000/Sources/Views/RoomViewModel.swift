@@ -201,10 +201,32 @@ final class RoomViewModel {
         }
     }
 
+    /// Convert a Matrix `origin_server_ts` (ms since epoch) to the row timestamp.
+    /// Falls back to `.now` for own/local rows or a missing ts. This is what makes
+    /// the timeline chronological: every inbound row is stamped with the EVENT's
+    /// wall-clock time, not the moment we happened to ingest it.
+    private func eventDate(_ ts: Int64) -> Date {
+        ts > 0 ? Date(timeIntervalSince1970: Double(ts) / 1000) : .now
+    }
+
+    /// Insert keeping the timeline sorted by event timestamp. Protocol §6.4.2:
+    /// "ordering of message rendering follows wall-clock `ts`" — NOT socket
+    /// delivery order. A live catch-up sync (reconnect) delivers a room's backlog
+    /// out of order, so a plain `append` produced a scrambled timeline (the weather
+    /// card landing above its question, etc.). Stable for equal timestamps: a row
+    /// delivered later with an equal ts sorts AFTER the earlier one.
+    private func insertInTimestampOrder(_ message: ChatMessage) {
+        if let idx = messages.firstIndex(where: { $0.timestamp > message.timestamp }) {
+            messages.insert(message, at: idx)
+        } else {
+            messages.append(message)
+        }
+    }
+
     @discardableResult
     private func appendAndInsertUnique(_ message: ChatMessage, reason: String) -> Bool {
         guard let msgId = message.msgId, !msgId.isEmpty else {
-            messages.append(message)
+            insertInTimestampOrder(message)
             modelContext?.insert(message)
             return true
         }
@@ -226,7 +248,7 @@ final class RoomViewModel {
             )
             return false
         }
-        messages.append(message)
+        insertInTimestampOrder(message)
         modelContext?.insert(message)
         return true
     }
@@ -310,7 +332,8 @@ final class RoomViewModel {
                 content: content,
                 sender: event.outer.sender,
                 isOwn: event.isOwn,
-                eventId: event.outer.eventId
+                eventId: event.outer.eventId,
+                ts: ts
             )
             return
         }
@@ -331,13 +354,13 @@ final class RoomViewModel {
         }
     }
 
-    private func handleHTMLCard(content: [String: Any], sender: String?, isOwn: Bool, eventId: String?) {
+    private func handleHTMLCard(content: [String: Any], sender: String?, isOwn: Bool, eventId: String?, ts: Int64) {
         guard let html = content["html"] as? String else { return }
         AppLog.log("🃏 html card payload room=%@ event_id=%@ len=%d html=%@",
                    roomId, eventId ?? "nil", html.count, html)
         let from = MatrixTimelineMapper.sender(matrixUserId: sender ?? "", isOwn: isOwn)
         let messageSender: MessageSender = from.role == .app ? .user : .agent
-        receiveHTMLCard(html, id: eventId ?? UUID().uuidString, sender: messageSender)
+        receiveHTMLCard(html, id: eventId ?? UUID().uuidString, sender: messageSender, ts: ts)
     }
 
     private func handleUndecryptableEvent(_ event: DecryptedRoomEvent, live: Bool) {
@@ -356,18 +379,27 @@ final class RoomViewModel {
         let sender: MessageSender = from.role == .app ? .user : .agent
         AppLog.log("🔒 showing unavailable encrypted message room=%@ eid=%@ live=%@",
                    roomId, id, String(live))
-        receiveUnavailable(id: id, sender: sender)
+        receiveUnavailable(id: id, sender: sender, ts: event.outer.originServerTs ?? 0)
     }
 
     private enum MediaKind { case image, audio }
 
     private func handleMedia(content: [String: Any], outer: SyncEvent, isOwn: Bool, kind: MediaKind, ts: Int64) {
-        guard !isOwn, let file = content["file"] as? [String: Any] else { return }
+        guard let file = content["file"] as? [String: Any] else { return }
+        let id = outer.eventId ?? UUID().uuidString
+        // Own media must render here too: Mac + iPhone are the SAME Matrix account on
+        // two devices (isOwn is account-level), so a photo/voice note sent from one
+        // device arrives on the other as own — dropping it (the old `guard !isOwn`)
+        // is exactly why your own pictures never appeared on your other device. Only
+        // skip the echo of THIS device's own send, which is already on screen via
+        // local echo and carries this event_id once the send reconciled.
+        if isOwn, messages.contains(where: { $0.matrixEventId == id }) || storedMessageExists(matrixEventId: id) {
+            return
+        }
         let info = content["info"] as? [String: Any] ?? [:]
         let mimeType = info["mimetype"] as? String ?? (kind == .image ? "image/jpeg" : VoiceNoteConstants.mimeType)
         let durationMs = intValue(info["duration"]) ?? 0
-        let id = outer.eventId ?? UUID().uuidString
-        let from = MatrixTimelineMapper.sender(matrixUserId: outer.sender ?? "", isOwn: false)
+        let from = MatrixTimelineMapper.sender(matrixUserId: outer.sender ?? "", isOwn: isOwn)
 
         Task { [weak self] in
             guard let self, let data = await self.session.downloadMedia(file: file) else { return }
@@ -510,16 +542,16 @@ final class RoomViewModel {
         let sender = messageSender(for: inner)
         switch inner.body {
         case .text(let b):
-            receiveText(b.text, id: inner.id, sender: sender)
+            receiveText(b.text, id: inner.id, sender: sender, ts: inner.ts)
         case .image(let b):
-            receiveImage(dataBase64: b.dataBase64, id: inner.id, sender: sender)
+            receiveImage(dataBase64: b.dataBase64, id: inner.id, sender: sender, ts: inner.ts)
         case .audio(let b):
             receiveAudio(dataBase64: b.dataBase64, mimeType: b.mimeType, durationMs: b.durationMs,
-                         waveform: b.waveform, id: inner.id, sender: sender)
+                         waveform: b.waveform, id: inner.id, sender: sender, ts: inner.ts)
         case .textDelta(let b):
             let streamId = b.streamId ?? inner.id
             if currentStreamId != streamId {
-                guard beginStreamingMessage(streamId: streamId, sender: sender) else { return }
+                guard beginStreamingMessage(streamId: streamId, sender: sender, ts: inner.ts) else { return }
             }
             currentStreamText += b.delta
             updateCurrentStreamingMessage(text: currentStreamText, sender: sender)
@@ -528,11 +560,11 @@ final class RoomViewModel {
             if b.reset == true {
                 cancelCurrentStreamingMessage(streamId: streamId)
             } else if currentStreamId == streamId {
-                finalizeCurrentStreamingMessage(text: b.text, sender: sender)
+                finalizeCurrentStreamingMessage(text: b.text, sender: sender, ts: inner.ts)
             } else if isDuplicateInnerId(streamId) {
                 AppLog.log("🧵 textEnd skipping duplicate stream_id=%@", streamId)
             } else if currentStreamId == nil {
-                receiveText(b.text, id: streamId, sender: sender)
+                receiveText(b.text, id: streamId, sender: sender, ts: inner.ts)
             }
         case .status(let s):
             guard sender == .agent else { break }
@@ -548,20 +580,20 @@ final class RoomViewModel {
         case .ack(let a):
             if let from = inner.from, from.role == .plugin { handleInnerAck(refs: a.refs) }
         case .toolStart(let b):
-            beginToolCallBubble(toolId: b.toolId, toolName: b.name, icon: b.icon, sender: sender)
+            beginToolCallBubble(toolId: b.toolId, toolName: b.name, icon: b.icon, sender: sender, ts: inner.ts)
         case .toolDelta, .toolEnd:
             break // removed in the START-only model
         }
     }
 
-    private func receiveText(_ text: String, id: String, sender: MessageSender) {
+    private func receiveText(_ text: String, id: String, sender: MessageSender, ts: Int64) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
             message.text = text
             message.kind = .message
         }) { return }
         if isDuplicateInnerId(id) { return }
-        let message = ChatMessage(msgId: id, text: text, sender: sender, roomId: roomId)
+        let message = ChatMessage(msgId: id, text: text, sender: sender, timestamp: eventDate(ts), roomId: roomId)
         // A `.user` row reaching receiveText is our own message synced from ANOTHER
         // device (this device's sends are shown via local echo and suppressed). The
         // `id` IS the homeserver event_id, so stamp it on `matrixEventId` — without
@@ -575,7 +607,7 @@ final class RoomViewModel {
         requestScrollToBottom()
     }
 
-    private func receiveImage(dataBase64: String, id: String, sender: MessageSender) {
+    private func receiveImage(dataBase64: String, id: String, sender: MessageSender, ts: Int64) {
         guard let imageData = Data(base64Encoded: dataBase64) else { return }
         if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
             message.text = ""
@@ -583,7 +615,11 @@ final class RoomViewModel {
             message.kind = .message
         }) { return }
         if isDuplicateInnerId(id) { return }
-        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, roomId: roomId)
+        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, timestamp: eventDate(ts), roomId: roomId)
+        // Own image synced from another device: stamp the event_id so the peer read
+        // receipt can flip its tick (mirrors receiveText) and so this device's later
+        // echo of the same send is suppressed by matrixEventId.
+        if sender == .user { message.matrixEventId = id }
         guard appendAndInsertUnique(message, reason: "receive_image") else { return }
         if sender == .agent { emitMessageReceived(kind: "image") }
         Haptics.success()
@@ -591,7 +627,7 @@ final class RoomViewModel {
         requestScrollToBottom()
     }
 
-    private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender) {
+    private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender, ts: Int64) {
         guard let audioData = Data(base64Encoded: dataBase64) else { return }
         if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
             message.text = ""
@@ -605,7 +641,8 @@ final class RoomViewModel {
         let message = ChatMessage(
             msgId: id, audioData: audioData, audioMimeType: mimeType,
             audioDuration: Double(durationMs) / 1000, audioWaveform: waveform,
-            sender: sender, roomId: roomId)
+            sender: sender, timestamp: eventDate(ts), roomId: roomId)
+        if sender == .user { message.matrixEventId = id }
         guard appendAndInsertUnique(message, reason: "receive_audio") else { return }
         if sender == .agent { emitMessageReceived(kind: "audio") }
         Haptics.success()
@@ -613,16 +650,19 @@ final class RoomViewModel {
         requestScrollToBottom()
     }
 
-    private func receiveHTMLCard(_ html: String, id: String, sender: MessageSender) {
+    private func receiveHTMLCard(_ html: String, id: String, sender: MessageSender, ts: Int64) {
         // Render the card's HTML as-authored (full CSS + JS). The renderer
         // (HTMLCardBubble) is the security boundary: it runs in a WKWebView with
         // ALL network loads blocked, so no sanitizing/stripping happens here.
         let sanitizedHTML = html
         guard sanitizedHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
 
-        if let streamId = currentStreamId {
-            cancelCurrentStreamingMessage(streamId: streamId)
-        }
+        // SETTLE (don't delete) any agent text still streaming. A weather turn is
+        // [text answer][tool][card]; on a live catch-up replay the text is left as an
+        // un-finalized streaming bubble, and the old `cancelCurrentStreamingMessage`
+        // here DELETED it — that's why "the first text never showed up". Finalizing
+        // keeps the text and renders the card alongside it.
+        settleOpenStream()
 
         if replaceUnavailableMessage(id: id, sender: sender, configure: { message in
             message.text = ""
@@ -635,6 +675,7 @@ final class RoomViewModel {
             msgId: id,
             text: "",
             sender: sender,
+            timestamp: eventDate(ts),
             roomId: roomId,
             kind: .htmlCard,
             htmlCardHTML: sanitizedHTML
@@ -660,12 +701,13 @@ final class RoomViewModel {
         TelemetryManager.shared.track(.messageReceived, properties: props)
     }
 
-    private func receiveUnavailable(id: String, sender: MessageSender) {
+    private func receiveUnavailable(id: String, sender: MessageSender, ts: Int64) {
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(
             msgId: id,
             text: "Message unavailable on this device",
             sender: sender,
+            timestamp: eventDate(ts),
             roomId: roomId,
             kind: .unavailable
         )
@@ -695,7 +737,7 @@ final class RoomViewModel {
         return true
     }
 
-    private func beginStreamingMessage(streamId: String, sender: MessageSender) -> Bool {
+    private func beginStreamingMessage(streamId: String, sender: MessageSender, ts: Int64) -> Bool {
         if isDuplicateInnerId(streamId) {
             AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
             return false
@@ -706,12 +748,26 @@ final class RoomViewModel {
             existing.text = ""
             existing.msgId = streamId
         } else {
-            let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending, roomId: roomId)
+            let message = ChatMessage(msgId: streamId, text: "", sender: sender, timestamp: eventDate(ts), status: .sending, roomId: roomId)
             guard appendAndInsertUnique(message, reason: "stream_begin") else { return false }
             currentStreamMessageId = message.id
         }
         requestScrollToBottom()
         return true
+    }
+
+    /// Settle the currently-open agent stream as a finished row, preserving its
+    /// text. Called when something other than a `text_end` interrupts the stream
+    /// (e.g. an html_card in the same turn). An empty placeholder (stream begun but
+    /// no delta yet) is removed instead, so no blank bubble is left behind.
+    private func settleOpenStream() {
+        guard let streamId = currentStreamId else { return }
+        if currentStreamText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            cancelCurrentStreamingMessage(streamId: streamId)
+        } else {
+            let sender = currentStreamingMessage()?.sender ?? .agent
+            finalizeCurrentStreamingMessage(text: currentStreamText, sender: sender, ts: 0)
+        }
     }
 
     private func updateCurrentStreamingMessage(text: String, sender: MessageSender) {
@@ -731,7 +787,7 @@ final class RoomViewModel {
         requestScrollToBottom()
     }
 
-    private func finalizeCurrentStreamingMessage(text: String, sender: MessageSender) {
+    private func finalizeCurrentStreamingMessage(text: String, sender: MessageSender, ts: Int64) {
         Haptics.success()
         if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
             existing.text = text
@@ -739,7 +795,7 @@ final class RoomViewModel {
         } else if let streamId = currentStreamId, isDuplicateInnerId(streamId) {
             AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
         } else if let streamId = currentStreamId {
-            let message = ChatMessage(msgId: streamId, text: text, sender: sender, roomId: roomId)
+            let message = ChatMessage(msgId: streamId, text: text, sender: sender, timestamp: eventDate(ts), roomId: roomId)
             _ = appendAndInsertUnique(message, reason: "stream_finalize")
         }
         // CL18 — the streamed agent answer settled (streaming is always a live
@@ -775,14 +831,14 @@ final class RoomViewModel {
         return messages.first(where: { $0.id == currentStreamMessageId })
     }
 
-    private func beginToolCallBubble(toolId: String, toolName: String, icon: String?, sender: MessageSender) {
+    private func beginToolCallBubble(toolId: String, toolName: String, icon: String?, sender: MessageSender, ts: Int64) {
         AppLog.log("🔧 toolCall chip room=%@ id=%@ name=%@", roomId, toolId, toolName)
         guard !messages.contains(where: { $0.kind == .toolCall && $0.toolId == toolId }) else { return }
         // roomId is FIXED to this view model — never a shared activeRoomId. This
         // is the structural fix for the tool-bleed: a chip can only ever land in
         // its own room.
         let bubble = ChatMessage(
-            sender: sender, roomId: roomId, kind: .toolCall,
+            sender: sender, timestamp: eventDate(ts), roomId: roomId, kind: .toolCall,
             toolId: toolId, toolName: toolName, toolIcon: icon)
         guard appendAndInsertUnique(bubble, reason: "tool_call") else { return }
         persistContext()
