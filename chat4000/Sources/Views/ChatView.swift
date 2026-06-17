@@ -935,6 +935,12 @@ struct RoomMessagesView: View {
             .onChange(of: room.scrollRevision) {
                 if isPinnedToBottom { scrollToBottom(using: proxy) }
             }
+            // The local user just SENT a message: always jump to the bottom,
+            // animated, exactly like tapping the scroll-to-bottom button —
+            // regardless of whether they'd scrolled up. (macOS + iOS.)
+            .onChange(of: room.sendScrollRevision) {
+                scrollToBottom(using: proxy, animated: true)
+            }
             .onChange(of: room.isAgentBusy) {
                 if isPinnedToBottom { scrollToBottom(using: proxy) }
             }

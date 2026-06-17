@@ -23,6 +23,11 @@ final class RoomViewModel {
     var busyStartTime: Date?
     var busyPhase: String = "Thinking"
     var scrollRevision = 0
+    /// Bumped ONLY when the local user sends a message (text/image/audio). Unlike
+    /// `scrollRevision` (pin-gated "scroll if already at the bottom"), this forces
+    /// an unconditional animated scroll to the bottom — same effect as tapping the
+    /// scroll-to-bottom button — because sending always means "take me to my message".
+    var sendScrollRevision = 0
 
     @ObservationIgnored private let session: MatrixSession
     @ObservationIgnored private var modelContext: ModelContext?
@@ -302,6 +307,12 @@ final class RoomViewModel {
 
     private func requestScrollToBottom() {
         scrollRevision &+= 1
+    }
+
+    /// Force an unconditional scroll to the bottom (the local user just sent a
+    /// message). See `sendScrollRevision`.
+    private func forceScrollToBottom() {
+        sendScrollRevision &+= 1
     }
 
     // MARK: - Inbound event ingest (this room only)
@@ -991,7 +1002,7 @@ final class RoomViewModel {
         let message = ChatMessage(msgId: localId, text: text, sender: .user, status: .sending, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "send_text") else { return }
         persistContext()
-        requestScrollToBottom()
+        forceScrollToBottom()
 
         session.enqueueSend(.text(text), roomId: roomId, localId: localId)
         TelemetryManager.shared.track(
@@ -1005,7 +1016,7 @@ final class RoomViewModel {
         let message = ChatMessage(msgId: localId, imageData: data, sender: .user, status: .sending, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "send_image") else { return }
         persistContext()
-        requestScrollToBottom()
+        forceScrollToBottom()
 
         session.enqueueSend(.image(data, mimeType: mimeType), roomId: roomId, localId: localId)
         TelemetryManager.shared.track(.messageSentImage, properties: ["source": source, "count": 1])
@@ -1020,7 +1031,7 @@ final class RoomViewModel {
             audioWaveform: waveform, sender: .user, status: .sending, roomId: roomId)
         guard appendAndInsertUnique(message, reason: "send_audio") else { return }
         persistContext()
-        requestScrollToBottom()
+        forceScrollToBottom()
 
         session.enqueueSend(
             .audio(data, mimeType: mimeType, durationMs: Int((duration * 1000).rounded())),
