@@ -2,6 +2,8 @@ import Foundation
 import SwiftData
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// One decrypted (or cleartext) room event handed to the timeline mapper.
@@ -242,12 +244,15 @@ final class MatrixSession {
     // Backgrounded, inactive, not-frontmost, or locked → `false`.
     //
     // `appActive` is driven from the SwiftUI scene phase (active vs. not) on both
-    // platforms. On iOS `deviceUnlocked` is tracked via the protected-data
-    // notifications (the standard "device locked" proxy — file protection becomes
-    // unavailable on lock); on macOS there is no lock dimension, so it is always
-    // true. `currentForeground` is their conjunction. Both default to background
-    // until the scene phase first reports active — the safe direction (D.4: an
-    // extra silent wake, never a missed one).
+    // platforms. `deviceUnlocked` tracks the per-platform screen-lock signal
+    // (D.4): on iOS via the protected-data notifications (the standard "device
+    // locked" proxy — file protection becomes unavailable on lock); on macOS via
+    // the `com.apple.screenIsLocked` / `com.apple.screenIsUnlocked` distributed
+    // notifications, so a screen-locked or screensaver'd Mac reports
+    // `foreground = false` even while the app stays the active application.
+    // `currentForeground` is their conjunction. Both default to background until
+    // the scene phase first reports active — the safe direction (D.4: an extra
+    // silent wake, never a missed one).
     @ObservationIgnored private var appActive = false
     @ObservationIgnored private var deviceUnlocked = true
     /// The last `foreground` value reported to the gateway, so we send an
@@ -255,6 +260,8 @@ final class MatrixSession {
     @ObservationIgnored private var lastReportedForeground: Bool?
     @ObservationIgnored private var protectedDataUnavailableObserver: NSObjectProtocol?
     @ObservationIgnored private var protectedDataAvailableObserver: NSObjectProtocol?
+    @ObservationIgnored private var screenLockedObserver: NSObjectProtocol?
+    @ObservationIgnored private var screenUnlockedObserver: NSObjectProtocol?
     /// Continuations awaiting the next processed sync (background-wake drain).
     @ObservationIgnored private var syncWaiters: [CheckedContinuation<Void, Never>] = []
     /// Local notifications posted in the current sync batch (flood guard).
@@ -273,13 +280,23 @@ final class MatrixSession {
         observeDeviceLockState()
     }
 
-    /// Track the iOS lock state (protocol D.4: `foreground` requires the device
-    /// unlocked). `UIApplication.isProtectedDataAvailable` is the standard "device
-    /// unlocked" proxy — complete-protection files are inaccessible while locked
-    /// and become accessible on unlock — and the matching notifications fire on
-    /// every lock/unlock. macOS has no lock dimension here, so `deviceUnlocked`
-    /// stays `true`. Notifications are posted on the main queue; the closures hop
-    /// to the `@MainActor` to mutate state and re-report.
+    /// Track the screen-lock state per platform (protocol D.4: `foreground`
+    /// requires the screen unlocked). The matching notifications fire on every
+    /// lock/unlock and the closures hop to the `@MainActor` to mutate state and
+    /// re-report.
+    ///
+    /// - iOS: `UIApplication.isProtectedDataAvailable` is the standard "device
+    ///   unlocked" proxy — complete-protection files are inaccessible while
+    ///   locked and become accessible on unlock — with the matching
+    ///   protected-data notifications.
+    /// - macOS: the `com.apple.screenIsLocked` / `com.apple.screenIsUnlocked`
+    ///   distributed notifications (`DistributedNotificationCenter`). A locked or
+    ///   screensaver'd Mac is NOT foreground even while the app remains the active
+    ///   application. There is no synchronous "is the screen locked right now?"
+    ///   API, so we keep the initial `deviceUnlocked = true` default and rely on
+    ///   the notifications to flip it; the first lock after launch reports the
+    ///   flip, and the safe-direction default means at worst an extra wake while
+    ///   genuinely unlocked, never a missed one (D.4).
     private func observeDeviceLockState() {
         #if canImport(UIKit)
         deviceUnlocked = UIApplication.shared.isProtectedDataAvailable
@@ -291,6 +308,20 @@ final class MatrixSession {
         }
         protectedDataAvailableObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateDeviceUnlocked(true) }
+        }
+        #elseif canImport(AppKit)
+        let center: DistributedNotificationCenter = .default()
+        screenLockedObserver = center.addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateDeviceUnlocked(false) }
+        }
+        screenUnlockedObserver = center.addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"),
             object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.updateDeviceUnlocked(true) }
@@ -1708,8 +1739,10 @@ final class MatrixSession {
     // MARK: - UI foreground state reporting (protocol D.1 / D.4)
 
     /// This device's current `foreground` value (protocol D.4): the app is
-    /// frontmost/active AND (on iOS) the device is unlocked. macOS has no lock
-    /// dimension, so it reduces to "app active".
+    /// frontmost/active AND the screen is unlocked. On iOS "unlocked" is the
+    /// protected-data signal; on macOS it is the `screenIsLocked` /
+    /// `screenIsUnlocked` distributed notifications, so a screen-locked Mac is not
+    /// foreground even while the app stays the active application.
     private var currentForeground: Bool { appActive && deviceUnlocked }
 
     /// Drive the app-active dimension from the SwiftUI scene phase (the app calls
