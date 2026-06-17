@@ -1162,6 +1162,17 @@ final class MatrixSession {
         TelemetryManager.shared.track(.sessionRenamed, properties: ["session_count": rooms.count])  // CL9
     }
 
+    /// Bumped to ask the UI to open "rename" for the active session — backs the
+    /// macOS Cmd+R shortcut. The sidebar observes this token and presents its
+    /// rename alert pre-filled with the active room's name. No-op with no active
+    /// room (e.g. before the first session exists).
+    private(set) var renameActiveRequestToken: Int = 0
+
+    func requestRenameActiveSession() {
+        guard activeRoomId != nil else { return }
+        renameActiveRequestToken += 1
+    }
+
     func deleteSession(roomId: String) {
         pendingDeleteRoomIds.append(roomId)
         sendControlCommand(["command": "session.delete", "room_id": roomId])

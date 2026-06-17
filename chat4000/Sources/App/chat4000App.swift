@@ -280,6 +280,12 @@ struct chat4000App: App {
             // because macOS reserves Tab for focus traversal and won't deliver
             // it to a menu key-equivalent; the menu items exist for discovery.
             CommandMenu("Sessions") {
+                Button("Rename Session…") {
+                    guard currentScreen == .chat else { return }
+                    chatViewModel.matrixSession.requestRenameActiveSession()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                Divider()
                 Button("Next Session") {
                     guard currentScreen == .chat else { return }
                     chatViewModel.cycleActiveRoom(forward: true)

@@ -424,6 +424,13 @@ struct SessionsSidebar: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(AppColors.cardBackground)
+        // macOS Cmd+R: open rename for whichever session is currently front.
+        .onChange(of: session.renameActiveRequestToken) { _, _ in
+            guard let id = session.activeRoomId,
+                  let room = session.rooms.first(where: { $0.id == id }) else { return }
+            renameText = room.name
+            renameTarget = room
+        }
         .alert("Rename session", isPresented: Binding(
             get: { renameTarget != nil },
             set: { if !$0 { renameTarget = nil } }
