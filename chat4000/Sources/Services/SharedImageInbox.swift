@@ -163,6 +163,13 @@ enum SharedImageInbox {
         !loadManifest(defaults: defaults).isEmpty
     }
 
+    /// IDs of every queued image, in order, WITHOUT reading any bytes. Lets the UI
+    /// tell "the same images the user already dismissed" apart from "a new share
+    /// just arrived" so it can avoid re-presenting the picker for declined items.
+    static func pendingIds(defaults: UserDefaults = SharedImageInbox.sharedDefaults) -> [String] {
+        loadManifest(defaults: defaults).map(\.id)
+    }
+
     /// One-line snapshot for debugging the share flow from a pulled log. If the app
     /// can read the extension's breadcrumbs (extLastRunAt/extContainerOK), App Group
     /// sharing is wired correctly; if extLastRunAt is nil but you know you shared,

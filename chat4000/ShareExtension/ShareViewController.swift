@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 /// Share Sheet entry point. Saves images shared from other apps (Google Photos,
 /// Safari, …) into the App Group inbox, then dismisses. The chat4000 app picks them
 /// up on its next foreground — it scans the shared inbox and runs the in-app session
-/// picker. We deliberately do NOT try to launch the host app from here (unreliable
-/// and App-Review-risky for a share extension); the app self-detects instead.
+/// picker. We ALSO make a best-effort attempt to foreground the host app (see
+/// `openHostApp`), but a share extension cannot reliably launch its container app on
+/// modern iOS, so the self-detect-on-foreground path above is the real mechanism.
 ///
 /// The on-disk format MUST match `SharedImageInbox` in the app target:
 ///   - App Group container subdir `PendingSharedImages/`

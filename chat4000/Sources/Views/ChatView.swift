@@ -33,6 +33,11 @@ struct ChatView: View {
     @State private var pendingLaunchActionTask: Task<Void, Never>?
     /// Shown when a shared image arrives and there's more than one session to pick.
     @State private var showSharedImageSessionPicker = false
+    // Inbox IDs the user dismissed via the picker's Cancel. We keep the images
+    // queued (so a fresh cold launch can re-offer them) but never re-present THESE
+    // ones again during this app run — otherwise any later foreground/notification
+    // re-shows the picker, which read as an unkillable loop when cancelling.
+    @State private var cancelledShareIds: Set<String> = []
     /// Thumbnail of the pending shared image, shown in the picker header.
     @State private var sharedImagePreviewData: Data?
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
@@ -116,11 +121,13 @@ struct ChatView: View {
                 },
                 onCancel: {
                     showSharedImageSessionPicker = false
-                    // Keep the images queued and re-arm the launch action so the
-                    // next foreground re-offers the picker rather than stranding them.
-                    if SharedImageInbox.hasPendingImage() {
-                        LaunchActionStore.set(.sendSharedImage)
-                    }
+                    // Mark exactly the images being offered as dismissed. They stay
+                    // queued (a future cold launch re-offers them) but won't be
+                    // re-presented this run. Crucially we do NOT re-arm the launch
+                    // action here: LaunchActionStore.set posts didSetNotification,
+                    // which our .onReceive turns straight back into a picker — that
+                    // was the cancel→reopen loop.
+                    cancelledShareIds.formUnion(SharedImageInbox.pendingIds())
                 }
             )
             #if os(iOS)
@@ -724,7 +731,13 @@ struct ChatView: View {
                 // shared inbox by the Share Extension (which can't set our launch flag
                 // across processes) both mean "handle a shared image".
                 let storedAction = LaunchActionStore.peek()
-                let action = storedAction ?? (SharedImageInbox.hasPendingImage() ? .sendSharedImage : nil)
+                // Only treat queued images as an implicit "send shared image" action
+                // if at least one hasn't already been dismissed via the picker's
+                // Cancel this run. New shares get fresh IDs, so they still present;
+                // declined ones don't, which is what stops the cancel→reopen loop.
+                let hasFreshSharedImage = SharedImageInbox.pendingIds()
+                    .contains { !cancelledShareIds.contains($0) }
+                let action = storedAction ?? (hasFreshSharedImage ? .sendSharedImage : nil)
                 if let action {
                     if action == .sendSharedImage, !viewModel.hasActiveSession {
                         AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded waiting_for_session")
