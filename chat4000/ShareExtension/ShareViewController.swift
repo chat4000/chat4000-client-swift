@@ -27,6 +27,14 @@ final class ShareViewController: UIViewController {
         let createdAt: Date
     }
 
+    /// Bytes + metadata pulled from a shared item (a struct, not a 3-tuple, to
+    /// satisfy the large_tuple lint).
+    private struct ExtractedImage {
+        let data: Data
+        let mimeType: String
+        let ext: String
+    }
+
     /// Deep link the host app opens itself with; `chat4000App.handleIncomingURL`
     /// routes it to the shared-image flow (which reads the App Group inbox).
     private static let hostAppURL = URL(string: "chat4000://share-image")
@@ -79,13 +87,8 @@ final class ShareViewController: UIViewController {
             for item in items {
                 for provider in item.attachments ?? [] {
                     attachmentCount += 1
-                    guard let typeId = Self.imageTypeIdentifier(provider),
-                          let data = await Self.loadData(provider, typeId: typeId),
-                          !data.isEmpty else { continue }
-                    let type = UTType(typeId)
-                    let mimeType = type?.preferredMIMEType ?? "image/jpeg"
-                    let ext = type?.preferredFilenameExtension ?? "jpg"
-                    if Self.store(data: data, mimeType: mimeType, fileExtension: ext) {
+                    guard let image = await Self.extractImage(provider), !image.data.isEmpty else { continue }
+                    if Self.store(data: image.data, mimeType: image.mimeType, fileExtension: image.ext) {
                         savedCount += 1
                     }
                 }
@@ -111,9 +114,68 @@ final class ShareViewController: UIViewController {
         defaults.set(saved, forKey: "chat4000.shareExt.savedCount")
     }
 
+    /// Pull image bytes from a provider, trying the representations real apps use —
+    /// crucially more than one, because the first attempt (data rep for a concrete
+    /// image UTI) is exactly what failed for Google Photos. Order:
+    ///   1. Concrete image UTI (public.jpeg/png/…) via loadFileRepresentation, which
+    ///      handles both in-memory and file-backed items (loadDataRepresentation
+    ///      alone misses file-backed providers — the likely Google Photos case).
+    ///   2. Same UTI via loadDataRepresentation (in-memory fallback).
+    ///   3. A file URL whose extension is an image (some apps share by reference).
+    private static func extractImage(_ provider: NSItemProvider) async -> ExtractedImage? {
+        if let typeId = imageTypeIdentifier(provider) {
+            let type = UTType(typeId)
+            let mimeType = type?.preferredMIMEType ?? "image/jpeg"
+            let ext = type?.preferredFilenameExtension ?? "jpg"
+            if let data = await loadFileRepresentation(provider, typeId: typeId), !data.isEmpty {
+                return ExtractedImage(data: data, mimeType: mimeType, ext: ext)
+            }
+            if let data = await loadData(provider, typeId: typeId), !data.isEmpty {
+                return ExtractedImage(data: data, mimeType: mimeType, ext: ext)
+            }
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+           let url = await loadFileURL(provider),
+           let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? Data(contentsOf: url), !data.isEmpty {
+                return ExtractedImage(
+                    data: data,
+                    mimeType: type.preferredMIMEType ?? "image/jpeg",
+                    ext: type.preferredFilenameExtension ?? "jpg")
+            }
+        }
+        return nil
+    }
+
     /// First registered type that is an image (e.g. `public.jpeg`, `public.png`).
     private static func imageTypeIdentifier(_ provider: NSItemProvider) -> String? {
         provider.registeredTypeIdentifiers.first { UTType($0)?.conforms(to: .image) == true }
+    }
+
+    private static func loadFileRepresentation(_ provider: NSItemProvider, typeId: String) async -> Data? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            // The handed URL is valid only for the duration of this completion, so
+            // read it here rather than returning the URL.
+            provider.loadFileRepresentation(forTypeIdentifier: typeId) { url, _ in
+                continuation.resume(returning: url.flatMap { try? Data(contentsOf: $0) })
+            }
+        }
+    }
+
+    private static func loadFileURL(_ provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                if let url = item as? URL {
+                    continuation.resume(returning: url)
+                } else if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    continuation.resume(returning: url)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     private static func loadData(_ provider: NSItemProvider, typeId: String) async -> Data? {
