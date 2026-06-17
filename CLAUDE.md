@@ -32,3 +32,19 @@ Then `grep`/`tail` the local file.
 Dead ends for app logs (always redacted/empty): `idevicesyslog`, `log show`,
 `log stream`, `log collect`. They read Apple's system-wide unified log, where the
 app's text is `<private>`. The app's own file is the readable one.
+
+## No memory files, ever
+
+Never create, write, or edit any memory file — nothing under a `memory/`
+directory and never `MEMORY.md`. The auto-memory system is OFF. Do not persist
+anything there regardless of context, "remember this," or a goal/Stop hook. If
+something is worth keeping, propose it in chat and let the user decide where it
+goes.
+
+## No creating images without explicit consent
+
+Never create images without an explicit, per-instance "yes" from the user. This
+covers Docker images (`docker commit`, `docker build`) — the 4.7GB `docker commit`
+of `personal-hermes` is the exact thing that must not happen unprompted — and any
+generated/AI image files. Reusing or running existing images is fine; minting new
+ones is not, without a clear OK.
