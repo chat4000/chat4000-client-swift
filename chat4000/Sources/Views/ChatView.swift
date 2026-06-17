@@ -675,22 +675,17 @@ struct RoomMessagesView: View {
     var onDismissKeyboard: (() -> Void)?
 
     @State private var pendingScrollTask: Task<Void, Never>?
-    /// True when the viewport is at/near the latest message. Drives BOTH the
-    /// scroll-to-bottom button (hidden when pinned) and auto-scroll-on-new-message
-    /// (we only yank the list down when the user is already at the bottom — if
-    /// they've scrolled up to read history, new messages must NOT pull them away;
-    /// the button + this flag are how we respect that). Starts true (fresh room
-    /// opens at the bottom).
+    /// True when we're at/near the newest message. In the INVERTED list the newest
+    /// end sits at the scroll ORIGIN, so following new content is automatic — this
+    /// flag now only drives the jump-to-bottom button (hidden when at bottom) plus a
+    /// belt-and-suspenders explicit scroll. Starts true (a room opens at the newest).
     @State private var isPinnedToBottom = true
-    /// Live viewport height of the scroll view, measured via a background
-    /// GeometryReader. Needed to turn the content's bottom-edge position into a
-    /// distance-from-bottom.
-    @State private var viewportHeight: CGFloat = 0
 
-    /// Named coordinate space the content's bottom edge is measured against.
+    /// Named coordinate space the content's top-edge offset is measured against.
     private static let scrollSpace = "roomScroll"
-    /// How close (pt) the content bottom must be to the viewport bottom to count
-    /// as "pinned". Generous so tiny layout jitter / the busy row don't unpin.
+    /// How far (pt) the user must scroll away from the newest end before we count as
+    /// "not at bottom" (reveals the jump button). Generous so layout jitter / the
+    /// busy row don't flip it.
     private static let bottomThreshold: CGFloat = 120
 
     var body: some View {
@@ -700,37 +695,35 @@ struct RoomMessagesView: View {
                     .padding(.vertical, AppSpacing.chatListVerticalInset)
                     .contentShape(Rectangle())
                     .textSelection(.enabled)
-                    // Detection (iOS 17+, concurrency-safe): a layout-neutral
-                    // GeometryReader reports the content's bottom edge in the
-                    // scroll's coordinate space; `.onChange` (a main-actor closure,
-                    // unlike onPreferenceChange's @Sendable one under strict
-                    // concurrency) recomputes `isPinnedToBottom` as it scrolls.
-                    // iOS 18 could use `onScrollGeometryChange`, but this one path
-                    // covers our iOS 17 floor with no #available branch.
+                    // Inverted-list detection: the content's layout-TOP edge is the
+                    // NEWEST end (the visual bottom after the flip). At rest it sits
+                    // at the scroll origin (minY ≈ 0); scrolling toward older history
+                    // drives minY negative. A single offset signal — no contentMaxY /
+                    // viewport math — recomputes `isPinnedToBottom`. (Render-transform
+                    // flips don't affect layout-space frames, so minY stays correct.)
                     .background(
                         GeometryReader { geo in
                             Color.clear.onChange(
-                                of: geo.frame(in: .named(Self.scrollSpace)).maxY, initial: true
-                            ) { _, maxY in
-                                updatePinned(contentMaxY: maxY)
+                                of: geo.frame(in: .named(Self.scrollSpace)).minY, initial: true
+                            ) { _, minY in
+                                updatePinned(contentMinY: minY)
                             }
                         }
                     )
             }
+            // Render the scroll view upside-down so the newest row sits at the scroll
+            // ORIGIN and stays pinned to the visual bottom for free; each row is
+            // re-flipped (in messageListRows) so its content stays upright.
+            .flippedUpsideDown()
             .coordinateSpace(name: Self.scrollSpace)
-            // Viewport height (the scroll view's own size), kept current so the
-            // distance-from-bottom math is correct after rotation / keyboard.
-            .background(
-                GeometryReader { vp in
-                    Color.clear.onChange(of: vp.size.height, initial: true) { _, height in
-                        viewportHeight = height
-                    }
-                }
-            )
+            // The flipped scroll indicator would render on the wrong edge / direction.
+            .scrollIndicators(.hidden)
             #if os(iOS)
             .scrollDismissesKeyboard(.interactively)
             .onTapGesture { onDismissKeyboard?() }
             #endif
+            // Overlay sits OUTSIDE the flip, so the button is upright at the real
+            // bottom-trailing corner.
             .overlay(alignment: .bottomTrailing) {
                 scrollToBottomButton(proxy)
             }
@@ -769,14 +762,12 @@ struct RoomMessagesView: View {
         }
     }
 
-    /// Recompute whether the viewport is at/near the bottom from the content's
-    /// bottom-edge position. When pinned the content bottom sits ~at the viewport
-    /// bottom (maxY ≈ viewportHeight); scrolled up, the bottom is below the
-    /// viewport (maxY ≫ viewportHeight). Content shorter than the viewport →
-    /// always pinned.
-    private func updatePinned(contentMaxY: CGFloat) {
-        guard viewportHeight > 0 else { return }
-        let pinned = (contentMaxY - viewportHeight) < Self.bottomThreshold
+    /// Recompute "are we at the newest end" from the content's layout-top offset in
+    /// the inverted list. At rest the newest end sits at the scroll origin
+    /// (minY ≈ 0); scrolling up toward older history pushes minY negative past the
+    /// threshold. A single offset signal — no viewport / contentMaxY math.
+    private func updatePinned(contentMinY: CGFloat) {
+        let pinned = contentMinY > -Self.bottomThreshold
         if pinned != isPinnedToBottom { isPinnedToBottom = pinned }
     }
 
@@ -786,8 +777,8 @@ struct RoomMessagesView: View {
     private func scrollToBottomButton(_ proxy: ScrollViewProxy) -> some View {
         Button {
             Haptics.impact()
-            AppLog.log("🔽 scroll-button tap pinned=%@ viewportH=%.0f msgs=%d",
-                       String(isPinnedToBottom), viewportHeight, room.messages.count)
+            AppLog.log("🔽 scroll-button tap pinned=%@ msgs=%d",
+                       String(isPinnedToBottom), room.messages.count)
             // Route through the robust multi-pass scroll (NOT a single inline
             // scrollTo): a lone pass lands short ~20% when content is still
             // settling (busy row / image decode / markdown reflow) at tap time.
@@ -826,24 +817,32 @@ struct RoomMessagesView: View {
 
     @ViewBuilder
     private var messageListRows: some View {
-        if room.messages.isEmpty && !room.isAgentBusy {
-            noMessagesPlaceholder
-                .id("emptyChatPlaceholder")
-        }
+        // INVERTED list: rows are laid out newest-first so, after the container flip,
+        // the newest lands at the visual bottom. Each row is re-flipped to upright.
+        // Layout-top here == visual BOTTOM, so the anchor + busy row come first.
 
-        ForEach(room.messages, id: \.id) { message in
-            MessageBubble(message: message)
-                .id(message.id)
-        }
+        // The newest end (visual bottom). scrollTo(anchor: .top) lands here → offset 0.
+        Color.clear
+            .frame(height: 1)
+            .id("chatBottomAnchor")
 
         if room.isAgentBusy {
             busyIndicator
                 .id("busyIndicator")
+                .flippedUpsideDown()
         }
 
-        Color.clear
-            .frame(height: 1)
-            .id("chatBottomAnchor")
+        ForEach(Array(room.messages.reversed()), id: \.id) { message in
+            MessageBubble(message: message)
+                .id(message.id)
+                .flippedUpsideDown()
+        }
+
+        if room.messages.isEmpty && !room.isAgentBusy {
+            noMessagesPlaceholder
+                .id("emptyChatPlaceholder")
+                .flippedUpsideDown()
+        }
     }
 
     private var noMessagesPlaceholder: some View {
@@ -928,18 +927,28 @@ struct RoomMessagesView: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             if animated {
-                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("chatBottomAnchor", anchor: .bottom) }
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("chatBottomAnchor", anchor: .top) }
             } else {
-                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+                proxy.scrollTo("chatBottomAnchor", anchor: .top)
             }
             // Follow-up nudges to reach the FINAL bottom after late content settles.
             for delay in [Duration.milliseconds(50), .milliseconds(150)] {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
-                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+                proxy.scrollTo("chatBottomAnchor", anchor: .top)
                 AppLog.log("↕️ scrollToBottom nudge after %@", String(describing: delay))
             }
         }
+    }
+}
+
+private extension View {
+    /// Vertical 180° flip used to build the inverted chat list: the scroll origin
+    /// becomes the visual bottom (newest), so new content sticks there for free.
+    /// Applied to the ScrollView and re-applied to each row to keep content upright.
+    /// (rotation by π flips both axes; the x:-1 scale undoes the horizontal mirror.)
+    func flippedUpsideDown() -> some View {
+        rotationEffect(.radians(.pi)).scaleEffect(x: -1, y: 1, anchor: .center)
     }
 }
 
