@@ -1607,7 +1607,7 @@ final class MatrixSession {
     func backgroundWake() async -> Bool {
         if connectionState != .connected { await connect() }
         guard connectionState == .connected else { return false }
-        await waitForSync(timeout: .seconds(8))
+        await waitForSync(timeout: .seconds(30))
         return true
     }
 
