@@ -61,6 +61,23 @@ enum AnalyticsEvent: String {
     case diagnosticStarted = "diagnostic_started"     // CL23
     case diagnosticCompleted = "diagnostic_completed" // CL23
 
+    // ── CL26 — macOS in-app self-update funnel (protocol C.5.3) ─────────────
+    // macOS-only; never fires on iOS / App Store. Props per the analytics
+    // registry: to_version (all); from_version (offered, installed);
+    // action: upgrade|force_upgrade (offered); bytes, duration_ms
+    // (download_completed); stage: sha256|team_id|notarization (verify_failed);
+    // surface: pill|popup|force_screen (relaunch_clicked); reason (failed).
+    case macosUpdateOffered = "macos_update_offered"
+    case macosUpdateDownloadStarted = "macos_update_download_started"
+    case macosUpdateDownloadCompleted = "macos_update_download_completed"
+    case macosUpdateVerifyFailed = "macos_update_verify_failed"
+    case macosUpdateRelaunchClicked = "macos_update_relaunch_clicked"
+    case macosUpdatePopupShown = "macos_update_popup_shown"
+    case macosUpdatePopupDismissed = "macos_update_popup_dismissed"
+    case macosUpdateForceShown = "macos_update_force_shown"
+    case macosUpdateInstalled = "macos_update_installed"
+    case macosUpdateFailed = "macos_update_failed"
+
     // APNS / push
     case apnsTokenRegistered = "apns_token_registered"
     /// Liveness ping: the backend sends a silent "alive check" push to confirm

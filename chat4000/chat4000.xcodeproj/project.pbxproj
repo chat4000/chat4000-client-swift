@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0074E4CED22D8224F9A75456 /* Vortex in Frameworks */ = {isa = PBXBuildFile; productRef = 17C44517B3E0325CF69F0E3C /* Vortex */; };
 		00A7628C7B55491FDE2CDDD0 /* HapticsLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E7B14B025FB6F40EE0AC93 /* HapticsLab.swift */; };
+		00F6E42EEA31A71CBFAE7FEC /* MacUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3BA0A3039E544B648CB6C2 /* MacUpdater.swift */; };
 		023A38F1C99E034E5DF1CDA2 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32C9A19C1555716E6B56D5F /* ClientIdentity.swift */; };
 		02794D67F6CA9B2669FC742E /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 27DD8B1B5470369FA558FD3B /* PostHog */; };
 		0364B3874AAF31DED6B7C459 /* MatrixPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E310131C1553FBB80D41A92D /* MatrixPairing.swift */; };
@@ -34,11 +35,14 @@
 		1E339EE4124888C06623B7EA /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */; };
 		21AA69DB860A21EA7248D57C /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D677DBA9D52D33C5CD0D615 /* MatrixSession.swift */; };
 		2247288E706BC0A2CE49AA35 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
+		23372284AB530915F2B42731 /* MacUpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2E49D540AAC0C6A411876E0 /* MacUpdateInstaller.swift */; };
+		2377189AB12748B428C15408 /* MacUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3BA0A3039E544B648CB6C2 /* MacUpdater.swift */; };
 		254205589902EB00DB9B618A /* MatrixCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74805CCF8BC6DBBDD7FC666E /* MatrixCredentialStoreTests.swift */; };
 		267BBE8419C5B010B5B892E0 /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		2720FC65EA9DDAC856774B90 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = 0F2511B4D08991E82A7177B4 /* Intercom */; };
 		29583000ED3E1FF9BE5190DB /* ConfettiSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = D8F3FFF42D72FD2800A712FD /* ConfettiSwiftUI */; };
 		29C741B737A196510499D4C0 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
+		29FFEB5F416A5D130A1666E7 /* MacUpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2E49D540AAC0C6A411876E0 /* MacUpdateInstaller.swift */; };
 		2AAD36F244CA62DD1A701188 /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */; };
 		2D5517FB5C5CD2DBDC828765 /* MatrixMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD5502614502BB36DCC28ED7 /* MatrixMedia.swift */; };
 		2F4D4A7B682E1DF720C4E51D /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
@@ -68,12 +72,16 @@
 		538D2E7BACB9AC0B3C7BF504 /* ToolCallBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */; };
 		5490719B65442A8D721A22EF /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
 		552F1547A60FB14357F28FB4 /* MatrixTimelineMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7579907A305146E2DEA5C23F /* MatrixTimelineMapper.swift */; };
+		58D2DFB33C7028E3EF523631 /* MacUpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2E49D540AAC0C6A411876E0 /* MacUpdateInstaller.swift */; };
 		5CC163962C05860B5CD9072F /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C08DE1E100F336266630F49 /* VoiceNotes.swift */; };
 		5DF35CCD8A3B97CA3FA2B79E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		60342C78A130F40DD1726710 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8858BAEA92394F0B597EA9 /* ConnectionState.swift */; };
 		61C94687A4B83B85DB92D515 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		6344C9D91CC944DD0E689465 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */; };
+		639A545662DEF74FFF716B17 /* UpdateAvailablePopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */; };
 		64B7784CA3FFDA09C46E9385 /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32122D2AB6339871185CC71A /* MatrixCredentialStore.swift */; };
+		66A24A23ED45F3110D1DA8CC /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
+		679D25D65FB5532AAC7933E5 /* MacUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3BA0A3039E544B648CB6C2 /* MacUpdater.swift */; };
 		6BCE9DD3D1995A16B00DD592 /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292B92B50C5BCD4831BA1F5B /* AppError.swift */; };
 		6BE18F56C9A382EBDF0D5FA5 /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */; };
 		6D42E3F66D3E40C67839BDE2 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */; };
@@ -93,6 +101,7 @@
 		8122D2340D8232055D544F33 /* SyncModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88C5C81B4EDE2E1C11A6C15 /* SyncModelTests.swift */; };
 		81C4D86A18C2D7868987B5CA /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
 		83A2F408D1CDD530D5D00040 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8F514C2A5C656F91CAAA2A /* SyncModel.swift */; };
+		84D80D2C7FF9EA552510AE0A /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
 		84ED60531807CBAF0A6653CF /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		851A2D6926F3E4E057C96E21 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B050664DE997644E80B7EBD8 /* GatewayClient.swift */; };
 		85871F19E67D9C1984BED023 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
@@ -159,6 +168,7 @@
 		C5D9C9266871FE067F588E12 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
 		C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
+		C928B5EC567E737F5E721C08 /* UpdateAvailablePopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */; };
 		CB01EEBA373523CC59166F46 /* FounderOutreach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78AD31081E6091BD749DF44D /* FounderOutreach.swift */; };
 		CB3C14D241D85E5924906EFA /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A816A1C283669BC3405C6770 /* ChatMessage.swift */; };
 		CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
@@ -171,11 +181,13 @@
 		D0C76657330EBA5D20213B2C /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		D1123A5FFD13BDE42BCFDD0B /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE09C299166305E96D81033B /* CryptoEngine.swift */; };
 		D19E4F7AD2D2372F6795BC42 /* FounderOutreach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78AD31081E6091BD749DF44D /* FounderOutreach.swift */; };
+		D44D178D9C842FEF8066CFBF /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
 		D47B5B456C4F439AC588E559 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		D4FCBCFFBE18E3ABF9590132 /* MatrixPairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */; };
 		D6725C71873E18476DE50DFF /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		D68104E099A9D3E0D37A18D6 /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */; };
 		D6A76607F110C0A29B30C871 /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
+		D6F119AE82A7DBCB02FB66F3 /* UpdateAvailablePopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */; };
 		D717C29B75D7CE6ABDBC042D /* IntercomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC864A0C51C9B9647423BC9F /* IntercomService.swift */; };
 		D71964EA9FCE6279922ED795 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20986EDB38AB39E9B87CF73 /* Haptics.swift */; };
 		D844D398F476545D3D5531A7 /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCBD7E1C2B710B4BA75EBFF /* AnalyticsEvent.swift */; };
@@ -225,6 +237,7 @@
 		01E7B14B025FB6F40EE0AC93 /* HapticsLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticsLab.swift; sourceTree = "<group>"; };
 		05027BA245E6C6A3547D1AFB /* MatrixMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMediaTests.swift; sourceTree = "<group>"; };
 		0A112720006071299AA14823 /* chat4000iphoneappstore.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = chat4000iphoneappstore.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0F3BA0A3039E544B648CB6C2 /* MacUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdater.swift; sourceTree = "<group>"; };
 		11EEBAD5675C62C828868186 /* MatrixTimelineMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTimelineMapperTests.swift; sourceTree = "<group>"; };
 		14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntercomMacSheet.swift; sourceTree = "<group>"; };
 		1574D1CDAB67C60CD828BBEE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -235,6 +248,7 @@
 		1C266381533F0F1DA7D96666 /* MatrixSDKCrypto */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MatrixSDKCrypto; path = Vendor/MatrixSDKCrypto; sourceTree = SOURCE_ROOT; };
 		1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryManager.swift; sourceTree = "<group>"; };
 		1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalConsent.swift; sourceTree = "<group>"; };
+		2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailablePopup.swift; sourceTree = "<group>"; };
 		261757F4308024D0CDBD8824 /* ErrorReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporter.swift; sourceTree = "<group>"; };
 		2669C135047550C97D672283 /* MatrixRoomSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixRoomSnapshot.swift; sourceTree = "<group>"; };
 		28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsSidebar.swift; sourceTree = "<group>"; };
@@ -279,10 +293,12 @@
 		BD5502614502BB36DCC28ED7 /* MatrixMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMedia.swift; sourceTree = "<group>"; };
 		BE09C299166305E96D81033B /* CryptoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoEngine.swift; sourceTree = "<group>"; };
 		BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat4000Shortcuts.swift; sourceTree = "<group>"; };
+		C2E49D540AAC0C6A411876E0 /* MacUpdateInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdateInstaller.swift; sourceTree = "<group>"; };
 		C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = chat4000Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CB8627734E252FE4E0D03E22 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		CFD3EEA77A3CD28EFBB6D86F /* TwoCursorSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoCursorSyncTests.swift; sourceTree = "<group>"; };
 		CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLCardSanitizer.swift; sourceTree = "<group>"; };
+		D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePill.swift; sourceTree = "<group>"; };
 		D577136CE593FD82EF78E86F /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessageViews.swift; sourceTree = "<group>"; };
 		DE9EA29D23E1AD0C71314E58 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -375,6 +391,8 @@
 				3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */,
 				57E905F943A4177A6D5D3B75 /* SetupView.swift */,
 				DE9EA29D23E1AD0C71314E58 /* Theme.swift */,
+				2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */,
+				D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */,
 				B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */,
 				A07F252E761A1639763D74AC /* Components */,
 			);
@@ -496,6 +514,8 @@
 				AC864A0C51C9B9647423BC9F /* IntercomService.swift */,
 				E9139BAA7941E71962E74A77 /* LaunchActionStore.swift */,
 				1FE4F43A306BD85AB6667B6B /* LegalConsent.swift */,
+				C2E49D540AAC0C6A411876E0 /* MacUpdateInstaller.swift */,
+				0F3BA0A3039E544B648CB6C2 /* MacUpdater.swift */,
 				ABF80C3D35458420BB02536E /* PushNotificationService.swift */,
 				1D21E82B5B5AD29B0C7C2A2A /* TelemetryManager.swift */,
 				8E4370FBD02C8CD9273AAC41 /* TelemetryPreferences.swift */,
@@ -842,6 +862,8 @@
 				D717C29B75D7CE6ABDBC042D /* IntercomService.swift in Sources */,
 				FE8E61893B9CEC1FCE1049BE /* LaunchActionStore.swift in Sources */,
 				6344C9D91CC944DD0E689465 /* LegalConsent.swift in Sources */,
+				29FFEB5F416A5D130A1666E7 /* MacUpdateInstaller.swift in Sources */,
+				2377189AB12748B428C15408 /* MacUpdater.swift in Sources */,
 				74FF4074442D490556957AAE /* MatrixCredentialStore.swift in Sources */,
 				054C58A6D63C373929305ED8 /* MatrixEnvironment.swift in Sources */,
 				2D5517FB5C5CD2DBDC828765 /* MatrixMedia.swift in Sources */,
@@ -866,6 +888,8 @@
 				B17C5F03F9550287E214BE74 /* TelemetryPreferences.swift in Sources */,
 				881EADD1FE460FF5CB568D96 /* Theme.swift in Sources */,
 				538D2E7BACB9AC0B3C7BF504 /* ToolCallBubble.swift in Sources */,
+				D6F119AE82A7DBCB02FB66F3 /* UpdateAvailablePopup.swift in Sources */,
+				66A24A23ED45F3110D1DA8CC /* UpdatePill.swift in Sources */,
 				D47B5B456C4F439AC588E559 /* UpgradeViews.swift in Sources */,
 				901B4441638C91545DFBF037 /* VersionPolicy.swift in Sources */,
 				C0A642664DD26D34F0EF7473 /* VoiceMessageViews.swift in Sources */,
@@ -905,6 +929,8 @@
 				86BFF22A041428209E6ED014 /* IntercomService.swift in Sources */,
 				CFB9A345D88CDCEA35C22EF2 /* LaunchActionStore.swift in Sources */,
 				7A1D32E7E45FA056F6F7A094 /* LegalConsent.swift in Sources */,
+				58D2DFB33C7028E3EF523631 /* MacUpdateInstaller.swift in Sources */,
+				00F6E42EEA31A71CBFAE7FEC /* MacUpdater.swift in Sources */,
 				64B7784CA3FFDA09C46E9385 /* MatrixCredentialStore.swift in Sources */,
 				0D4A36A4EFAB57F66E79AA38 /* MatrixEnvironment.swift in Sources */,
 				B7990F311B888D25FD53C977 /* MatrixMedia.swift in Sources */,
@@ -929,6 +955,8 @@
 				1E339EE4124888C06623B7EA /* TelemetryPreferences.swift in Sources */,
 				443327C01E32612D0585DD74 /* Theme.swift in Sources */,
 				04ACE7EEF960016B96ED61CE /* ToolCallBubble.swift in Sources */,
+				C928B5EC567E737F5E721C08 /* UpdateAvailablePopup.swift in Sources */,
+				84D80D2C7FF9EA552510AE0A /* UpdatePill.swift in Sources */,
 				52A20FC77D9E6078C219A730 /* UpgradeViews.swift in Sources */,
 				14FEC06F3A66903D6768BFA3 /* VersionPolicy.swift in Sources */,
 				9CBC2908C31E7A5261AC2C4A /* VoiceMessageViews.swift in Sources */,
@@ -968,6 +996,8 @@
 				40A99A5BCB7EC8B3307FC83F /* IntercomService.swift in Sources */,
 				3BCDAEE981D96DBAE6998A6A /* LaunchActionStore.swift in Sources */,
 				E914934D11E28D9A4A88EAD6 /* LegalConsent.swift in Sources */,
+				23372284AB530915F2B42731 /* MacUpdateInstaller.swift in Sources */,
+				679D25D65FB5532AAC7933E5 /* MacUpdater.swift in Sources */,
 				2AAD36F244CA62DD1A701188 /* MatrixCredentialStore.swift in Sources */,
 				A0B6CC2D7E1C240C87D6EF61 /* MatrixEnvironment.swift in Sources */,
 				75A06B6A6C891D12BD49669B /* MatrixMedia.swift in Sources */,
@@ -992,6 +1022,8 @@
 				8B1D8FECC36DB6B1378123F4 /* TelemetryPreferences.swift in Sources */,
 				5DF35CCD8A3B97CA3FA2B79E /* Theme.swift in Sources */,
 				88703D51566895689C88B250 /* ToolCallBubble.swift in Sources */,
+				639A545662DEF74FFF716B17 /* UpdateAvailablePopup.swift in Sources */,
+				D44D178D9C842FEF8066CFBF /* UpdatePill.swift in Sources */,
 				B28C845296443884C4AD197C /* UpgradeViews.swift in Sources */,
 				E13BDFFEFC536E4250AEC77F /* VersionPolicy.swift in Sources */,
 				F72AF596F956CC0A0E19CA16 /* VoiceMessageViews.swift in Sources */,

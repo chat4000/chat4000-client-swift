@@ -36,6 +36,9 @@ struct chat4000App: App {
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
     @State private var versionPolicy = VersionPolicyManager.shared
+    #if os(macOS)
+    @State private var macUpdater = MacUpdater.shared
+    #endif
     @State private var founderPromptRequest: FounderChatPromptRequest?
     @State private var shouldCelebrateFirstConnection = false
     #if os(iOS)
@@ -93,14 +96,48 @@ struct chat4000App: App {
         }
     }
 
+    #if os(macOS)
+    /// Drives the non-blocking "update ready" sheet. `get` defers to the
+    /// updater's `shouldShowPopup` (verified-ready upgrade, not yet shown, not
+    /// dismissed this session); dismissing the sheet records a session dismissal
+    /// so it doesn't immediately re-present.
+    private var macUpdatePopupBinding: Binding<Bool> {
+        Binding(
+            get: { macUpdater.shouldShowPopup },
+            set: { presenting in
+                if !presenting { macUpdater.dismissPopupForSession() }
+            }
+        )
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             Group {
+                #if os(macOS)
+                // macOS DMG self-update force (protocol C.5.3): the block screen
+                // with the in-app install controls (auto-download behind it,
+                // "Update Now" once verified). Takes precedence over the /version
+                // force gate since it can actually self-install.
+                if case .forced(let version, let msg) = macUpdater.state {
+                    UpgradeRequiredView(
+                        minVersion: nil,
+                        recommended: version,
+                        message: msg,
+                        showMacInstallAction: true
+                    )
+                } else if case .forceUpgrade(let minV, let rec, let msg) = versionPolicy.action {
+                    UpgradeRequiredView(minVersion: minV, recommended: rec, message: msg)
+                } else {
+                    primaryContent
+                }
+                #else
                 if case .forceUpgrade(let minV, let rec, let msg) = versionPolicy.action {
                     UpgradeRequiredView(minVersion: minV, recommended: rec, message: msg)
                 } else {
                     primaryContent
                 }
+                #endif
             }
             .background(ModelContextBinder(viewModel: chatViewModel))
             #if os(macOS)
@@ -116,7 +153,23 @@ struct chat4000App: App {
             .onAppear {
                 presentPendingFounderPromptIfPossible()
             }
-            .task { await runVersionCheck() }
+            .task {
+                await runVersionCheck()
+                #if os(macOS)
+                // Cold launch: kick off the DMG self-update check + hourly loop
+                // (protocol C.5.3). Async / non-blocking.
+                macUpdater.startScheduling()
+                #endif
+            }
+            #if os(macOS)
+            // Non-blocking "update ready" popup for a background-verified upgrade
+            // (shown once per new version; the sidebar pill persists).
+            .sheet(isPresented: macUpdatePopupBinding) {
+                if let version = macUpdater.offeredVersion {
+                    UpdateAvailablePopup(version: version, message: nil)
+                }
+            }
+            #endif
             .preferredColorScheme(.dark)
             #if os(macOS)
             .animation(.easeInOut(duration: 0.3), value: currentScreen)
@@ -192,6 +245,10 @@ struct chat4000App: App {
                         Task { await chatViewModel.matrixSession.connect() }
                     }
                     Task { await runVersionCheck() }
+                    #if os(macOS)
+                    // Foreground-resume DMG self-update check (debounced).
+                    macUpdater.checkOnForeground()
+                    #endif
                     PushNotificationManager.shared.clearBadge()
                     // CL24 app_opened (CHANGED): push attribution + session count.
                     let opened = PushNotificationManager.consumeOpenSource()

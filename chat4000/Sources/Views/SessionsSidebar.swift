@@ -408,6 +408,11 @@ struct SessionsSidebar: View {
             Spacer(minLength: 0)
 
             #if os(macOS)
+            // macOS self-update: "Relaunch to update vX" pill, shown only when a
+            // verified build is staged (protocol C.5.3). Sits just above the
+            // Settings row; persists until the user relaunches.
+            UpdatePill()
+
             // macOS: Settings pinned at the sidebar's bottom-left (like the Claude
             // desktop account row). Height matches the chat input bar exactly so
             // this divider lines up with the composer's divider: composer height
