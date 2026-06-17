@@ -6,6 +6,8 @@ import SwiftData
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 enum AppScreen {
@@ -101,6 +103,16 @@ struct chat4000App: App {
                 }
             }
             .background(ModelContextBinder(viewModel: chatViewModel))
+            #if os(macOS)
+            // Ctrl+Tab / Ctrl+Shift+Tab session cycling. A menu key-equivalent
+            // can't claim Tab (macOS reserves it for focus traversal), so a
+            // local NSEvent monitor intercepts it instead.
+            .background(MacSessionKeyShortcuts { forward in
+                guard currentScreen == .chat else { return false }
+                chatViewModel.cycleActiveRoom(forward: forward)
+                return true
+            })
+            #endif
             .onAppear {
                 presentPendingFounderPromptIfPossible()
             }
@@ -254,15 +266,19 @@ struct chat4000App: App {
         .defaultPosition(.center)
         .defaultSize(width: 950, height: 700)
         .commands {
-            // Cmd+T → new session (sits next to "New" in the File menu).
-            CommandGroup(after: .newItem) {
+            // REPLACE the WindowGroup's default "New Window" (Cmd+N) with
+            // "New Session" — Cmd+N must create a session, not a new window.
+            CommandGroup(replacing: .newItem) {
                 Button("New Session") {
                     guard currentScreen == .chat else { return }
                     chatViewModel.matrixSession.requestNewSession()
                 }
-                .keyboardShortcut("t", modifiers: .command)
+                .keyboardShortcut("n", modifiers: .command)
             }
-            // Ctrl+Tab / Ctrl+Shift+Tab → cycle through sessions, like browser tabs.
+            // Ctrl+Tab / Ctrl+Shift+Tab → cycle through sessions, like browser
+            // tabs. These also have a real key monitor (MacSessionKeyShortcuts)
+            // because macOS reserves Tab for focus traversal and won't deliver
+            // it to a menu key-equivalent; the menu items exist for discovery.
             CommandMenu("Sessions") {
                 Button("Next Session") {
                     guard currentScreen == .chat else { return }
@@ -501,6 +517,58 @@ struct chat4000App: App {
     }
 
 }
+
+#if os(macOS)
+/// Installs a process-local key monitor for Ctrl+Tab (next) and Ctrl+Shift+Tab
+/// (previous) session cycling. macOS reserves Tab for keyboard focus traversal
+/// and never routes it to a SwiftUI menu key-equivalent, so we intercept the raw
+/// key event. `onCycle(forward:)` returns true when it handled the key, in which
+/// case the event is consumed (returned nil) so focus traversal doesn't also run.
+private struct MacSessionKeyShortcuts: NSViewRepresentable {
+    /// forward == true for next session (no Shift), false for previous (Shift).
+    let onCycle: (_ forward: Bool) -> Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.onCycle = onCycle
+        context.coordinator.install()
+        return NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Keep the captured closure fresh so `currentScreen` is current.
+        context.coordinator.onCycle = onCycle
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator {
+        var onCycle: ((Bool) -> Bool)?
+        private var monitor: Any?
+        private static let tabKeyCode: UInt16 = 48
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      event.keyCode == Self.tabKeyCode,
+                      event.modifierFlags.contains(.control)
+                else { return event }
+                let forward = !event.modifierFlags.contains(.shift)
+                return (self.onCycle?(forward) == true) ? nil : event
+            }
+        }
+
+        func uninstall() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+    }
+}
+#endif
 
 private struct ModelContextBinder: View {
     @Environment(\.modelContext) private var modelContext
