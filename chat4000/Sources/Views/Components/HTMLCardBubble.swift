@@ -11,6 +11,19 @@
 import SwiftUI
 import WebKit
 
+#if os(macOS)
+/// macOS counterpart of iOS's `scrollView.isScrollEnabled = false`: a WKWebView
+/// swallows scroll-wheel events, so dragging over a card scrolled the card's HTML
+/// instead of the chat. Forward every scroll to the next responder (the enclosing
+/// chat scroll view) so the card never owns the gesture — the whole card scrolls
+/// with the page, matching iOS.
+private final class PassThroughScrollWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+#endif
+
 struct HTMLCardBubble: View {
     /// Hard cap so a malformed / full-page (`100vh`) card can never take infinite
     /// vertical space and black-out the chat; taller cards scroll inside this.
@@ -65,7 +78,11 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         ))
+        #if os(macOS)
+        let webView = PassThroughScrollWebView(frame: .zero, configuration: config)
+        #else
         let webView = WKWebView(frame: .zero, configuration: config)
+        #endif
         webView.navigationDelegate = coordinator
         #if os(iOS)
         // The card must NEVER own the scroll gesture: dragging over it should scroll
