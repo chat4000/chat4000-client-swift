@@ -41,7 +41,7 @@ final class MacUpdater {
         case downloading(version: String, fraction: Double)
         case verifying(version: String)
         case readyToInstall(version: String)
-        case forced(version: String, message: String?)
+        case forced(version: String)
         case failed(reason: String)
     }
 
@@ -60,7 +60,7 @@ final class MacUpdater {
     /// The version currently offered/ready, for UI labels.
     var offeredVersion: String? {
         switch state {
-        case .downloading(let v, _), .verifying(let v), .readyToInstall(let v), .forced(let v, _):
+        case .downloading(let v, _), .verifying(let v), .readyToInstall(let v), .forced(let v):
             return v
         default:
             return nil
@@ -98,14 +98,12 @@ final class MacUpdater {
         let version: String?
         let dmgURL: String?
         let sha256: String?
-        let message: String?
 
         enum CodingKeys: String, CodingKey {
             case action
             case version
             case dmgURL = "dmg_url"
             case sha256
-            case message
         }
     }
 
@@ -114,7 +112,6 @@ final class MacUpdater {
         let version: String
         let dmgURL: URL
         let sha256: String
-        let message: String?
         let action: WireAction
         let fromVersion: String
     }
@@ -192,13 +189,12 @@ final class MacUpdater {
                 version: version,
                 dmgURL: dmgURL,
                 sha256: sha,
-                message: response.message,
                 action: action,
                 fromVersion: currentVersion
             )
             trackOffered(target)
             if action == .forceUpgrade {
-                state = .forced(version: version, message: response.message)
+                state = .forced(version: version)
                 track(.macosUpdateForceShown, ["to_version": version])
             } else {
                 popupVersion = version
@@ -310,7 +306,7 @@ final class MacUpdater {
             // For a forced upgrade, keep the block screen (with Retry); otherwise
             // surface failed and let a later check retry.
             if target.action == .forceUpgrade {
-                state = .forced(version: target.version, message: target.message)
+                state = .forced(version: target.version)
             } else {
                 state = .failed(reason: "Update verification failed (\(stage.rawValue)).")
             }

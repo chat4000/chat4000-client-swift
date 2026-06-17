@@ -119,11 +119,11 @@ struct chat4000App: App {
                 // with the in-app install controls (auto-download behind it,
                 // "Update Now" once verified). Takes precedence over the /version
                 // force gate since it can actually self-install.
-                if case .forced(let version, let msg) = macUpdater.state {
+                if case .forced(let version) = macUpdater.state {
                     UpgradeRequiredView(
                         minVersion: nil,
                         recommended: version,
-                        message: msg,
+                        message: nil,
                         showMacInstallAction: true
                     )
                 } else if case .forceUpgrade(let minV, let rec, let msg) = versionPolicy.action {
@@ -166,7 +166,7 @@ struct chat4000App: App {
             // (shown once per new version; the sidebar pill persists).
             .sheet(isPresented: macUpdatePopupBinding) {
                 if let version = macUpdater.offeredVersion {
-                    UpdateAvailablePopup(version: version, message: nil)
+                    UpdateAvailablePopup(version: version)
                 }
             }
             #endif

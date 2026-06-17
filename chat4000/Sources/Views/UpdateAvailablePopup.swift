@@ -12,7 +12,6 @@ import SwiftUI
 /// `relaunch_clicked` (surface=popup).
 struct UpdateAvailablePopup: View {
     let version: String
-    let message: String?
     @State private var updater = MacUpdater.shared
 
     var body: some View {
@@ -23,7 +22,7 @@ struct UpdateAvailablePopup: View {
             Text("Update ready")
                 .font(AppFonts.title)
                 .foregroundStyle(AppColors.textPrimary)
-            Text(message ?? "chat4000 \(version) has been downloaded and verified. Relaunch to update.")
+            Text("chat4000 \(version) has been downloaded and verified. Relaunch to update.")
                 .font(AppFonts.subtitle)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
