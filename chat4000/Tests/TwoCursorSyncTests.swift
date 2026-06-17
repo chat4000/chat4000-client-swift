@@ -177,6 +177,20 @@ struct TwoCursorSyncTests {
         #expect(frame["t"] as? String == "sync_start")
     }
 
+    // MARK: - SEND: `ui_state` foreground report (protocol D.1 / D.4)
+
+    @Test func uiStateFrameReportsForegroundTrue() {
+        let frame = GatewayClient.uiStateFrame(foreground: true)
+        #expect(frame["t"] as? String == "ui_state")
+        #expect(frame["foreground"] as? Bool == true)
+    }
+
+    @Test func uiStateFrameReportsForegroundFalse() {
+        let frame = GatewayClient.uiStateFrame(foreground: false)
+        #expect(frame["t"] as? String == "ui_state")
+        #expect(frame["foreground"] as? Bool == false)
+    }
+
     @Test func authErrorExtractsUnsupportedVersionWindow() throws {
         let frame: [String: Any] = [
             "t": "auth_error",

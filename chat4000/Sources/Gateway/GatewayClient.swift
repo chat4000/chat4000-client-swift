@@ -97,6 +97,13 @@ final class GatewayClient: GatewayRequesting {
     /// (`MatrixSession`) drives reconnect/backoff. Not fired on a clean
     /// `disconnect()`.
     var onClosed: (() -> Void)?
+    /// Current UI foreground state (protocol D.4): `true` iff the app is
+    /// frontmost AND the device unlocked. Supplied by the owner
+    /// (`MatrixSession`) so the gateway can answer each `ui_ping` (D.1) with the
+    /// live value without owning the platform signals. Defaults to `false`
+    /// (background) until wired — the safe direction (an extra wake, never a
+    /// missed one, D.4).
+    var foregroundStateProvider: (() -> Bool)?
 
     init(url: URL, accessToken: String, identity: Identity) {
         self.url = url
@@ -237,6 +244,25 @@ final class GatewayClient: GatewayRequesting {
 
     func stopSync() { send(["t": "sync_stop"]) }
 
+    // MARK: - UI foreground state (protocol D.1 / D.4)
+
+    /// Report this device's current UI state to the gateway (protocol D.1
+    /// `ui_state`). Sent as the reply to every `ui_ping` AND unsolicited the
+    /// instant the foreground/background state flips, so a foreground→background
+    /// change is observed without waiting for the next ping (D.4). `foreground`
+    /// is `true` only when the app is frontmost AND the device unlocked. Drives
+    /// the gateway's per-device push suppression (D.4); the client keeps its own
+    /// in-app self-suppression independently.
+    func sendUIState(foreground: Bool) {
+        send(Self.uiStateFrame(foreground: foreground))
+    }
+
+    /// Build the `ui_state` frame (protocol D.1). Pure + `nonisolated` so the
+    /// wire contract is unit-testable.
+    nonisolated static func uiStateFrame(foreground: Bool) -> [String: Any] {
+        ["t": "ui_state", "foreground": foreground]
+    }
+
     // MARK: - Matrix C-S over the socket
 
     /// Forward a Matrix C-S call as a `req` frame; resolves on the matching `resp`.
@@ -370,6 +396,14 @@ final class GatewayClient: GatewayRequesting {
             AppLog.debug("🛰️← sync pos=%@ to_device_pos=%@ rooms=%d", obj["pos"] as? String ?? "nil",
                          obj["to_device_pos"] as? String ?? "nil", rooms)
             onSync?(obj)
+        case "ui_ping":
+            // D.1: foreground-state probe. MUST reply with a `ui_state` frame
+            // carrying the live foreground value (D.4). No provider wired yet →
+            // report background (`false`), the safe default that errs toward an
+            // extra silent wake rather than a missed one.
+            let foreground = foregroundStateProvider?() ?? false
+            AppLog.debug("🛰️← ui_ping → ui_state foreground=%@", foreground ? "true" : "false")
+            sendUIState(foreground: foreground)
         default:
             AppLog.debug("🛰️← UNHANDLED frame t=%@", type)
         }

@@ -169,6 +169,12 @@ struct chat4000App: App {
                 routeAfterConnectionProgress()
             }
             .onChange(of: scenePhase) { _, newPhase in
+                // D.4: drive this device's foreground state from the scene phase.
+                // Only `.active` (app frontmost) counts as active; `.inactive`
+                // (incl. lock-while-frontmost, app switcher) and `.background`
+                // are not. Combined with the device lock state inside the session
+                // and reported to the gateway on every flip.
+                chatViewModel.matrixSession.setAppActive(newPhase == .active)
                 switch newPhase {
                 case .active:
                     // Log the running version on every foreground (not just cold

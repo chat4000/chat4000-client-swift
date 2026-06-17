@@ -232,6 +232,29 @@ final class MatrixSession {
     /// first to-device batch is durably persisted.
     @ObservationIgnored private var lastToDevicePos: String?
     @ObservationIgnored private var pushTokenObserver: NSObjectProtocol?
+
+    // MARK: - UI foreground state (protocol D.4)
+    //
+    // The single source of truth for THIS device's `foreground` value, reported
+    // to the gateway as `ui_state` (D.1) so it can suppress cross-device push
+    // duplicates (D.4). `foreground == true` ONLY when the app is frontmost AND
+    // (on iOS) the device is unlocked — a human can presently see the screen.
+    // Backgrounded, inactive, not-frontmost, or locked → `false`.
+    //
+    // `appActive` is driven from the SwiftUI scene phase (active vs. not) on both
+    // platforms. On iOS `deviceUnlocked` is tracked via the protected-data
+    // notifications (the standard "device locked" proxy — file protection becomes
+    // unavailable on lock); on macOS there is no lock dimension, so it is always
+    // true. `currentForeground` is their conjunction. Both default to background
+    // until the scene phase first reports active — the safe direction (D.4: an
+    // extra silent wake, never a missed one).
+    @ObservationIgnored private var appActive = false
+    @ObservationIgnored private var deviceUnlocked = true
+    /// The last `foreground` value reported to the gateway, so we send an
+    /// unsolicited `ui_state` ONLY on an actual flip (D.4), not on every nudge.
+    @ObservationIgnored private var lastReportedForeground: Bool?
+    @ObservationIgnored private var protectedDataUnavailableObserver: NSObjectProtocol?
+    @ObservationIgnored private var protectedDataAvailableObserver: NSObjectProtocol?
     /// Continuations awaiting the next processed sync (background-wake drain).
     @ObservationIgnored private var syncWaiters: [CheckedContinuation<Void, Never>] = []
     /// Local notifications posted in the current sync batch (flood guard).
@@ -247,6 +270,38 @@ final class MatrixSession {
                 await self.registerPushToken(token)
             }
         }
+        observeDeviceLockState()
+    }
+
+    /// Track the iOS lock state (protocol D.4: `foreground` requires the device
+    /// unlocked). `UIApplication.isProtectedDataAvailable` is the standard "device
+    /// unlocked" proxy — complete-protection files are inaccessible while locked
+    /// and become accessible on unlock — and the matching notifications fire on
+    /// every lock/unlock. macOS has no lock dimension here, so `deviceUnlocked`
+    /// stays `true`. Notifications are posted on the main queue; the closures hop
+    /// to the `@MainActor` to mutate state and re-report.
+    private func observeDeviceLockState() {
+        #if canImport(UIKit)
+        deviceUnlocked = UIApplication.shared.isProtectedDataAvailable
+        protectedDataUnavailableObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataWillBecomeUnavailableNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateDeviceUnlocked(false) }
+        }
+        protectedDataAvailableObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateDeviceUnlocked(true) }
+        }
+        #endif
+    }
+
+    private func updateDeviceUnlocked(_ unlocked: Bool) {
+        guard deviceUnlocked != unlocked else { return }
+        deviceUnlocked = unlocked
+        reportForegroundStateIfChanged()
     }
 
     func attach(modelContext: ModelContext) {
@@ -418,6 +473,15 @@ final class MatrixSession {
         gateway.onClosed = { [weak self] in
             Task { @MainActor in await self?.handleSocketClosed() }
         }
+        // D.1/D.4: answer every `ui_ping` with the live foreground value. Both
+        // this session and the gateway are `@MainActor`, so the read is safe and
+        // synchronous. `false` when unwired is the safe default (extra wake, not a
+        // missed one).
+        gateway.foregroundStateProvider = { [weak self] in self?.currentForeground ?? false }
+        // A fresh socket starts with no reported state — re-arm the on-change
+        // detector so the first scene-phase/lock flip after (re)connect is sent
+        // unsolicited rather than suppressed as "unchanged".
+        lastReportedForeground = nil
         return gateway
     }
 
@@ -532,6 +596,12 @@ final class MatrixSession {
         self.connectionState = .connected
         if setupPhase.rawValue < SetupPhase.syncing.rawValue { setupPhase = .syncing }
         AppLog.log("✅ Matrix gateway connected as \(auth.userId) device \(auth.deviceId)")
+        // D.4: the gateway seeds this device's foreground entry to `false` on
+        // auth; report our true current state right away so suppression is
+        // accurate without waiting for the first `ui_ping` (the on-change detector
+        // was re-armed in `makeGateway`). Subsequent flips report unsolicited;
+        // steady state is covered by the ping reply.
+        reportForegroundStateIfChanged()
 
         let restoredRoomSnapshot = restoreRoomSnapshotIfNeeded(userId: auth.userId)
         restoreCryptoStateForRoomSnapshot()
@@ -1633,6 +1703,39 @@ final class MatrixSession {
         let waiters = syncWaiters
         syncWaiters = []
         for waiter in waiters { waiter.resume() }
+    }
+
+    // MARK: - UI foreground state reporting (protocol D.1 / D.4)
+
+    /// This device's current `foreground` value (protocol D.4): the app is
+    /// frontmost/active AND (on iOS) the device is unlocked. macOS has no lock
+    /// dimension, so it reduces to "app active".
+    private var currentForeground: Bool { appActive && deviceUnlocked }
+
+    /// Drive the app-active dimension from the SwiftUI scene phase (the app calls
+    /// this from its `onChange(of: scenePhase)`): `.active` → `true`; `.inactive`
+    /// / `.background` (and macOS resign-active) → `false`. Combined with the lock
+    /// state to compute `foreground`, then reported to the gateway on any flip.
+    func setAppActive(_ active: Bool) {
+        guard appActive != active else { return }
+        appActive = active
+        reportForegroundStateIfChanged()
+    }
+
+    /// Send an unsolicited `ui_state` to the gateway IFF the computed foreground
+    /// value actually flipped since the last report (protocol D.4: report the
+    /// change immediately, without waiting for the next `ui_ping`). A no-op when
+    /// the value is unchanged or no socket exists; the `ui_ping` reply path
+    /// (GatewayClient) covers the steady-state polling.
+    private func reportForegroundStateIfChanged() {
+        let foreground = currentForeground
+        guard lastReportedForeground != foreground else { return }
+        lastReportedForeground = foreground
+        AppLog.debug("📲 ui_state change → foreground=%@ (appActive=%@ unlocked=%@)",
+                     foreground ? "true" : "false",
+                     appActive ? "true" : "false",
+                     deviceUnlocked ? "true" : "false")
+        gateway?.sendUIState(foreground: foreground)
     }
 
     /// True when the app is not foregrounded (iOS). Always false on macOS, which
