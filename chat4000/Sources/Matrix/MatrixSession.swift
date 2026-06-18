@@ -243,8 +243,14 @@ final class MatrixSession {
     // (on iOS) the device is unlocked — a human can presently see the screen.
     // Backgrounded, inactive, not-frontmost, or locked → `false`.
     //
-    // `appActive` is driven from the SwiftUI scene phase (active vs. not) on both
-    // platforms. `deviceUnlocked` tracks the per-platform screen-lock signal
+    // `appActive` is driven by the per-platform "app is frontmost" signal: on iOS
+    // the SwiftUI scene phase (active vs. not); on macOS the AppKit application
+    // active state (`NSApplication.didBecomeActive`/`didResignActive`), because
+    // SwiftUI's `scenePhase` does NOT reliably leave `.active` on app-switch for
+    // an AppKit-backed Mac app — Cmd-Tab / minimize / losing key would otherwise
+    // leave `appActive == true` and a backgrounded Mac would still report itself
+    // foreground, suppressing the cross-device push (the bug this fixes).
+    // `deviceUnlocked` tracks the per-platform screen-lock signal
     // (D.4): on iOS via the protected-data notifications (the standard "device
     // locked" proxy — file protection becomes unavailable on lock); on macOS via
     // the `com.apple.screenIsLocked` / `com.apple.screenIsUnlocked` distributed
@@ -262,6 +268,8 @@ final class MatrixSession {
     @ObservationIgnored private var protectedDataAvailableObserver: NSObjectProtocol?
     @ObservationIgnored private var screenLockedObserver: NSObjectProtocol?
     @ObservationIgnored private var screenUnlockedObserver: NSObjectProtocol?
+    @ObservationIgnored private var appDidBecomeActiveObserver: NSObjectProtocol?
+    @ObservationIgnored private var appDidResignActiveObserver: NSObjectProtocol?
     /// Continuations awaiting the next processed sync (background-wake drain).
     @ObservationIgnored private var syncWaiters: [CheckedContinuation<Void, Never>] = []
     /// Local notifications posted in the current sync batch (flood guard).
@@ -325,6 +333,27 @@ final class MatrixSession {
             object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.updateDeviceUnlocked(true) }
+        }
+        // App-active dimension on macOS. SwiftUI's `scenePhase` is unreliable on
+        // app-switch for an AppKit-backed app (it stays `.active` when the app is
+        // Cmd-Tabbed away / minimized / loses key), so the scene-phase path in
+        // chat4000App can never flip `appActive` to false on deactivation. Drive
+        // it from AppKit's own application-active notifications instead, and seed
+        // the current value from `NSApplication.shared.isActive` at startup so a
+        // session created while already-backgrounded starts non-foreground. Both
+        // route through `setAppActive`, which reports the flip to the gateway.
+        appActive = NSApplication.shared.isActive
+        appDidBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.setAppActive(true) }
+        }
+        appDidResignActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.setAppActive(false) }
         }
         #endif
     }

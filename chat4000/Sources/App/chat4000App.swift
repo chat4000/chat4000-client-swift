@@ -227,7 +227,18 @@ struct chat4000App: App {
                 // (incl. lock-while-frontmost, app switcher) and `.background`
                 // are not. Combined with the device lock state inside the session
                 // and reported to the gateway on every flip.
+                //
+                // iOS ONLY drives `appActive` from `scenePhase` here. On macOS the
+                // scene phase does NOT reliably leave `.active` on app-switch for an
+                // AppKit-backed app, so `appActive` is driven by AppKit's
+                // application-active notifications inside MatrixSession instead;
+                // calling `setAppActive` from here on macOS would fight that
+                // authoritative source (a stale `.active` would re-mark a
+                // deactivated app foreground). The rest of this handler (logging,
+                // refresh, telemetry) still runs on both platforms.
+                #if os(iOS)
                 chatViewModel.matrixSession.setAppActive(newPhase == .active)
+                #endif
                 switch newPhase {
                 case .active:
                     // Log the running version on every foreground (not just cold
