@@ -1746,9 +1746,18 @@ final class MatrixSession {
     /// second crypto store is opened. Notifications for new push-eligible plugin
     /// messages are posted from `processRoom` while backgrounded.
     func backgroundWake() async -> Bool {
+        let before = backgroundNotifyCount
+        AppLog.log("🔔 [push] backgroundWake ENTER appState=%@ backgrounded=%@ conn=%@",
+                   appStateString, isBackgrounded ? "true" : "false", "\(connectionState)")
         if connectionState != .connected { await connect() }
-        guard connectionState == .connected else { return false }
+        guard connectionState == .connected else {
+            AppLog.log("🔔 [push] backgroundWake ABORT reason=not_connected conn=%@", "\(connectionState)")
+            return false
+        }
         await waitForSync(timeout: .seconds(25))
+        let posted = backgroundNotifyCount - before
+        AppLog.log("🔔 [push] backgroundWake EXIT appState=%@ backgrounded=%@ posted=%ld",
+                   appStateString, isBackgrounded ? "true" : "false", posted)
         return true
     }
 
@@ -1810,29 +1819,70 @@ final class MatrixSession {
         #endif
     }
 
+    /// Human-readable iOS application state, for silent-push diagnostics. Same
+    /// isolation/access pattern as `isBackgrounded`.
+    private var appStateString: String {
+        #if canImport(UIKit)
+        switch UIApplication.shared.applicationState {
+        case .active: return "active"
+        case .inactive: return "inactive"
+        case .background: return "background"
+        @unknown default: return "unknown"
+        }
+        #else
+        return "macos"
+        #endif
+    }
+
     /// Post a local notification for a newly-decrypted, push-eligible plugin
     /// message (mirrors the `chat4000.push` flag, protocol E), deduped by event
     /// id and capped per sync batch. Streaming partials (`chat4000.push: false`)
     /// and tool/status events never notify.
     private func maybePostBackgroundNotification(roomId: String, outer: SyncEvent, clear: String?) {
-        guard backgroundNotifyCount < 3, let eid = outer.eventId, !Self.wasNotified(eid) else { return }
+        // Every early return is logged with its reason: when no banner appears,
+        // the device log tells us exactly which gate dropped it (silent-push
+        // diagnostics).
+        guard backgroundNotifyCount < 3 else {
+            AppLog.log("🔔 [push] bg-notify SKIP eid=%@ reason=cap count=%ld",
+                       outer.eventId ?? "(nil)", backgroundNotifyCount)
+            return
+        }
+        guard let eid = outer.eventId else {
+            AppLog.log("🔔 [push] bg-notify SKIP reason=no_event_id room=%@", roomId)
+            return
+        }
+        guard !Self.wasNotified(eid) else {
+            AppLog.log("🔔 [push] bg-notify SKIP eid=%@ reason=already_notified", eid)
+            return
+        }
         // Push eligibility: explicit `chat4000.push: false` on the cleartext
         // envelope → not the final answer → skip.
         if let envelope = parseJSON(outer.rawJSON)?["content"] as? [String: Any],
-           (envelope["chat4000.push"] as? Bool) == false { return }
+           (envelope["chat4000.push"] as? Bool) == false {
+            AppLog.log("🔔 [push] bg-notify SKIP eid=%@ reason=push_flag_false", eid)
+            return
+        }
         guard let clear, let obj = parseJSON(clear),
-              let content = obj["content"] as? [String: Any] else { return }
+              let content = obj["content"] as? [String: Any] else {
+            AppLog.log("🔔 [push] bg-notify SKIP eid=%@ reason=no_cleartext_content", eid)
+            return
+        }
 
+        let msgtype = content["msgtype"] as? String
         let body: String
-        switch content["msgtype"] as? String {
+        switch msgtype {
         case "m.text", "m.notice", "m.emote":
             let newContent = content["m.new_content"] as? [String: Any]
             body = (newContent?["body"] as? String) ?? (content["body"] as? String) ?? "New message"
         case "m.image": body = "📷 Photo"
         case "m.audio": body = "🎤 Voice message"
-        default: return // tool / status / other → no notification
+        default:
+            AppLog.log("🔔 [push] bg-notify SKIP eid=%@ reason=msgtype=%@", eid, msgtype ?? "(nil)")
+            return // tool / status / other → no notification
         }
 
+        AppLog.log("🔔 [push] bg-notify POST eid=%@ room=%@ msgtype=%@ newCount=%ld",
+                   eid, roomId, msgtype ?? "(nil)", backgroundNotifyCount + 1)
         Self.markNotified(eid)
         backgroundNotifyCount += 1
         Task {
