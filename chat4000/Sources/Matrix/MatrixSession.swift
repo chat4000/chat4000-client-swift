@@ -1881,6 +1881,17 @@ final class MatrixSession {
             return // tool / status / other → no notification
         }
 
+        // Defense-in-depth (Bug 2): tool-activity narration ("📚 skill_view: …",
+        // "💻 terminal: …") sometimes leaks from the plugin as push-eligible
+        // m.text. The timeline already hides it via this same predicate; gate the
+        // notification on it too so a plugin slip can't wake the user. The real
+        // fix is plugin-side (these must never be push-eligible) — this is only a
+        // client backstop.
+        if RoomViewModel.isPureToolTranscript(body) {
+            AppLog.log("🔔 [push] bg-notify SKIP eid=%@ reason=tool_transcript", eid)
+            return
+        }
+
         AppLog.log("🔔 [push] bg-notify POST eid=%@ room=%@ msgtype=%@ newCount=%ld",
                    eid, roomId, msgtype ?? "(nil)", backgroundNotifyCount + 1)
         Self.markNotified(eid)
