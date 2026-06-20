@@ -117,6 +117,7 @@
 		761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		7691307F059E1D2A7C61E178 /* Pulsar in Frameworks */ = {isa = PBXBuildFile; productRef = 73B03FFF4363C57CE04C2CCF /* Pulsar */; };
 		7778A07554E94D197647FC00 /* ConfettiSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 436B4B23585838048168A1FB /* ConfettiSwiftUI */; };
+		78748C3FB337959A64BE794E /* AppGroupCredentialsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E735E32F3D4559B5D2532A7 /* AppGroupCredentialsTests.swift */; };
 		7889D707ED46A824C306AD42 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		79B0E340CE62CFD00697BD26 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
 		7B67F54294D78C6BE7A65D25 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5D77671C59217A6004BCB4 /* NotificationService.swift */; };
@@ -326,6 +327,7 @@
 		05027BA245E6C6A3547D1AFB /* MatrixMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMediaTests.swift; sourceTree = "<group>"; };
 		0A112720006071299AA14823 /* chat4000iphoneappstore.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = chat4000iphoneappstore.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D5AC52C4AD26F008EF36616 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
+		0E735E32F3D4559B5D2532A7 /* AppGroupCredentialsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupCredentialsTests.swift; sourceTree = "<group>"; };
 		0F1F0DA670EEFD16A0CE81F4 /* DiagnosticReportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportService.swift; sourceTree = "<group>"; };
 		11EEBAD5675C62C828868186 /* MatrixTimelineMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTimelineMapperTests.swift; sourceTree = "<group>"; };
 		1210B8CE0CC1FAAC69FA2434 /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
@@ -677,6 +679,7 @@
 		EC0F7BC08D3CACB0FF9992D4 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				0E735E32F3D4559B5D2532A7 /* AppGroupCredentialsTests.swift */,
 				EDCE40544DE6B79EB1ED760B /* ChatViewModelRoomScopingTests.swift */,
 				CFA431F0443236533C509FA6 /* CryptoStoreLockTests.swift */,
 				74805CCF8BC6DBBDD7FC666E /* MatrixCredentialStoreTests.swift */,
@@ -1315,6 +1318,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				78748C3FB337959A64BE794E /* AppGroupCredentialsTests.swift in Sources */,
 				DB7C6CCE509495B05D647B7E /* ChatViewModelRoomScopingTests.swift in Sources */,
 				74C1D7B879AB7622AF2DC966 /* CryptoStoreLockTests.swift in Sources */,
 				254205589902EB00DB9B618A /* MatrixCredentialStoreTests.swift in Sources */,
