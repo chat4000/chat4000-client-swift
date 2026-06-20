@@ -25,8 +25,13 @@ protocol GatewayRequesting: AnyObject {
 
 @MainActor
 final class CryptoEngine {
-    private let machine: OlmMachine
+    private var machine: OlmMachine
     private let gateway: GatewayRequesting
+
+    // Retained so `reload()` can re-open the SAME store via the SAME constructor.
+    private let userId: String
+    private let deviceId: String
+    private let storePath: String
 
     /// v1-equivalent posture: decrypt regardless of device trust. Hardening to
     /// cross-signing-required is a later step (we auto-enable cross-signing on
@@ -65,6 +70,39 @@ final class CryptoEngine {
             throw AppError.unexpected(error)
         }
         self.gateway = gateway
+        self.userId = userId
+        self.deviceId = deviceId
+        self.storePath = storePath
+    }
+
+    // MARK: - Reload-on-dirty primitive
+
+    /// Drop and recreate the underlying `OlmMachine`, re-opening the SAME store at
+    /// the SAME path via the SAME constructor used in `init`. This is the
+    /// "reload on dirty" primitive for the multi-process (NSE) world: when the
+    /// `CryptoStoreLock` generation advances, ANOTHER process wrote our store out
+    /// from under us, so our in-memory `OlmMachine` holds stale Olm/Megolm session
+    /// state. Reloading rebuilds it from the freshly-written store on disk.
+    ///
+    /// IMPORTANT — caller responsibilities (NOT enforced here; wired in a LATER
+    /// phase, intentionally NOT called from anywhere yet):
+    ///   • Call this only while NO other store write is in flight — i.e. the
+    ///     reload itself should be sequenced through `CryptoStoreLock.withLock`
+    ///     against the same store, never concurrent with a writer.
+    ///   • `OlmMachine` opening the same store path from two live instances in one
+    ///     process is exactly what we avoid: the old machine is replaced
+    ///     synchronously here (single statement on the main actor), so there is no
+    ///     window with two machines on the same store within this process.
+    func reload() throws(AppError) {
+        do {
+            self.machine = try OlmMachine(userId: userId, deviceId: deviceId, path: storePath, passphrase: nil)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "CryptoEngine.reload.OlmMachine")
+            throw AppError.unexpected(error)
+        }
+        AppLog.debug("🔐 CryptoEngine.reload re-opened store")
     }
 
     // MARK: - Sync intake
