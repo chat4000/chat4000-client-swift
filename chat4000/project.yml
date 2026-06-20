@@ -114,6 +114,55 @@ targetTemplates:
         script: |
           "$SRCROOT/scripts/upload-dsym-to-sentry.sh"
 
+  # F2 (protocol F.2): the iOS Notification Service Extension. It decrypts a
+  # pushed event on-device and rewrites the banner (decrypt-only). One target per
+  # app flavor (App Store / dev) because each needs its OWN bundle id and its own
+  # per-flavor App Group (F.2.4) — an extension embedded in two apps can't carry
+  # two identities. Both flavors compile the SAME source set: the two NSE files
+  # plus exactly the shared files the NSE needs (CryptoEngine, CryptoStoreLock,
+  # NotificationContentBuilder, MatrixEnvironment, SharedCredentials/AppGroup
+  # creds resolver, SyncModel/ProtocolModels event-JSON helpers, AppLog/AppError/
+  # ErrorReporter/AppEnvironment) and their crypto package.
+  nseExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NSE
+      # Shared files the NSE needs (and their transitive deps). Listed explicitly
+      # so the NSE pulls in NOTHING from the app's view/SwiftData layer.
+      - path: Sources/Shared/CryptoStoreLock.swift
+      - path: Sources/Shared/NotificationContentBuilder.swift
+      - path: Sources/Shared/AppGroup.swift
+      - path: Sources/Shared/SharedCredentials.swift
+      - path: Sources/Matrix/CryptoEngine.swift
+      - path: Sources/Matrix/MatrixEnvironment.swift
+      - path: Sources/Models/AppError.swift
+      - path: Sources/Services/AppLog.swift
+      - path: Sources/Services/ErrorReporter.swift
+      - path: Sources/Services/AppEnvironment.swift
+      - path: Sources/Gateway/ProtocolModels.swift
+      - path: Sources/Gateway/SyncModel.swift
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info-NSE.plist
+        PRODUCT_MODULE_NAME: chat4000NSE
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_ENTITLEMENTS: Resources/chat4000NSE.entitlements
+        # Extensions can't host an app-attest env or APNs env; only the App Group +
+        # keychain group matter (set per concrete target via APP_GROUP_ID).
+    dependencies:
+      - package: MatrixSDKCrypto
+      - package: Sentry
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
+
 targets:
   chat4000iphoneappstore:
     templates: [iOSApp]
@@ -121,6 +170,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
         APP_DISPLAY_NAME: chat4000
+        # F2 (protocol F.2.4): per-flavor App Group. The App Store flavor's base
+        # bundle id → its own group; the NSE strips its `.nse` suffix to join the
+        # SAME group (see Sources/Shared/AppGroup.swift).
+        APP_GROUP_ID: group.com.neonnode.chat94app
       configs:
         Debug:
           APP_DISTRIBUTION_CHANNEL: dev
@@ -130,6 +183,10 @@ targets:
           APP_DISTRIBUTION_CHANNEL: appstore
           APP_APNS_ENV: production
           APP_APPATTEST_ENV: production
+    # F2: embed the App Store flavor's NSE so it ships inside the app bundle.
+    dependencies:
+      - target: chat4000NSEAppStore
+        embed: true
     scheme:
       gatherCoverageData: false
   chat4000iphonedev:
@@ -141,6 +198,13 @@ targets:
         APP_DISTRIBUTION_CHANNEL: dev
         APP_APNS_ENV: development
         APP_APPATTEST_ENV: development
+        # F2 (protocol F.2.4): the dev flavor's SEPARATE App Group, so a dev build
+        # and a shipped build never share one crypto store.
+        APP_GROUP_ID: group.com.neonnode.chat94app.dev
+    # F2: embed the dev flavor's NSE.
+    dependencies:
+      - target: chat4000NSEDev
+        embed: true
     scheme:
       # Wire the unit-test bundle into the dev scheme so local verification does
       # not build or host against the App Store app target.
@@ -189,6 +253,22 @@ targets:
           else
             echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
           fi
+
+  # F2: the App Store flavor's NSE. Bundle `…chat94app.nse`, base App Group.
+  chat4000NSEAppStore:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app
+
+  # F2: the dev flavor's NSE. Bundle `…chat94app.dev.nse`, dev App Group.
+  chat4000NSEDev:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app.dev
 
   chat4000Tests:
     type: bundle.unit-test

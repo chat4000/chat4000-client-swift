@@ -43,6 +43,21 @@ enum MatrixCredentialStore {
             throw AppError.storage("matrix credentials write: \(error.localizedDescription)")
         }
         AppLog.log("💾 Matrix credentials saved for \(stored.userId)")
+        // F2 (protocol F.2.1 / F.2.3): mirror to the SHARED keychain so the NSE
+        // process can read the access token + gateway URL + store path to fetch
+        // and decrypt a pushed event. Keyed by `account_id` (= the pusher's
+        // `data.account_id`). The file above stays the app's own source of truth;
+        // this is the cross-process copy. A keychain miss is logged, not fatal —
+        // the app still works; only the NSE would fall back to the generic banner.
+        let accountId = SharedCredentials.accountId(userId: stored.userId, deviceId: stored.deviceId)
+        let record = SharedCredentials.Record(
+            accessToken: stored.accessToken,
+            userId: stored.userId,
+            deviceId: stored.deviceId,
+            gatewayURL: stored.gatewayURL,
+            cryptoStorePath: MatrixEnvironment.current.cryptoStorePath
+        )
+        SharedCredentials.save(record, accountId: accountId)
     }
 
     static func load() -> Stored? {
@@ -52,6 +67,9 @@ enum MatrixCredentialStore {
 
     static func delete() {
         try? FileManager.default.removeItem(at: fileURL)
+        // F2: clear the shared-keychain mirror too so a signed-out device's NSE
+        // can't fetch with a dead token.
+        SharedCredentials.deleteAll()
         AppLog.log("💾 Matrix credentials deleted")
     }
 }

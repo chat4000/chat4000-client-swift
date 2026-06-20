@@ -31,7 +31,7 @@ import Foundation
 enum NotificationContentBuilder {
     /// The banner pieces. `threadId` groups related banners in Notification Center
     /// (UNNotificationContent.threadIdentifier); nil means "ungrouped".
-    struct Content: Equatable {
+    struct Content: Equatable, Sendable {
         let title: String
         let body: String
         let threadId: String?

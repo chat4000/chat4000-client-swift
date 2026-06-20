@@ -195,6 +195,23 @@ final class MatrixSession {
     @ObservationIgnored private var gateway: GatewayClient?
     @ObservationIgnored private var crypto: CryptoEngine?
     @ObservationIgnored private var creds: MatrixCredentialStore.Stored?
+    /// F2 (protocol F.2.3): the cross-process crypto-store lock, wired to the
+    /// App-Group sidecar lockfile + generation file. nil when there is no App
+    /// Group (no NSE world) — `CryptoEngine` then runs store calls directly, the
+    /// pre-F2 single-process behavior. Built once and reused across reconnects so
+    /// every `CryptoEngine` for this session shares the same lock instance.
+    @ObservationIgnored private lazy var storeLock: CryptoStoreLock? = Self.makeStoreLock()
+
+    /// Build the App-Group-backed `CryptoStoreLock`, or nil if the App Group is
+    /// unavailable (entitlement missing → single-process fallback, no NSE).
+    private static func makeStoreLock() -> CryptoStoreLock? {
+        let namespace = AppEnvironment.current.storageNamespace
+        guard let lockfileURL = AppGroup.lockfileURL(namespace: namespace),
+              let generationURL = AppGroup.generationURL(namespace: namespace) else {
+            return nil
+        }
+        return CryptoStoreLock(lockfileURL: lockfileURL, generationURL: generationURL)
+    }
     /// HTTP base for authenticated media (protocol D.3), derived from the
     /// gateway URL on connect.
     @ObservationIgnored private var mediaBaseURL: String?
@@ -489,7 +506,8 @@ final class MatrixSession {
                 userId: stored.userId,
                 deviceId: stored.deviceId,
                 storePath: MatrixEnvironment.current.cryptoStorePath,
-                gateway: gateway
+                gateway: gateway,
+                storeLock: storeLock
             )
         } catch {
             // Crypto store unopenable offline — fall back to the online path, which
@@ -646,7 +664,8 @@ final class MatrixSession {
                 userId: auth.userId,
                 deviceId: auth.deviceId,
                 storePath: MatrixEnvironment.current.cryptoStorePath,
-                gateway: gateway
+                gateway: gateway,
+                storeLock: storeLock
             )
         }
 
@@ -1632,6 +1651,16 @@ final class MatrixSession {
     /// gateway overwrites `data.url` and injects `data.user_id`.
     func registerPushToken(_ token: String) async {
         let appId = Bundle.main.bundleIdentifier ?? "com.neonnode.chat94app"
+        // F2 (protocol F): carry `account_id` on the pusher `data` so the wake
+        // names which account on this device the NSE should fetch+decrypt for.
+        // (One device = one account, so this is the single stored account.)
+        var data: [String: Any] = [
+            "url": MatrixEnvironment.current.notificationPushURL,
+            "format": "event_id_only"
+        ]
+        if let creds {
+            data["account_id"] = SharedCredentials.accountId(userId: creds.userId, deviceId: creds.deviceId)
+        }
         let body: [String: Any] = [
             "pushkey": token,
             "kind": "http",
@@ -1639,10 +1668,7 @@ final class MatrixSession {
             "app_display_name": "chat4000",
             "device_display_name": Self.deviceDisplayName,
             "lang": "en",
-            "data": [
-                "url": MatrixEnvironment.current.notificationPushURL,
-                "format": "event_id_only"
-            ]
+            "data": data
         ]
         do {
             _ = try await gateway?.request(method: "POST", path: "/_matrix/client/v3/pushers/set", body: body)
@@ -1892,17 +1918,19 @@ final class MatrixSession {
             return
         }
 
-        AppLog.log("🔔 [push] bg-notify POST eid=%@ room=%@ msgtype=%@ newCount=%ld",
-                   eid, roomId, msgtype ?? "(nil)", backgroundNotifyCount + 1)
+        // F2 (protocol F.2): the NSE now owns the BACKGROUND banner. It wakes on
+        // the gateway's visible alert, fetches + decrypts the same event on-device,
+        // and replaces the banner body — so this background-wake path must NOT
+        // ALSO post a local notification, or every backgrounded message would
+        // double-banner (NSE + this). We keep ALL the eligibility gating + logging
+        // above (it's the silent-push diagnostics, and still records `markNotified`
+        // so a later cold-launch drain doesn't re-alert), but the actual post is
+        // retired on iOS. The foreground path (presentLocalNotification while the
+        // app is active, called elsewhere) is unaffected.
+        AppLog.log("🔔 [push] bg-notify SKIP-POST eid=%@ room=%@ msgtype=%@ reason=nse_owns_background",
+                   eid, roomId, msgtype ?? "(nil)")
         Self.markNotified(eid)
         backgroundNotifyCount += 1
-        Task {
-            await PushNotificationManager.shared.presentLocalNotification(
-                body: body,
-                roomId: roomId,
-                eventId: eid
-            )
-        }
     }
 
     // MARK: - Helpers

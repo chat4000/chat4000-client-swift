@@ -33,6 +33,18 @@ final class CryptoEngine {
     private let deviceId: String
     private let storePath: String
 
+    /// F2 (protocol F.2.3, F.2.4): the cross-process crypto-store lock. When set
+    /// (the App-Group/NSE world), EVERY synchronous OlmMachine store access goes
+    /// through `withStore`, which acquires the `flock`, reloads-if-dirty (the NSE
+    /// or app wrote the store underneath us), runs the store op, and bumps the
+    /// generation after a WRITE — all with a TIGHT scope (no network/await held).
+    /// nil → single-process fallback (no App Group): store calls run directly,
+    /// exactly as before F2, so a missing App Group never breaks decrypt.
+    private let storeLock: CryptoStoreLock?
+    /// The store generation this in-memory machine was last known-fresh at. Read
+    /// from disk on each lock acquire to decide whether to `reload()`.
+    private var lastSeenGeneration: UInt64 = 0
+
     /// v1-equivalent posture: decrypt regardless of device trust. Hardening to
     /// cross-signing-required is a later step (we auto-enable cross-signing on
     /// the account, but gating decryption on it now would drop legitimate
@@ -50,7 +62,14 @@ final class CryptoEngine {
     /// on reconnect (which constructs a fresh CryptoEngine).
     private static var tracingInstalled = false
 
-    init(userId: String, deviceId: String, storePath: String, gateway: GatewayRequesting) throws(AppError) {
+    init(
+        userId: String,
+        deviceId: String,
+        storePath: String,
+        gateway: GatewayRequesting,
+        storeLock: CryptoStoreLock? = nil
+    ) throws(AppError) {
+        self.storeLock = storeLock
         // Install crypto tracing BEFORE the machine so its init is captured too.
         if !Self.tracingInstalled {
             setLogger(logger: CryptoTracingLogger())
@@ -73,6 +92,63 @@ final class CryptoEngine {
         self.userId = userId
         self.deviceId = deviceId
         self.storePath = storePath
+        // We just opened the store fresh from disk, so we are current with
+        // whatever generation it holds (don't spuriously reload on first use).
+        self.lastSeenGeneration = storeLock?.currentGeneration() ?? 0
+    }
+
+    // MARK: - F2 cross-process store coordinator (protocol F.2.3)
+
+    /// Run a SYNCHRONOUS OlmMachine store operation under the cross-process lock,
+    /// with reload-on-dirty and a generation bump on write (protocol F.2.3 fixed
+    /// sequence: acquire → reload-if-dirty → op → bump-if-wrote → release).
+    ///
+    /// - `isWrite`: true for operations that mutate the store (so we bump the
+    ///   generation after, signalling the other process to reload). Reads pass
+    ///   `false` and never bump.
+    /// - The `body` MUST be synchronous and short (no network, no `await`) — the
+    ///   lock is held only for its duration, satisfying "no network under the lock"
+    ///   and "release before suspend" (0xdead10cc).
+    /// - When there is no lock (no App Group), this is a direct call — identical to
+    ///   pre-F2 single-process behavior.
+    ///
+    /// Reload-at-most-once-per-acquire: we compare the on-disk generation to
+    /// `lastSeenGeneration` ONCE on acquire; if dirty, we drop+recreate the machine
+    /// (re-reads the freshly-written store) and adopt the new generation, then run
+    /// the op against the reloaded machine.
+    private func withStore<T>(isWrite: Bool, _ body: () throws(AppError) -> T) throws(AppError) -> T {
+        guard let storeLock else {
+            // Single-process fallback: no lock, no reload, no bump.
+            return try body()
+        }
+        // `withLock` is `rethrows`; channel our typed AppError through an untyped
+        // throw and re-narrow on the way out.
+        do {
+            return try storeLock.withLock {
+                // Reload-if-dirty, at most once per acquire (a safe point: nothing
+                // else holds the machine inside this synchronous critical section).
+                let onDisk = storeLock.currentGeneration()
+                if onDisk > lastSeenGeneration {
+                    AppLog.debug("🔐 store dirty (disk gen %llu > seen %llu) — reloading OlmMachine", onDisk, lastSeenGeneration)
+                    try reload()
+                    lastSeenGeneration = onDisk
+                }
+                let result = try body()
+                if isWrite {
+                    storeLock.bumpGeneration()
+                    // Adopt the generation we just wrote so our own write doesn't
+                    // read back as "dirty" on the next acquire.
+                    lastSeenGeneration = storeLock.currentGeneration()
+                }
+                return result
+            }
+        } catch let error as AppError {
+            throw error
+        } catch {
+            // `withLock`/`body` only throw AppError; this is unreachable, but the
+            // compiler can't prove it through `rethrows`.
+            throw AppError.unexpected(error)
+        }
     }
 
     // MARK: - Reload-on-dirty primitive
@@ -110,8 +186,27 @@ final class CryptoEngine {
     /// Feed one sync's e2ee state into the machine, then drain its outgoing
     /// requests. Call this BEFORE processing the sync's room events so freshly
     /// received room keys are available for decryption.
+    ///
+    /// F2 lock split (protocol F.2.3): the STORE-WRITING half (`receiveSyncChanges`,
+    /// `receiveSyncChangesIntoStore`) is synchronous and is what MatrixSession
+    /// wraps in `CryptoStoreLock.withLock`; the outgoing-request drain
+    /// (`runOutgoingRequests`) is async/network and runs OUTSIDE the lock — never
+    /// hold the cross-process lock across the network (the "no network under the
+    /// lock" rule). This method keeps the old single-call behavior for callers
+    /// that don't lock (the background-wake path under the app's own single sync),
+    /// but the live-sync path now calls the two halves separately around the lock.
     func processSync(_ sync: GatewaySync) async throws(AppError) {
-        AppLog.debug("🔐 processSync to_device=%d changed=%d left=%d otk=%@ fallback=%@",
+        try receiveSyncChangesIntoStore(sync)
+        try await runOutgoingRequests()
+    }
+
+    /// The STORE-WRITING half of `processSync` (protocol F.2.3): feed the sync's
+    /// e2ee state into the machine. Synchronous — no `await`, no network — so it
+    /// is safe to call inside `CryptoStoreLock.withLock` (the lock must never wrap
+    /// network or suspendable work). MatrixSession's live path calls this under the
+    /// lock, then `runOutgoingRequests` OUTSIDE it.
+    func receiveSyncChangesIntoStore(_ sync: GatewaySync) throws(AppError) {
+        AppLog.debug("🔐 receiveSyncChanges to_device=%d changed=%d left=%d otk=%@ fallback=%@",
                      sync.toDevice.count, sync.deviceLists.changed.count, sync.deviceLists.left.count,
                      sync.oneTimeKeyCounts.description, sync.unusedFallbackKeyTypes?.description ?? "nil")
         // DIAG (Olm intake): log every RAW inbound to-device event (type, sender,
@@ -123,25 +218,34 @@ final class CryptoEngine {
         let deviceChanges = DeviceLists(changed: sync.deviceLists.changed, left: sync.deviceLists.left)
         let result: SyncChangesResult
         do {
-            result = try machine.receiveSyncChanges(
-                events: sync.toDevice.eventsJSON,
-                deviceChanges: deviceChanges,
-                keyCounts: sync.oneTimeKeyCounts,
-                unusedFallbackKeys: sync.unusedFallbackKeyTypes,
-                nextBatchToken: sync.pos ?? "",
-                decryptionSettings: decryptionSettings
-            )
+            // WRITE: importing to-device keys mutates the store → lock + bump gen.
+            result = try withStore(isWrite: true) { () throws(AppError) -> SyncChangesResult in
+                do {
+                    return try machine.receiveSyncChanges(
+                        events: sync.toDevice.eventsJSON,
+                        deviceChanges: deviceChanges,
+                        keyCounts: sync.oneTimeKeyCounts,
+                        unusedFallbackKeys: sync.unusedFallbackKeyTypes,
+                        nextBatchToken: sync.pos ?? "",
+                        decryptionSettings: decryptionSettings
+                    )
+                } catch is CancellationError {
+                    throw AppError.cancelled
+                } catch {
+                    throw AppError.crypto("receiveSyncChanges: \(error.localizedDescription)")
+                }
+            }
         } catch {
             // The machine REJECTED the whole batch (a thrown error, not a silent
             // UTD) — e.g. "invalid type: map, expected a sequence". When this
             // happens the plugin's m.room_key in this batch is never imported.
             // Kept at INFO as a hard error signal; the raw bytes (which contain
-            // ciphertext) go to DEBUG only.
-            AppLog.log("🔑 ⛔ receiveSyncChanges threw on a %d-event batch: %@", sync.toDevice.count, String(describing: error))
+            // ciphertext) go to DEBUG only. `withStore` already classified the
+            // error (crypto / cancelled / a reload failure) — log and rethrow it
+            // as-is rather than re-wrapping.
+            AppLog.log("🔑 ⛔ receiveSyncChanges threw on a %d-event batch: %@", sync.toDevice.count, error.message)
             AppLog.debug("🔑 ⛔ events_json_prefix=%@", String(sync.toDevice.eventsJSON.prefix(280)))
-            if error is CancellationError { throw AppError.cancelled }
-            // The machine rejected the whole batch — a classifiable crypto failure.
-            throw AppError.crypto("receiveSyncChanges: \(error.localizedDescription)")
+            throw error
         }
 
         // What did the machine DECRYPT out of that batch? An m.room_key here means
@@ -154,7 +258,6 @@ final class CryptoEngine {
             // Non-revealing signal that a batch yielded nothing — keep at INFO.
             AppLog.log("🔑 ⚠️ batch of %d to-device produced 0 decrypted events", sync.toDevice.count)
         }
-        try await runOutgoingRequests()
     }
 
     // MARK: - Outgoing-request pump
@@ -164,14 +267,17 @@ final class CryptoEngine {
     /// requests (e.g. a key query surfacing identity changes), hence the loop.
     func runOutgoingRequests() async throws(AppError) {
         for pass in 0..<maxPumpPasses {
-            let requests: [Request]
-            do {
-                requests = try machine.outgoingRequests()
-            } catch is CancellationError {
-                throw AppError.cancelled
-            } catch {
-                ErrorReporter.capture(error, context: "CryptoEngine.outgoingRequests")
-                throw AppError.unexpected(error)
+            // READ from the store (drains the pending-request queue). Locked so it
+            // can't race a concurrent NSE decrypt; no bump (no key mutation).
+            let requests: [Request] = try withStore(isWrite: false) { () throws(AppError) -> [Request] in
+                do {
+                    return try machine.outgoingRequests()
+                } catch is CancellationError {
+                    throw AppError.cancelled
+                } catch {
+                    ErrorReporter.capture(error, context: "CryptoEngine.outgoingRequests")
+                    throw AppError.unexpected(error)
+                }
             }
             AppLog.debug("🔐 pump pass %d: %d outgoing request(s)", pass, requests.count)
             if requests.isEmpty { return }
@@ -187,13 +293,16 @@ final class CryptoEngine {
     /// Ack a drained request to the machine. `machine.markRequestAsSent` is the
     /// FFI boundary, wrapped so only `AppError` escapes.
     private func markSent(_ requestId: String, _ type: RequestType, _ responseBody: String) throws(AppError) {
-        do {
-            try machine.markRequestAsSent(requestId: requestId, requestType: type, responseBody: responseBody)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.markRequestAsSent")
-            throw AppError.unexpected(error)
+        // WRITE: marking a request sent records key state into the store.
+        try withStore(isWrite: true) { () throws(AppError) in
+            do {
+                try machine.markRequestAsSent(requestId: requestId, requestType: type, responseBody: responseBody)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.markRequestAsSent")
+                throw AppError.unexpected(error)
+            }
         }
     }
 
@@ -263,26 +372,32 @@ final class CryptoEngine {
     /// Tell the machine a room is megolm-encrypted (from `m.room.encryption` in
     /// sync). Required before `encrypt`/`shareRoomKey` for that room.
     func markRoomEncrypted(_ roomId: String) throws(AppError) {
-        do {
-            try machine.setRoomAlgorithm(roomId: roomId, algorithm: .megolmV1AesSha2)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.markRoomEncrypted")
-            throw AppError.unexpected(error)
+        // WRITE: records the room's algorithm in the store.
+        try withStore(isWrite: true) { () throws(AppError) in
+            do {
+                try machine.setRoomAlgorithm(roomId: roomId, algorithm: .megolmV1AesSha2)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.markRoomEncrypted")
+                throw AppError.unexpected(error)
+            }
         }
     }
 
     /// Keep the machine's tracked-user set in step with room membership so it
     /// queries/claims keys for the right devices.
     func updateTrackedUsers(_ users: [String]) throws(AppError) {
-        do {
-            try machine.updateTrackedUsers(users: users)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.updateTrackedUsers")
-            throw AppError.unexpected(error)
+        // WRITE: updates the tracked-user set in the store.
+        try withStore(isWrite: true) { () throws(AppError) in
+            do {
+                try machine.updateTrackedUsers(users: users)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.updateTrackedUsers")
+                throw AppError.unexpected(error)
+            }
         }
     }
 
@@ -347,36 +462,47 @@ final class CryptoEngine {
     func isRoomReachable(recipients: [String], selfUserId: String) -> Bool {
         let peers = recipients.filter { $0 != selfUserId }
         guard !peers.isEmpty else { return false }
-        do {
-            for user in peers where try machine.getUserDevices(userId: user, timeout: 0).isEmpty {
+        // READ: a device-list lookup. Still goes through the lock so it can't race
+        // a concurrent NSE decrypt on the shared store (no bump — read only).
+        return (try? withStore(isWrite: false) { () throws(AppError) -> Bool in
+            do {
+                for user in peers where try machine.getUserDevices(userId: user, timeout: 0).isEmpty {
+                    return false
+                }
+                return true
+            } catch {
                 return false
             }
-            return true
-        } catch {
-            return false
-        }
+        }) ?? false
     }
 
     /// Decrypt an inbound `m.room.encrypted` event (the full event JSON) to its
     /// cleartext event JSON. Throws if the session is missing/undecryptable —
     /// callers should tolerate that (the key may arrive on a later sync).
     func decrypt(eventJSON: String, roomId: String) throws(AppError) -> String {
-        do {
-            let result = try machine.decryptRoomEvent(
-                event: eventJSON,
-                roomId: roomId,
-                handleVerificationEvents: false,
-                strictShields: false,
-                decryptionSettings: decryptionSettings
-            )
-            return result.clearEvent
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            // A missing/undecryptable session is an EXPECTED outcome here (the key
-            // may arrive on a later sync); callers tolerate it via `try?`. Map to a
-            // classifiable crypto failure rather than reporting it as unexpected.
-            throw AppError.crypto("decrypt: \(error.localizedDescription)")
+        // WRITE: a Megolm decrypt advances (and persists) the inbound session
+        // ratchet, so it is a store mutation → take the lock and bump the
+        // generation (protocol F.2.3). The fetch happened earlier and OUTSIDE the
+        // lock (F.2.2 step 2/3) — this `withStore` wraps the local decrypt only.
+        try withStore(isWrite: true) { () throws(AppError) -> String in
+            do {
+                let result = try machine.decryptRoomEvent(
+                    event: eventJSON,
+                    roomId: roomId,
+                    handleVerificationEvents: false,
+                    strictShields: false,
+                    decryptionSettings: decryptionSettings
+                )
+                return result.clearEvent
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                // A missing/undecryptable session is an EXPECTED outcome here (the
+                // key may arrive on a later sync); callers tolerate it via `try?`.
+                // Map to a classifiable crypto failure rather than reporting it as
+                // unexpected.
+                throw AppError.crypto("decrypt: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -385,14 +511,17 @@ final class CryptoEngine {
     /// may respond with the key, after which a later re-decrypt succeeds. Sends
     /// the cancellation (if any) + the request as to-device messages.
     func requestRoomKey(forEvent eventJSON: String, roomId: String) async throws(AppError) {
-        let pair: KeyRequestPair
-        do {
-            pair = try machine.requestRoomKey(event: eventJSON, roomId: roomId)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.requestRoomKey")
-            throw AppError.unexpected(error)
+        // WRITE-ish: records the outgoing key-request state. Lock the synchronous
+        // FFI call; the `send`s below run OUTSIDE the lock (network).
+        let pair: KeyRequestPair = try withStore(isWrite: true) { () throws(AppError) -> KeyRequestPair in
+            do {
+                return try machine.requestRoomKey(event: eventJSON, roomId: roomId)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.requestRoomKey")
+                throw AppError.unexpected(error)
+            }
         }
         if let cancellation = pair.cancellation { try await send(cancellation) }
         try await send(pair.keyRequest)
@@ -410,37 +539,46 @@ final class CryptoEngine {
 
     /// `machine.getMissingSessions` wrapped so only `AppError` escapes.
     private func getMissingSessions(_ recipients: [String]) throws(AppError) -> Request? {
-        do {
-            return try machine.getMissingSessions(users: recipients)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.getMissingSessions")
-            throw AppError.unexpected(error)
+        // WRITE-ish: may record pending session state; lock + bump to be safe.
+        try withStore(isWrite: true) { () throws(AppError) -> Request? in
+            do {
+                return try machine.getMissingSessions(users: recipients)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.getMissingSessions")
+                throw AppError.unexpected(error)
+            }
         }
     }
 
     /// `machine.shareRoomKey` wrapped so only `AppError` escapes.
     private func shareRoomKey(roomId: String, recipients: [String]) throws(AppError) -> [Request] {
-        do {
-            return try machine.shareRoomKey(roomId: roomId, users: recipients, settings: encryptionSettings)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.shareRoomKey")
-            throw AppError.unexpected(error)
+        // WRITE: mints/records the outbound Megolm session.
+        try withStore(isWrite: true) { () throws(AppError) -> [Request] in
+            do {
+                return try machine.shareRoomKey(roomId: roomId, users: recipients, settings: encryptionSettings)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.shareRoomKey")
+                throw AppError.unexpected(error)
+            }
         }
     }
 
     /// `machine.encrypt` wrapped so only `AppError` escapes.
     private func encryptEvent(roomId: String, eventType: String, plaintext: String) throws(AppError) -> String {
-        do {
-            return try machine.encrypt(roomId: roomId, eventType: eventType, content: plaintext)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            ErrorReporter.capture(error, context: "CryptoEngine.encrypt")
-            throw AppError.unexpected(error)
+        // WRITE: advances the outbound Megolm ratchet.
+        try withStore(isWrite: true) { () throws(AppError) -> String in
+            do {
+                return try machine.encrypt(roomId: roomId, eventType: eventType, content: plaintext)
+            } catch is CancellationError {
+                throw AppError.cancelled
+            } catch {
+                ErrorReporter.capture(error, context: "CryptoEngine.encrypt")
+                throw AppError.unexpected(error)
+            }
         }
     }
 
