@@ -10,7 +10,5 @@
 	<array>
 		<string>$(AppIdentifierPrefix)com.neonnode.chat94app.shared</string>
 	</array>
-	<key>com.apple.developer.usernotifications.filtering</key>
-	<true/>
 </dict>
 </plist>
