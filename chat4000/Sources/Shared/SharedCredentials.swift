@@ -75,9 +75,10 @@ enum SharedCredentials {
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(add as CFDictionary, nil)
         if status != errSecSuccess {
-            AppLog.log("🔑 SharedCredentials.save failed status=%d account=%@", Int(status), accountId)
+            AppLog.log("🔑 SharedCredentials.save failed status=%d account=%@ group=%@", Int(status), accountId, AppGroup.keychainAccessGroup)
             return false
         }
+        AppLog.log("🔑 SharedCredentials.save ok account=%@ group=%@", accountId, AppGroup.keychainAccessGroup)
         return true
         #endif
     }

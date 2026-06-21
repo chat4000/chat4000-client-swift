@@ -61,8 +61,25 @@ enum MatrixCredentialStore {
     }
 
     static func load() -> Stored? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(Stored.self, from: data)
+        guard let data = try? Data(contentsOf: fileURL),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
+        // F2: ensure the shared-keychain mirror exists so the NSE can read it even
+        // for an install that paired BEFORE the mirror was written (or with the old
+        // mismatched access group). Idempotent + cheap; only writes when absent.
+        let accountId = SharedCredentials.accountId(userId: stored.userId, deviceId: stored.deviceId)
+        if SharedCredentials.load(accountId: accountId) == nil {
+            SharedCredentials.save(
+                SharedCredentials.Record(
+                    accessToken: stored.accessToken,
+                    userId: stored.userId,
+                    deviceId: stored.deviceId,
+                    gatewayURL: stored.gatewayURL,
+                    cryptoStorePath: MatrixEnvironment.current.cryptoStorePath
+                ),
+                accountId: accountId
+            )
+        }
+        return stored
     }
 
     static func delete() {

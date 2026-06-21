@@ -3,6 +3,7 @@
 // Licensed under GPL-3.0. See LICENSE file for details.
 
 import Foundation
+import Security
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AppGroup — the per-flavor App-Group container shared by the iOS app and its
@@ -42,11 +43,52 @@ enum AppGroup {
     /// The App Store flavor's base bundle id (no suffix).
     private static let baseBundleId = "com.neonnode.chat94app"
 
-    /// The shared keychain access group (F.2.3 "shared keychain"). The
-    /// access-group string in the entitlement is `$(AppIdentifierPrefix)<group>`;
-    /// `SecItem` matches on the bare group WITHOUT the team prefix, so callers use
-    /// this constant directly as `kSecAttrAccessGroup`.
-    static let keychainAccessGroup = "\(baseBundleId).shared"
+    /// The shared keychain access group (F.2.3 "shared keychain"), FULLY QUALIFIED
+    /// as `<AppIdentifierPrefix>com.neonnode.chat94app.shared`. iOS keychain
+    /// REQUIRES the team-id prefix on `kSecAttrAccessGroup`: the bare group is not
+    /// an entitled access group, so `SecItem*` fail with errSecMissingEntitlement —
+    /// which silently broke NSE credential sharing (the NSE saw "no shared
+    /// credentials" and fell back to the generic banner). The prefix is derived
+    /// ONCE at runtime from a throwaway keychain probe (computed by this `let`),
+    /// falling back to the bare group only if the probe fails.
+    static let keychainAccessGroup: String = {
+        let bare = "\(baseBundleId).shared"
+        #if os(iOS)
+        guard let prefix = keychainTeamPrefix() else { return bare }
+        return prefix + bare
+        #else
+        return bare
+        #endif
+    }()
+
+    #if os(iOS)
+    /// Derive the `<TeamID>.` AppIdentifierPrefix by adding/reading a throwaway
+    /// keychain item (no access group specified → lands in the app's DEFAULT group
+    /// `<TeamID>.<bundleid>`) and inspecting its resolved access group.
+    private static func keychainTeamPrefix() -> String? {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "teamid-probe",
+            kSecAttrService as String: "\(baseBundleId).teamid-probe"
+        ]
+        var query = base
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        var status = SecItemCopyMatching(query as CFDictionary, &out)
+        if status == errSecItemNotFound {
+            var add = base
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            add[kSecReturnAttributes as String] = true
+            status = SecItemAdd(add as CFDictionary, &out)
+        }
+        guard status == errSecSuccess,
+              let attrs = out as? [String: Any],
+              let group = attrs[kSecAttrAccessGroup as String] as? String,
+              let dot = group.firstIndex(of: ".") else { return nil }
+        return String(group[...dot])   // "<TeamID>."
+    }
+    #endif
 
     /// The per-flavor App Group identifier for the CURRENT process, derived from
     /// the running bundle id (see the file header for the mapping). iOS-only —
