@@ -92,7 +92,7 @@ struct chat4000App: App {
         if let terms = versionPolicy.currentTermsVersion {
             LegalConsent.finalizePendingAcceptanceIfNeeded(currentTermsVersion: terms)
             currentTermsVersion = terms
-            showLegalReconsentModal = LegalConsent.requiresTermsAcceptance(currentTermsVersion: terms)
+            showLegalReconsentModal = LegalConsent.requiresReconsent(currentTermsVersion: terms)
         }
     }
 

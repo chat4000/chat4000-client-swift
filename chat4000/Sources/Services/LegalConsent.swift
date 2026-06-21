@@ -21,6 +21,19 @@ enum LegalConsent {
         acceptedTermsVersion < currentTermsVersion
     }
 
+    /// Whether to present the standalone "Legal Update" re-consent modal.
+    ///
+    /// The three legal states:
+    /// - **A. Never accepted** (`!hasAcceptedAnyVersion`): a fresh install. Consent
+    ///   happens via the signup checkbox in `SetupView` (`LegalConsentCheckboxRow`),
+    ///   NOT this modal — so return false.
+    /// - **B. Accepted but behind** (`hasAcceptedAnyVersion && acceptedTermsVersion
+    ///   < current`): an existing user whose terms version bumped → show the modal.
+    /// - **C. Accepted current**: nothing to do → false.
+    static func requiresReconsent(currentTermsVersion: Int) -> Bool {
+        hasAcceptedAnyVersion && requiresTermsAcceptance(currentTermsVersion: currentTermsVersion)
+    }
+
     static func acceptNow(currentTermsVersion: Int) {
         UserDefaults.standard.set(true, forKey: acceptedKey)
         UserDefaults.standard.set(currentTermsVersion, forKey: versionKey)
