@@ -91,6 +91,15 @@ final class GatewayClient: GatewayRequesting {
 
     /// Pushes each `sync` frame's top-level object (pos/rooms/extensions).
     var onSync: (([String: Any]) -> Void)?
+    /// The gateway sent a `sync_reset` (protocol D.1/D.2 cursor-expiry recovery):
+    /// the homeserver rejected the room cursor with `M_UNKNOWN_POS`, the gateway
+    /// already dropped the named cursor(s) and re-initialised the upstream sync on
+    /// THIS same socket. The argument is `cursors` — the durably-persisted cursor
+    /// names the device MUST immediately discard so a later reconnect cannot replay
+    /// them (e.g. `["pos"]` for a `pos_expired` reset). The owner (`MatrixSession`)
+    /// discards exactly those from durable storage; it does NOT send a new
+    /// `sync_start` and the fresh `sync` frames keep arriving on this socket.
+    var onSyncReset: (([String]) -> Void)?
     /// Gateway asked for a fresh token (upstream 401). Caller supplies one via `reauth(token:)`.
     var onReauthNeeded: (() -> Void)?
     /// The socket closed / errored (receive loop ended). The owner
@@ -396,6 +405,29 @@ final class GatewayClient: GatewayRequesting {
             AppLog.debug("🛰️← sync pos=%@ to_device_pos=%@ rooms=%d", obj["pos"] as? String ?? "nil",
                          obj["to_device_pos"] as? String ?? "nil", rooms)
             onSync?(obj)
+        case "sync_reset":
+            // D.1/D.2 cursor-expiry recovery. The homeserver rejected the room
+            // cursor (`M_UNKNOWN_POS`); the gateway has ALREADY dropped the named
+            // cursor(s) and re-initialised upstream from scratch on this same
+            // socket. We MUST immediately discard exactly the named durable
+            // cursor(s) so a later reconnect cannot replay a stale `pos`, then keep
+            // consuming the fresh `sync` frames already streaming — WITHOUT sending
+            // a new `sync_start`. Cursors not named stay valid (a `pos_expired`
+            // reset names `["pos"]` only, leaving the to-device cursor intact).
+            let cursors = Self.syncResetCursors(from: obj)
+            let reason = obj["reason"] as? String ?? "unknown"
+            AppLog.log("⚙️ gateway sync_reset reason=%@ cursors=%@", reason, cursors.joined(separator: ","))
+            // Drop the in-memory copy of each named cursor so an in-place resume
+            // never resends it. Durable storage is cleared by the owner via
+            // `onSyncReset`. `to_device_pos` is preserved unless explicitly named.
+            for cursor in cursors {
+                switch cursor {
+                case "pos": syncPos = nil
+                case "to_device_pos": syncToDevicePos = nil
+                default: break
+                }
+            }
+            onSyncReset?(cursors)
         case "ui_ping":
             // D.1: foreground-state probe. MUST reply with a `ui_state` frame
             // carrying the live foreground value (D.4). No provider wired yet →
@@ -407,6 +439,17 @@ final class GatewayClient: GatewayRequesting {
         default:
             AppLog.debug("🛰️← UNHANDLED frame t=%@", type)
         }
+    }
+
+    /// Extract the `cursors` array from a `sync_reset` frame (protocol D.1). Pure +
+    /// `nonisolated` so the wire contract is unit-testable. Returns the cursor names
+    /// the device MUST discard from durable storage; a missing or non-string-array
+    /// `cursors` field degrades to an empty list (discard nothing) rather than
+    /// throwing — a malformed reset must never crash the client. Only string entries
+    /// are kept.
+    nonisolated static func syncResetCursors(from frame: [String: Any]) -> [String] {
+        guard let cursors = frame["cursors"] as? [Any] else { return [] }
+        return cursors.compactMap { $0 as? String }
     }
 
     nonisolated static func unsupportedVersionWindow(from frame: [String: Any]) -> VersionWindow? {

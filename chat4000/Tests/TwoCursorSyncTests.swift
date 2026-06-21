@@ -191,6 +191,39 @@ struct TwoCursorSyncTests {
         #expect(frame["foreground"] as? Bool == false)
     }
 
+    // MARK: - sync_reset (protocol D.1/D.2 cursor-expiry recovery)
+
+    /// READ: a `pos_expired` reset names `["pos"]` — decode exactly that.
+    @Test func syncResetParsesNamedCursors() {
+        let frame: [String: Any] = ["t": "sync_reset", "reason": "pos_expired", "cursors": ["pos"]]
+        #expect(GatewayClient.syncResetCursors(from: frame) == ["pos"])
+    }
+
+    /// READ: a malformed/absent `cursors` field degrades to an empty list (discard
+    /// nothing) — a bad reset must never crash the client, and clearing nothing is
+    /// the safe direction (a stale `pos` just re-triggers M_UNKNOWN_POS next time).
+    @Test func syncResetParsesEmptyWhenCursorsMissingOrMalformed() {
+        #expect(GatewayClient.syncResetCursors(from: ["t": "sync_reset", "reason": "pos_expired"]) == [])
+        #expect(GatewayClient.syncResetCursors(from: ["t": "sync_reset", "cursors": "pos"]) == [])
+        // Non-string entries are dropped; valid ones kept.
+        #expect(GatewayClient.syncResetCursors(from: ["cursors": ["pos", 7, "to_device_pos"]]) == ["pos", "to_device_pos"])
+    }
+
+    /// DECIDE: selective clearing — `pos_expired` clears the ROOM cursor only,
+    /// leaving `to_device_pos` (and its Megolm keys) intact (D.2 "Device rule").
+    @Test func posExpiredResetClearsRoomCursorOnly() {
+        #expect(MatrixSession.durableCursorsToClear(named: ["pos"]) == ["pos"])
+    }
+
+    /// DECIDE: an explicitly-named to-device reset is honored; an unknown cursor
+    /// name is ignored (forward-compatible); duplicates collapse, order preserved.
+    @Test func durableCursorsToClearFiltersAndDedupes() {
+        #expect(MatrixSession.durableCursorsToClear(named: ["pos", "to_device_pos"]) == ["pos", "to_device_pos"])
+        #expect(MatrixSession.durableCursorsToClear(named: ["pos", "weird", "pos"]) == ["pos"])
+        #expect(MatrixSession.durableCursorsToClear(named: []) == [])
+        #expect(MatrixSession.durableCursorsToClear(named: ["unknown_only"]) == [])
+    }
+
     @Test func authErrorExtractsUnsupportedVersionWindow() throws {
         let frame: [String: Any] = [
             "t": "auth_error",

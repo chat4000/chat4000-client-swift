@@ -548,6 +548,9 @@ final class MatrixSession {
         gateway.onSync = { [weak self] frame in
             Task { @MainActor in await self?.handleSync(frame) }
         }
+        gateway.onSyncReset = { [weak self] cursors in
+            Task { @MainActor in self?.handleSyncReset(cursors: cursors) }
+        }
         gateway.onClosed = { [weak self] in
             Task { @MainActor in await self?.handleSocketClosed() }
         }
@@ -846,6 +849,42 @@ final class MatrixSession {
             gateway?.syncAck(pos: pos, toDevicePos: lastToDevicePos)
         }
         resumeSyncWaiters()
+    }
+
+    /// Handle a `sync_reset` frame (protocol D.1/D.2 cursor-expiry recovery). The
+    /// homeserver rejected the room cursor with `M_UNKNOWN_POS`; the gateway has
+    /// ALREADY dropped the named cursor(s) and re-initialised upstream from scratch
+    /// on this same socket. Our job is the device rule (D.2 "Device rule"):
+    /// immediately discard EXACTLY the named cursor(s) from durable storage so a
+    /// later reconnect cannot replay a stale `pos` (which would just re-trigger
+    /// `M_UNKNOWN_POS`). We MUST NOT:
+    ///   • tear down crypto state (the to-device stream is separate and durable),
+    ///   • drop the to-device cursor unless it is itself named (a `pos_expired`
+    ///     reset names `["pos"]` only), or
+    ///   • send a new `sync_start` — the fresh `sync` frames are already streaming
+    ///     on this socket and persist the new `pos` through the normal ack flow.
+    func handleSyncReset(cursors: [String]) {
+        let toClear = Self.durableCursorsToClear(named: cursors)
+        AppLog.log("🔁 sync_reset: discarding durable cursors=%@ (named=%@) keeping crypto + unnamed cursors",
+                   toClear.joined(separator: ","), cursors.joined(separator: ","))
+        for cursor in toClear {
+            switch cursor {
+            case "pos":
+                // Discard the room cursor so the next reconnect omits `pos` and
+                // recovers room state from the homeserver's durable store.
+                Self.clearSyncPos(userId: userId)
+            case "to_device_pos":
+                // Only reached if the gateway explicitly names the to-device cursor
+                // (never for `pos_expired`). Discard the durable to-device cursor
+                // and its in-memory carry-forward so neither replays it.
+                Self.clearToDevicePos(userId: userId)
+                lastToDevicePos = nil
+            default:
+                break
+            }
+        }
+        // Deliberately NOT done: no crypto teardown, no `sync_start`, no touch of
+        // any cursor that was not named.
     }
 
     private func processRoom(_ room: SyncRoom) async {
@@ -1977,6 +2016,12 @@ final class MatrixSession {
     private static func loadSyncPos(userId: String) -> String? {
         UserDefaults.standard.string(forKey: syncPosKey(userId))
     }
+    /// Discard the durable room cursor (protocol D.2 cursor-expiry recovery). After
+    /// a `sync_reset` for `pos`, the next reconnect must NOT resend the expired
+    /// cursor (it only re-triggers `M_UNKNOWN_POS`), so we drop it entirely.
+    private static func clearSyncPos(userId: String?) {
+        UserDefaults.standard.removeObject(forKey: syncPosKey(userId))
+    }
 
     /// Per-account durably-persisted TO-DEVICE cursor (protocol D.1). A SEPARATE
     /// key from `pos` — the two cursors are independent. The device is the source
@@ -1988,6 +2033,28 @@ final class MatrixSession {
     }
     private static func loadToDevicePos(userId: String) -> String? {
         UserDefaults.standard.string(forKey: toDevicePosKey(userId))
+    }
+    /// Discard the durable to-device cursor. Only used when a `sync_reset` EXPLICITLY
+    /// names `to_device_pos` — never for a `pos_expired` reset, which leaves the
+    /// to-device stream (and its Megolm keys) untouched (protocol D.2).
+    private static func clearToDevicePos(userId: String?) {
+        UserDefaults.standard.removeObject(forKey: toDevicePosKey(userId))
+    }
+
+    /// Map a `sync_reset` frame's named cursors (protocol D.1/D.2) to the durable
+    /// cursors this device clears. Pure + `nonisolated` so the selective-clearing
+    /// rule is unit-testable. The device discards EXACTLY the named cursors and
+    /// nothing else: an unknown cursor name is ignored (forward-compatible), and a
+    /// `pos_expired` reset (`["pos"]`) clears the room cursor only, leaving
+    /// `to_device_pos` intact. Duplicates are collapsed; order is preserved.
+    nonisolated static func durableCursorsToClear(named cursors: [String]) -> [String] {
+        let known: Set<String> = ["pos", "to_device_pos"]
+        var seen: Set<String> = []
+        var out: [String] = []
+        for cursor in cursors where known.contains(cursor) && seen.insert(cursor).inserted {
+            out.append(cursor)
+        }
+        return out
     }
 
     private static func legacyRoomSnapshotKey(_ userId: String?) -> String { "chat4000.roomSnapshot.\(userId ?? "")" }
