@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// v2 (gateway) runtime configuration. The client talks ONLY to the WS gateway
 /// and the registrar — the homeserver has no public hostname (protocol D.3),
@@ -49,6 +46,12 @@ struct MatrixEnvironment {
     /// working with no key loss; only the NSE (which needs the shared container)
     /// is then unavailable.
     var cryptoStorePath: String {
+        // macOS (protocol F.2 "iOS-only"): a SINGLE process on the live WebSocket,
+        // no NSE and no App Group. It MUST use its pre-F2 sandbox store and must
+        // NEVER touch a Group Container or run the sandbox→App-Group migration
+        // (`AppGroup` is nil-gated to iOS, so this also can't accidentally fall
+        // into the App-Group branch). Return the sandbox path directly.
+        #if os(iOS)
         let namespace = AppEnvironment.current.storageNamespace
         guard let groupDir = AppGroup.cryptoStoreDirectoryURL(namespace: namespace) else {
             // No App Group → can't share with the NSE. Keep using the sandbox
@@ -60,6 +63,9 @@ struct MatrixEnvironment {
         try? FileManager.default.createDirectory(at: groupDir, withIntermediateDirectories: true)
         Self.applyFileProtection(to: groupDir)
         return groupDir.path
+        #else
+        return Self.legacyCryptoStorePath
+        #endif
     }
 
     /// The pre-F2 store location: the app sandbox's Application Support dir. Still
@@ -79,8 +85,9 @@ struct MatrixEnvironment {
         return components.string
     }
 
-    // MARK: - Crypto-store migration (sandbox → App Group)
+    // MARK: - Crypto-store migration (sandbox → App Group) — iOS-only (F.2)
 
+    #if os(iOS)
     /// UserDefaults flag: the copy-verify-delete migration completed for this
     /// install, so we never re-run it (and never re-copy a stale sandbox store
     /// over a newer App-Group store the app has since written).
@@ -158,13 +165,12 @@ struct MatrixEnvironment {
     /// Apply `completeUntilFirstUserAuthentication` file protection (protocol F.2)
     /// to the crypto-store directory so the NSE can open it after first unlock.
     private static func applyFileProtection(to dir: URL) {
-        #if canImport(UIKit)
         try? FileManager.default.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
             ofItemAtPath: dir.path
         )
-        #endif
     }
+    #endif
 
     private static func ensuredDirectory(in base: FileManager.SearchPathDirectory, leaf: String) -> String {
         guard let root = FileManager.default.urls(for: base, in: .userDomainMask).first else {

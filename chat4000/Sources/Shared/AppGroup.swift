@@ -25,6 +25,17 @@ import Foundation
 // This type hardcodes NOTHING about which target it runs in — it reads
 // `Bundle.main.bundleIdentifier` and maps it to the flavor's group, so the same
 // code resolves the right group in either process.
+//
+// macOS (protocol F.2 "iOS-only"): the App Group exists ONLY for the iOS app↔NSE
+// split. macOS is a SINGLE process on the live WebSocket — it has NO NSE, NO
+// shared App Group entitlement, and the Mac DMG build runs UNSANDBOXED. On an
+// unsandboxed macOS process `FileManager.containerURL(forSecurityApplicationGroup
+// Identifier:)` does NOT return nil even without the entitlement — it eagerly
+// CREATES and returns `~/Library/Group Containers/<id>/`, which (a) triggers the
+// "would like to access data from other apps" consent prompt and (b) makes the
+// app open a FRESH, wrong crypto store there instead of its real sandbox store.
+// So every App-Group-dependent member below is compiled OUT on macOS (returns
+// nil), which makes every caller degrade to the pre-F2 sandbox / no-lock path.
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum AppGroup {
@@ -38,11 +49,17 @@ enum AppGroup {
     static let keychainAccessGroup = "\(baseBundleId).shared"
 
     /// The per-flavor App Group identifier for the CURRENT process, derived from
-    /// the running bundle id (see the file header for the mapping).
-    static var identifier: String {
-        "group.\(flavorBundleId)"
+    /// the running bundle id (see the file header for the mapping). iOS-only —
+    /// nil on macOS (no App Group there; see the file header).
+    static var identifier: String? {
+        #if os(iOS)
+        return "group.\(flavorBundleId)"
+        #else
+        return nil
+        #endif
     }
 
+    #if os(iOS)
     /// The flavor's app bundle id — the NSE's `.nse` suffix stripped so a NSE and
     /// its app resolve to the SAME flavor (and therefore the SAME group).
     private static var flavorBundleId: String {
@@ -50,12 +67,20 @@ enum AppGroup {
         if id.hasSuffix(".nse") { id = String(id.dropLast(".nse".count)) }
         return id
     }
+    #endif
 
-    /// The shared App-Group container directory, or nil when the App Group
-    /// entitlement is missing/misconfigured (the caller must then fall back —
+    /// The shared App-Group container directory, or nil when the App Group is
+    /// unavailable. On macOS this is ALWAYS nil (no App Group — see the file
+    /// header), so the Mac app never touches a Group Container. On iOS it is nil
+    /// only when the entitlement is missing/misconfigured (the caller falls back —
     /// the NSE bails to the generic banner, F.2.2; the app keeps its sandbox store).
     static var containerURL: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
+        #if os(iOS)
+        guard let identifier else { return nil }
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
+        #else
+        return nil
+        #endif
     }
 
     /// The directory holding the standalone crypto store inside the shared

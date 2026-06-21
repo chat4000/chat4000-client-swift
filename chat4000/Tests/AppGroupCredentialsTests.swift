@@ -25,7 +25,10 @@ struct AppGroupCredentialsTests {
     /// identifier is well-formed (group-prefixed) for whatever flavor hosts it.
     @Test
     func appGroupIdentifierIsGroupPrefixed() {
-        #expect(AppGroup.identifier.hasPrefix("group.com.neonnode.chat94app"))
+        // iOS test host: the identifier is non-nil and group-prefixed. (On macOS
+        // `AppGroup.identifier` is nil by design — no App Group there — but the
+        // test bundle only builds/runs on iOS.)
+        #expect(AppGroup.identifier?.hasPrefix("group.com.neonnode.chat94app") == true)
         // Lockfile + generation URLs (when a container exists) sit in the crypto
         // dir and are NOT the sqlite files themselves (F.2.3). When there is no
         // container in the test host, they are nil — both consistently.
