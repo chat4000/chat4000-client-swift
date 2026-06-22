@@ -47,8 +47,10 @@ xcrun devicectl device copy from \
 
 Then `grep`/`tail` the local file.
 
-- `--domain-identifier`: `com.neonnode.chat94app` (App-Store target) or
-  `com.neonnode.chat94app.dev` (dev target) — match the build you're debugging.
+- `--domain-identifier`: `com.neonnode.chat94app` (App-Store target),
+  `com.neonnode.chat94app.dev.hermes` (Hermes dev target), or
+  `com.neonnode.chat94app.dev.openclaw` (OpenClaw dev target) — match the build
+  you're debugging.
 - Get `<DEVICE_UDID>` from `xcrun devicectl list devices` (the identifier column).
 - `xcrun devicectl device process launch --console … <bundleid>` also shows
   readable text (it reads the app's stderr) but requires launching attached.

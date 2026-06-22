@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "0E98DC1C8258F3BA8ED9744C"
-               BuildableName = "chat4000iphonedev.app"
-               BlueprintName = "chat4000iphonedev"
+               BlueprintIdentifier = "38DB519FDC39A44391CF6F1F"
+               BuildableName = "chat4000iphonedevopenclaw.app"
+               BlueprintName = "chat4000iphonedevopenclaw"
                ReferencedContainer = "container:chat4000.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -32,24 +32,13 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "0E98DC1C8258F3BA8ED9744C"
-            BuildableName = "chat4000iphonedev.app"
-            BlueprintName = "chat4000iphonedev"
+            BlueprintIdentifier = "38DB519FDC39A44391CF6F1F"
+            BuildableName = "chat4000iphonedevopenclaw.app"
+            BlueprintName = "chat4000iphonedevopenclaw"
             ReferencedContainer = "container:chat4000.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "8FCB569B42B4FD8AACCBF568"
-               BuildableName = "chat4000Tests.xctest"
-               BlueprintName = "chat4000Tests"
-               ReferencedContainer = "container:chat4000.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>
@@ -68,9 +57,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "0E98DC1C8258F3BA8ED9744C"
-            BuildableName = "chat4000iphonedev.app"
-            BlueprintName = "chat4000iphonedev"
+            BlueprintIdentifier = "38DB519FDC39A44391CF6F1F"
+            BuildableName = "chat4000iphonedevopenclaw.app"
+            BlueprintName = "chat4000iphonedevopenclaw"
             ReferencedContainer = "container:chat4000.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -87,9 +76,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "0E98DC1C8258F3BA8ED9744C"
-            BuildableName = "chat4000iphonedev.app"
-            BlueprintName = "chat4000iphonedev"
+            BlueprintIdentifier = "38DB519FDC39A44391CF6F1F"
+            BuildableName = "chat4000iphonedevopenclaw.app"
+            BlueprintName = "chat4000iphonedevopenclaw"
             ReferencedContainer = "container:chat4000.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
