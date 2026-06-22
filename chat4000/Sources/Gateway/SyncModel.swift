@@ -68,6 +68,9 @@ struct ToDeviceBatch: Sendable, Equatable {
     var eventsJSON: String
     var count: Int
 
+    /// No to-device events in this batch.
+    var isEmpty: Bool { count == 0 } // swiftlint:disable:this empty_count
+
     static let empty = ToDeviceBatch(eventsJSON: #"{"events":[]}"#, count: 0)
 }
 

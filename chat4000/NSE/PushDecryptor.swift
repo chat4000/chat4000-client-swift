@@ -105,20 +105,33 @@ enum PushDecryptor {
             return nil
         }
 
-        guard let clear = try? engine.decrypt(eventJSON: cipherEvent, roomId: roomId) else {
-            // Key-not-local is EXPECTED (F.2.2) — the cold-key push. Generic body.
-            AppLog.log("🔔 [nse] local decrypt missed (no local key) — generic fallback")
-            return nil
+        if let clear = try? engine.decrypt(eventJSON: cipherEvent, roomId: roomId) {
+            return banner(fromClear: clear)
         }
 
-        // (4) Cleartext → banner. The builder drops tool transcripts and unknown
-        // types to the generic body (F.2.2 content mapping). If it returns the
-        // fallback, surface nil so the caller keeps the unmodified placeholder.
-        let content = NotificationContentBuilder.build(fromClearEventJSON: clear)
-        if content == NotificationContentBuilder.fallback {
+        // (4) COLD-KEY RECOVERY (protocol F.2.1b). The room key isn't local — the
+        // common cause is a freshly-minted Megolm session whose to-device key arrived
+        // while the app was SUSPENDED, so the app never synced it into the store. If
+        // the app isn't live-syncing (heartbeat stale), do a one-shot NORMAL gateway
+        // sync here: import the to-device keys into the SAME shared store under the
+        // flock, advance the shared cursor, then retry the decrypt ONCE. If the app
+        // IS live, or recovery doesn't yield the key, fall back to the generic banner.
+        AppLog.log("🔔 [nse] local decrypt missed — attempting cold-key recovery")
+        let recovered = await coldKeyRecover(record: record, engine: engine)
+        guard recovered, let clear = try? engine.decrypt(eventJSON: cipherEvent, roomId: roomId) else {
+            AppLog.log("🔔 [nse] cold-key recovery did not yield the key — generic fallback")
             return nil
         }
-        return content
+        AppLog.log("🔔 [nse] cold-key recovery succeeded — decrypted after drain")
+        return banner(fromClear: clear)
+    }
+
+    /// Cleartext event JSON → banner content, or nil to keep the generic placeholder.
+    /// The builder drops tool transcripts + unknown types to the fallback (F.2.2
+    /// content mapping); a fallback result surfaces nil (keep the placeholder).
+    private static func banner(fromClear clear: String) -> NotificationContentBuilder.Content? {
+        let content = NotificationContentBuilder.build(fromClearEventJSON: clear)
+        return content == NotificationContentBuilder.fallback ? nil : content
     }
 
     // MARK: - Credentials
@@ -162,5 +175,127 @@ enum PushDecryptor {
         guard (200..<300).contains(status) else { throw FetchError.http(status) }
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { throw FetchError.empty }
         return text
+    }
+
+    // MARK: - Cold-key recovery (one-shot NORMAL sync — protocol F.2.1b)
+
+    /// Heartbeat staleness (s): a heartbeat older than this means the app isn't
+    /// live-syncing, so the NSE may drain (single-writer on the shared cursor).
+    private static let liveSyncThresholdSeconds: TimeInterval = 8
+    /// Hard wall-clock cap (s) on the whole recovery — the NSE has a short OS budget,
+    /// so a silent/slow gateway must never hang it; the watchdog cancels the socket.
+    private static let recoveryBudgetSeconds: TimeInterval = 10
+
+    /// True when the app is live-syncing (heartbeat fresh) — the NSE then MUST NOT
+    /// drain (the app owns cursor advancement and will deliver the key). A stale or
+    /// missing heartbeat → app suspended → NSE may drain.
+    private static func appIsLiveSyncing(userId: String) -> Bool {
+        let key = "chat4000.liveSyncHeartbeat.\(userId)"
+        guard let ts = (AppGroup.sharedDefaults ?? .standard).object(forKey: key) as? Double else { return false }
+        return Date().timeIntervalSince1970 - ts < liveSyncThresholdSeconds
+    }
+
+    private static func toDevicePosKey(_ userId: String) -> String { "chat4000.toDevicePos.\(userId)" }
+    private static func loadSharedToDevicePos(_ userId: String) -> String? {
+        (AppGroup.sharedDefaults ?? .standard).string(forKey: toDevicePosKey(userId))
+    }
+    private static func saveSharedToDevicePos(_ pos: String, _ userId: String) {
+        (AppGroup.sharedDefaults ?? .standard).set(pos, forKey: toDevicePosKey(userId))
+    }
+
+    /// One-shot NORMAL gateway sync to import cold keys into the shared store under
+    /// the flock (F.2.1b). Connects to the SAME `/ws` the app uses, auths, runs ONE
+    /// sync from the shared `to_device_pos` (the gateway injects the to-device
+    /// extension), imports the to-device keys via the SAME `CryptoEngine` (which
+    /// takes the F.2.3 flock), advances the shared cursor AFTER the import (anti-UTD),
+    /// and returns true iff it imported ≥1 to-device event. Best-effort: any failure
+    /// → false. Gated on the live-sync heartbeat so it never races the app's sync.
+    private static func coldKeyRecover(record: SharedCredentials.Record, engine: CryptoEngine) async -> Bool {
+        if appIsLiveSyncing(userId: record.userId) {
+            AppLog.log("🔔 [nse] app is live-syncing — skip cold-key drain, fall back")
+            return false
+        }
+        guard let wsURL = URL(string: record.gatewayURL) else { return false }
+
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.webSocketTask(with: wsURL)
+        task.resume()
+        // Watchdog: hard-cancel the socket after the budget so a silent/slow gateway
+        // can never hang the NSE to its OS deadline.
+        let watchdog = Task {
+            try? await Task.sleep(nanoseconds: UInt64(recoveryBudgetSeconds * 1_000_000_000))
+            task.cancel(with: .goingAway, reason: nil)
+        }
+        defer {
+            watchdog.cancel()
+            task.cancel(with: .goingAway, reason: nil)
+            session.invalidateAndCancel()
+        }
+
+        // auth → auth_ok
+        guard await send(task, authFrame(record)),
+              let auth = await receive(task), (auth["t"] as? String) == "auth_ok" else {
+            AppLog.log("🔔 [nse] cold-key sync: auth failed/timeout")
+            return false
+        }
+        // sync_start from the shared cursor — the gateway adds the to-device extension
+        // with `since` = our `to_device_pos`.
+        guard await send(task, syncStartFrame(record)) else { return false }
+
+        // Read frames until a `sync` arrives (ignore others); the watchdog bounds it.
+        while true {
+            guard let frame = await receive(task) else { return false }
+            guard (frame["t"] as? String) == "sync" else { continue }
+            let sync = SyncModel.parse(frame)
+            guard !sync.toDevice.isEmpty else {
+                AppLog.log("🔔 [nse] cold-key sync: 0 to-device events — nothing to import")
+                return false
+            }
+            do {
+                try engine.receiveSyncChangesIntoStore(sync)   // imports keys under the flock
+            } catch {
+                AppLog.log("🔔 [nse] cold-key import failed: %@", String(describing: error))
+                return false
+            }
+            // Advance the SHARED cursor ONLY after the keys are durably imported
+            // (anti-UTD): a crash before this re-delivers the batch, never loses it.
+            if let td = sync.toDevicePos { saveSharedToDevicePos(td, record.userId) }
+            AppLog.log("🔔 [nse] cold-key sync imported %d to-device event(s)", sync.toDevice.count)
+            return true
+        }
+    }
+
+    private static func authFrame(_ record: SharedCredentials.Record) -> [String: Any] {
+        var appId = Bundle.main.bundleIdentifier ?? "com.neonnode.chat94app"
+        if appId.hasSuffix(".nse") { appId = String(appId.dropLast(".nse".count)) }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        return [
+            "t": "auth", "access_token": record.accessToken, "app_id": appId,
+            "client_version": version, "platform": "ios", "release_channel": "production"
+        ]
+    }
+
+    private static func syncStartFrame(_ record: SharedCredentials.Record) -> [String: Any] {
+        var frame: [String: Any] = ["t": "sync_start", "body": ["lists": [String: Any]()]]
+        if let td = loadSharedToDevicePos(record.userId) { frame["to_device_pos"] = td }
+        return frame
+    }
+
+    private static func send(_ task: URLSessionWebSocketTask, _ frame: [String: Any]) async -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let text = String(data: data, encoding: .utf8) else { return false }
+        do { try await task.send(.string(text)); return true } catch { return false }
+    }
+
+    private static func receive(_ task: URLSessionWebSocketTask) async -> [String: Any]? {
+        guard let message = try? await task.receive() else { return nil }
+        let data: Data?
+        switch message {
+        case .string(let s): data = s.data(using: .utf8)
+        case .data(let d): data = d
+        @unknown default: data = nil
+        }
+        guard let data, let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return obj
     }
 }
