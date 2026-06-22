@@ -15,8 +15,14 @@
 	<true/>
 	<key>com.apple.security.device.camera</key>
 	<true/>
-	<key>com.apple.developer.devicecheck.appattest-environment</key>
-	<string>development</string>
+	<!--
+	  App Attest entitlement intentionally OMITTED on macOS: nothing in the app
+	  calls DCAppAttestService (it's iOS-only here), and this `com.apple.developer.*`
+	  capability is the ONE entitlement that forces a provisioning profile — which
+	  blocks headless Developer ID export of flavors with no cached profile (e.g. the
+	  dev mac flavors) with "No profiles … were found". Dropping it lets Developer ID
+	  export/notarize work profile-free. iOS keeps its own appattest entitlement.
+	-->
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
