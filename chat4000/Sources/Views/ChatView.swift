@@ -1644,13 +1644,23 @@ struct SetupProgressView: View {
 
             if stalled {
                 stalledFooter
-            } else if phase == .waitingForPlugin {
-                Text("Your plugin is setting things up. Make sure it's running on your computer.")
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textTimestamp)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
+            } else {
+                VStack(spacing: 8) {
+                    Text("This may take 1–2 minutes — please don't close the app or switch screens 🙏🏻")
+                        .font(AppFonts.caption)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if phase == .waitingForPlugin {
+                        Text("Your plugin is setting things up. Make sure it's running on your computer.")
+                            .font(AppFonts.caption)
+                            .foregroundStyle(AppColors.textTimestamp)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 4)
             }
         }
         .padding(.horizontal, 24)
