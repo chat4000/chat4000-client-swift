@@ -1787,6 +1787,7 @@
 				APP_APPATTEST_ENV = development;
 				APP_DISPLAY_NAME = chat4000;
 				APP_DISTRIBUTION_CHANNEL = dev;
+				APP_ENV = prod;
 				APP_GROUP_ID = group.com.neonnode.chat94app;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/chat4000Debug.entitlements;
@@ -1844,6 +1845,7 @@
 		7B34A7DFCC7471371722654D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_ENV = prod;
 				APP_GROUP_ID = group.com.neonnode.chat94app;
 				CODE_SIGN_ENTITLEMENTS = Resources/chat4000NSE.entitlements;
 				INFOPLIST_FILE = "Resources/Info-NSE.plist";
@@ -1862,6 +1864,7 @@
 		8EE05F1AF3157F89A9F5FB4B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_ENV = prod;
 				APP_GROUP_ID = group.com.neonnode.chat94app;
 				CODE_SIGN_ENTITLEMENTS = Resources/chat4000NSE.entitlements;
 				INFOPLIST_FILE = "Resources/Info-NSE.plist";
@@ -1932,6 +1935,7 @@
 				APP_APPATTEST_ENV = development;
 				APP_DISPLAY_NAME = chat4000;
 				APP_DISTRIBUTION_CHANNEL = dev;
+				APP_ENV = stage;
 				APP_KEYCHAIN_GROUP = com.neonnode.chat94app.shared;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -2024,6 +2028,7 @@
 				APP_APPATTEST_ENV = development;
 				APP_DISPLAY_NAME = chat4000;
 				APP_DISTRIBUTION_CHANNEL = dev;
+				APP_ENV = stage;
 				APP_KEYCHAIN_GROUP = com.neonnode.chat94app.shared;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -2090,6 +2095,7 @@
 				APP_APPATTEST_ENV = production;
 				APP_DISPLAY_NAME = chat4000;
 				APP_DISTRIBUTION_CHANNEL = appstore;
+				APP_ENV = prod;
 				APP_GROUP_ID = group.com.neonnode.chat94app;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/chat4000.entitlements;

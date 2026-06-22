@@ -289,14 +289,11 @@ final class TelemetryManager {
         ].merging(properties) { _, new in new }
     }
 
-    /// Explicit `dev` / `prod` tag attached to every PostHog event and the
-    /// person profile. Dev = a Debug build or a `.dev`-suffixed bundle id.
+    /// Explicit `dev` / `prod` tag attached to every PostHog event and the person
+    /// profile, from the per-flavor `APP_ENV` (via `MatrixEnvironment.isStage`):
+    /// stage flavors → `dev`, prod flavor → `prod`.
     static var appEnvironmentTag: String {
-        #if DEBUG
-        return "dev"
-        #else
-        return (Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true) ? "dev" : "prod"
-        #endif
+        MatrixEnvironment.isStage ? "dev" : "prod"
     }
 
     private static var sentryEnvironment: String {

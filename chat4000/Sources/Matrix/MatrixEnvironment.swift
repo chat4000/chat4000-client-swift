@@ -17,14 +17,14 @@ struct MatrixEnvironment {
     /// so the value we send is ignored — but the field is required.
     let notificationPushURL = "https://notification.invalid/_matrix/push/v1/notify"
 
-    /// Stage vs Production. Matches `TelemetryManager`'s dev tag: a Debug build
-    /// or a `.dev`-suffixed bundle id → Stage; everything else → Production.
+    /// Stage vs Production, from the per-flavor `APP_ENV` build setting (surfaced
+    /// via Info.plist). `prod` → Production; anything else (incl. missing) → Stage,
+    /// so a misconfigured build can never accidentally point at prod. Replaces the
+    /// old Debug/`.dev`-suffix heuristic, which broke for the `.dev.hermes` /
+    /// `.dev.openclaw` flavor bundle ids (they don't end in `.dev`) and couldn't
+    /// express a dev-signed build that targets prod.
     static var isStage: Bool {
-        #if DEBUG
-        return true
-        #else
-        return Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true
-        #endif
+        (Bundle.main.infoDictionary?["APP_ENV"] as? String) != "prod"
     }
 
     static var current: MatrixEnvironment {

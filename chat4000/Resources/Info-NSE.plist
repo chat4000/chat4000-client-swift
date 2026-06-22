@@ -27,5 +27,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).NotificationService</string>
 	</dict>
+	<key>APP_ENV</key>
+	<string>$(APP_ENV)</string>
 </dict>
 </plist>

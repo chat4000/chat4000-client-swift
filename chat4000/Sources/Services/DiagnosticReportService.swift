@@ -307,7 +307,9 @@ final class DiagnosticReportService {
         // can statically. Live URLSession probes are too slow for a
         // user-facing tap.
         return [
-            "default_relay_url": "wss://relay.chat4000.com/ws"
+            // v2 talks to the registrar (and the per-pair gateway WS); the v1 relay
+            // is gone. Report the registrar base so diagnostics show the backend env.
+            "registrar_url": MatrixEnvironment.current.registrarBaseURL
             // Sandbox blocks reading the system DNS resolvers list, so
             // we leave network probing to the sample we pulled from the
             // user's machine via `diagnose.py` historically.

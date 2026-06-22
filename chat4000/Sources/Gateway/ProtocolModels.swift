@@ -6,19 +6,6 @@ import UIKit
 import AppKit
 #endif
 
-// MARK: - Protocol Constants
-
-enum RelayProtocol {
-    static let version = 1
-    static let maxMessageSize = 4 * 1024 * 1024
-    /// Application-layer ping cadence. 25s keeps the relay's 60s idle-ping
-    /// timeout from ever firing under normal conditions and stops macOS App
-    /// Nap from suspending the receive loop because there is regular outbound
-    /// activity.
-    static let heartbeatIntervalSecs: TimeInterval = 25
-    static let defaultRelayURL = "wss://relay.chat4000.com/ws"
-}
-
 // MARK: - Inner Message Types (plaintext inside encrypted msg)
 
 /// Type discriminator for inner messages (inside the encrypted blob).

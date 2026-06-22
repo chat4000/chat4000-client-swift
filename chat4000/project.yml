@@ -43,6 +43,10 @@ settings:
     APP_DISTRIBUTION_CHANNEL: dev
     APP_APNS_ENV: development
     APP_APPATTEST_ENV: development
+    # Backend environment (stage/prod), read at runtime via Info.plist by
+    # MatrixEnvironment.isStage. Default stage; the prod flavor(s) override to prod.
+    # NOT coupled to Debug/Release, so a dev-signed build can target prod.
+    APP_ENV: stage
     # F.2.4: per-flavor shared keychain access group (the bundle-id-bare form;
     # the `$(AppIdentifierPrefix)` team prefix is prepended in the entitlements).
     # Default is the App Store flavor's group; the dev flavors override it below
@@ -154,6 +158,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
         APP_DISPLAY_NAME: chat4000
+        # The prod flavor → prod backend (registrar.chat4000.com), for BOTH configs:
+        # a Debug build is a dev-signed deployable prod build, Release is the store.
+        APP_ENV: prod
         # F2 (protocol F.2.4): per-flavor App Group. The App Store flavor's base
         # bundle id → its own group; the NSE strips its `.nse` suffix to join the
         # SAME group (see Sources/Shared/AppGroup.swift).
@@ -277,6 +284,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.nse
         APP_GROUP_ID: group.com.neonnode.chat94app
+        # Match the prod app so the NSE's env matches (F.2.1b cold-key sync).
+        APP_ENV: prod
 
   # F2: the Hermes dev flavor's NSE. Bundle `…dev.hermes.nse` (strips `.nse` to
   # rejoin its app's group), Hermes dev App Group.
