@@ -14,7 +14,22 @@ import Security
 /// - First-launch classifier (IDN3): comparing which of the two markers is present
 ///   yields exactly one of `app_installed` / `app_reinstalled` / `device_swapped`.
 enum ClientIdentity {
-    private static let keychainService = "com.neonnode.chat4000.analytics"
+    /// Keychain service. On macOS it is namespaced PER FLAVOR (by bundle id) so
+    /// prod / Hermes / OpenClaw never share one item. The macOS *file* keychain
+    /// ACL-locks each item to the CREATING app's code signature, so a SHARED item
+    /// read by another flavor popped the "<app> wants to use your confidential
+    /// information stored in com.neonnode.chat4000.analytics" dialog. Per-flavor
+    /// names mean each flavor only ever touches the item it created itself → no
+    /// cross-flavor prompt. iOS keeps the bare name: its keychain already isolates
+    /// items per app (default access group) and never shows this dialog, so
+    /// renaming there would only reset existing installs' ids for no benefit.
+    private static let keychainService: String = {
+        let base = "com.neonnode.chat4000.analytics"
+        #if os(macOS)
+        if let bundleId = Bundle.main.bundleIdentifier { return base + "." + bundleId }
+        #endif
+        return base
+    }()
     private static let keychainAccount = "client_id"
     private static let appDeviceIdKey = "chat4000.analytics.appDeviceId"
 

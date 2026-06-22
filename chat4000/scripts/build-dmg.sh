@@ -83,6 +83,14 @@ if [ -z "${VERSION:-}" ]; then
 fi
 VERSION="${VERSION:-0.0.0}"
 
+# Optional: build a specific version without editing project.yml (e.g. cutting a
+# 1.1.1 update DMG while the project baseline stays 1.1.0). Forces the archived
+# app's MARKETING_VERSION too, so the DMG, its name, and CFBundleShortVersionString
+# all agree.
+if [ -n "${VERSION_OVERRIDE:-}" ]; then
+    VERSION="$VERSION_OVERRIDE"
+fi
+
 echo "==> Archiving $SCHEME ($VERSION) for Release..."
 xcodebuild archive \
     -project "$PROJECT_PATH" \
@@ -90,6 +98,7 @@ xcodebuild archive \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
+    MARKETING_VERSION="$VERSION" \
     | xcbeautify 2>/dev/null || true
 
 if [ ! -d "$ARCHIVE_PATH" ]; then
