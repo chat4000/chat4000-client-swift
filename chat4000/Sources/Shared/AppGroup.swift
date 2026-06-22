@@ -17,10 +17,11 @@ import Security
 // PER-FLAVOR (F.2.4 "Per-flavor App Groups"): the dev build and the App Store
 // build use SEPARATE App Group identifiers so a dev build and a shipped build
 // never share one crypto store. The id is derived from the running bundle id:
-//   • App Store app  com.neonnode.chat94app       → group.com.neonnode.chat94app
-//   • Dev app        com.neonnode.chat94app.dev   → group.com.neonnode.chat94app.dev
-//   • App Store NSE  com.neonnode.chat94app.nse       → group.com.neonnode.chat94app
-//   • Dev NSE        com.neonnode.chat94app.dev.nse   → group.com.neonnode.chat94app.dev
+//   • App Store app   com.neonnode.chat94app                → group.com.neonnode.chat94app
+//   • Hermes dev app  com.neonnode.chat94app.dev.hermes     → group.com.neonnode.chat94app.dev.hermes
+//   • OpenClaw dev    com.neonnode.chat94app.dev.openclaw   → group.com.neonnode.chat94app.dev.openclaw
+//   • App Store NSE   com.neonnode.chat94app.nse            → group.com.neonnode.chat94app
+//   • Hermes dev NSE  com.neonnode.chat94app.dev.hermes.nse → group.com.neonnode.chat94app.dev.hermes
 // i.e. the NSE strips its `.nse` suffix to land in the SAME group as its app.
 //
 // This type hardcodes NOTHING about which target it runs in — it reads
@@ -44,20 +45,30 @@ enum AppGroup {
     private static let baseBundleId = "com.neonnode.chat94app"
 
     /// The shared keychain access group (F.2.3 "shared keychain"), FULLY QUALIFIED
-    /// as `<AppIdentifierPrefix>com.neonnode.chat94app.shared`. iOS keychain
-    /// REQUIRES the team-id prefix on `kSecAttrAccessGroup`: the bare group is not
-    /// an entitled access group, so `SecItem*` fail with errSecMissingEntitlement —
+    /// as `<AppIdentifierPrefix><flavor bundle id>.shared`. iOS keychain REQUIRES
+    /// the team-id prefix on `kSecAttrAccessGroup`: the bare group is not an
+    /// entitled access group, so `SecItem*` fail with errSecMissingEntitlement —
     /// which silently broke NSE credential sharing (the NSE saw "no shared
     /// credentials" and fell back to the generic banner). The prefix is derived
     /// ONCE at runtime from a throwaway keychain probe (computed by this `let`),
     /// falling back to the bare group only if the probe fails.
+    ///
+    /// PER-FLAVOR (F.2.4): the bare group is derived from the running flavor's
+    /// bundle id (the NSE strips its `.nse` suffix to match its app — same rule as
+    /// the App Group), so each flavor — App Store, Hermes dev, OpenClaw dev — has
+    /// its OWN shared keychain group and they never read each other's
+    /// `SharedCredentials`. The App Store flavor resolves to the historical
+    /// `com.neonnode.chat94app.shared`, so shipped installs are unaffected. This
+    /// MUST equal the target's `APP_KEYCHAIN_GROUP` build setting (the entitlement).
     static let keychainAccessGroup: String = {
-        let bare = "\(baseBundleId).shared"
         #if os(iOS)
+        let bare = "\(flavorBundleId).shared"
         guard let prefix = keychainTeamPrefix() else { return bare }
         return prefix + bare
         #else
-        return bare
+        // macOS: single process, no NSE, no keychain-access-group entitlement —
+        // keep the base group (unprefixed).
+        return "\(baseBundleId).shared"
         #endif
     }()
 

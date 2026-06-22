@@ -61,6 +61,14 @@ settings:
     APP_DISTRIBUTION_CHANNEL: dev
     APP_APNS_ENV: development
     APP_APPATTEST_ENV: development
+    # F.2.4: per-flavor shared keychain access group (the bundle-id-bare form;
+    # the `$(AppIdentifierPrefix)` team prefix is prepended in the entitlements).
+    # Default is the App Store flavor's group; the dev flavors override it below
+    # so a Hermes dev build and an OpenClaw dev build never read each other's
+    # SharedCredentials. An app and its NSE MUST carry the SAME value (they share
+    # the store) — that's why it's set explicitly per concrete target, not derived
+    # from PRODUCT_BUNDLE_IDENTIFIER (the NSE's id has a `.nse` suffix).
+    APP_KEYCHAIN_GROUP: com.neonnode.chat94app.shared
 
 targetTemplates:
   iOSApp:
@@ -207,6 +215,9 @@ targets:
         # a crypto store with the OpenClaw dev flavor or a shipped build. Must equal
         # group.<bundle id> — AppGroup.swift derives the group from the bundle id.
         APP_GROUP_ID: group.com.neonnode.chat94app.dev.hermes
+        # F.2.4: this flavor's SEPARATE shared keychain group (its NSE carries the
+        # same value) so SharedCredentials never collide with the OpenClaw flavor.
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.hermes.shared
     # F2: embed this flavor's NSE.
     dependencies:
       - target: chat4000NSEDevHermes
@@ -232,6 +243,8 @@ targets:
         # F2 (protocol F.2.4): this flavor's SEPARATE App Group. Must equal
         # group.<bundle id> (see AppGroup.swift).
         APP_GROUP_ID: group.com.neonnode.chat94app.dev.openclaw
+        # F.2.4: this flavor's SEPARATE shared keychain group (its NSE matches).
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.openclaw.shared
     # F2: embed this flavor's NSE.
     dependencies:
       - target: chat4000NSEDevOpenclaw
@@ -297,6 +310,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.hermes.nse
         APP_GROUP_ID: group.com.neonnode.chat94app.dev.hermes
+        # Same shared keychain group as its app (Hermes dev) — F.2.4.
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.hermes.shared
 
   # F2: the OpenClaw dev flavor's NSE. Bundle `…dev.openclaw.nse`, OpenClaw dev
   # App Group.
@@ -306,6 +321,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.openclaw.nse
         APP_GROUP_ID: group.com.neonnode.chat94app.dev.openclaw
+        # Same shared keychain group as its app (OpenClaw dev) — F.2.4.
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.openclaw.shared
 
   chat4000Tests:
     type: bundle.unit-test
