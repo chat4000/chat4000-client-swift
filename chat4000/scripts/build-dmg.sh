@@ -23,15 +23,19 @@
 #   chat4000/scripts/build-dmg.sh                 # full pipeline (sign + notarize + staple)
 #   chat4000/scripts/build-dmg.sh --no-notarize   # skip Apple notarization (fast local test)
 #
+# Builds the PROD macOS flavor (chat4000macprod → bundle com.neonnode.chat94app,
+# the App-Store-free Developer-ID distribution build). Override SCHEME for a
+# different flavor.
+#
 # Environment overrides (rarely needed):
 #   TEAM_ID         Apple Developer team. Default: H45JD827CU
-#   SCHEME          Xcode scheme.        Default: chat4000mac
+#   SCHEME          Xcode scheme.        Default: chat4000macprod
 #   NOTARY_PROFILE  Keychain profile.    Default: chat4000-notary
 
 set -euo pipefail
 
 TEAM_ID="${TEAM_ID:-H45JD827CU}"
-SCHEME="${SCHEME:-chat4000mac}"
+SCHEME="${SCHEME:-chat4000macprod}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-chat4000-notary}"
 SKIP_NOTARIZE=0
 
