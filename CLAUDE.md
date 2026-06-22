@@ -1,5 +1,41 @@
 # clawconnect-client-swift — agent notes
 
+## Deploying to iPhone — ALWAYS install every dev target after a push
+
+This is an iPhone project. Whenever you push a change, you ALSO deploy it to the
+connected iPhone — don't stop at the commit. Deploy is part of "done", not a
+separate step the user has to ask for. And deploy **ALL** the iOS build targets,
+not just the one you happened to touch: today that's both dev flavors —
+`chat4000iphonedevhermes` and `chat4000iphonedevopenclaw` — so the user always
+has every flavor on-device and current. If new iOS app targets are added, deploy
+those too.
+
+Standing, pre-authorized: building + installing the iOS app to the user's own
+connected device needs no extra yes.
+
+How (build for the device, then `devicectl install` each `.app`):
+
+```
+UDID="$(xcrun devicectl list devices 2>/dev/null | awk '/connected/{print $3; exit}')"
+cd /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000
+for S in chat4000iphonedevhermes chat4000iphonedevopenclaw; do
+  xcodebuild -project chat4000.xcodeproj -scheme "$S" \
+    -destination "id=$UDID" -derivedDataPath build/dd-deploy build
+done
+D=build/dd-deploy/Build/Products/Debug-iphoneos
+for APP in chat4000iphonedevhermes.app chat4000iphonedevopenclaw.app; do
+  xcrun devicectl device install app --device "$UDID" "$D/$APP"
+done
+```
+
+Notes:
+- Get the live UDID from `xcrun devicectl list devices` (pick the `connected`
+  row) — don't hardcode it; the user has more than one device registered.
+- A locked phone can block install/launch — if install fails for that reason,
+  say so (per the XcodeBuildMCP notes: build → install, don't fight the lock).
+- This is the iOS analogue of the macOS "/Applications" rule below: a build the
+  user can't launch on their real device is not deployed.
+
 ## Deploying the macOS app — ALWAYS copy the build into /Applications
 
 The macOS app the user actually launches (Spotlight, Dock, the Cmd+Shift+2
