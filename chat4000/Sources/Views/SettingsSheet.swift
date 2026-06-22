@@ -27,7 +27,6 @@ struct SettingsSheet: View {
     /// no-op). The macOS overlay also dismisses on an outside click.
     var onClose: () -> Void = {}
 
-    @State private var showClearConfirmation = false
     @State private var sentryResultMessage: String?
     @State private var showSentryResult = false
     @State private var addDeviceTapCount = 0
@@ -81,7 +80,6 @@ struct SettingsSheet: View {
                 VStack(spacing: 20) {
                     deviceSection
                     telemetrySection
-                    feedbackSection
 
                     // TEMPORARY — confetti comparison harness. Delete this button +
                     // the cover + ConfettiLab.swift + the 3 SPM packages once picked.
@@ -149,20 +147,6 @@ struct SettingsSheet: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
 
-                    Button {
-                        showClearConfirmation = true
-                    } label: {
-                        Text("Clear Chat History")
-                            .font(AppFonts.button)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-
                     VStack(spacing: 12) {
                         Text("Need help, or just want to say hi?")
                             .font(AppFonts.caption)
@@ -202,19 +186,6 @@ struct SettingsSheet: View {
         }
         .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .confirmationDialog(
-            "Clear all messages?",
-            isPresented: $showClearConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Clear", role: .destructive) {
-                onClearHistory()
-                onClose()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This cannot be undone.")
-        }
         .confirmationDialog(
             "Sentry",
             isPresented: $showSentryResult
@@ -290,49 +261,6 @@ struct SettingsSheet: View {
                 RoundedRectangle(cornerRadius: AppRadius.input)
                     .stroke(AppColors.inputBorder, lineWidth: 1)
             )
-        }
-    }
-
-    /// Discoverable, shippable preview of the celebratory haptic that fires when a
-    /// new session is created (so the user can find + feel it without creating a
-    /// session). Tapping the row plays the real `Haptics.celebrate()` pattern.
-    private var feedbackSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Feedback")
-                .font(AppFonts.sectionTitle)
-                .foregroundStyle(AppColors.textSecondary)
-
-            Button {
-                Haptics.celebrate()
-            } label: {
-                HStack(spacing: 12) {
-                    Text("✨")
-                        .font(.system(size: 18))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Celebration haptic")
-                            .font(AppFonts.label)
-                            .foregroundStyle(AppColors.textPrimary)
-                        Text("Plays when a new session is created — tap to feel it.")
-                            .font(AppFonts.caption)
-                            .foregroundStyle(AppColors.textSecondary)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(AppColors.textSecondary)
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppColors.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.input))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppRadius.input)
-                        .stroke(AppColors.inputBorder, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
         }
     }
 
