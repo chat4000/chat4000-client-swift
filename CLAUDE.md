@@ -9,8 +9,8 @@ EVERY user-runnable flavor the change touches, across BOTH platforms:
 
 1. **Both iOS dev flavors** → install to the connected iPhone:
    `chat4000iphonedevhermes` and `chat4000iphonedevopenclaw`.
-2. **The macOS app** → build `chat4000mac` and copy it into
-   `/Applications/chat4000.app`, then relaunch (see the macOS section below).
+2. **The macOS app** → build the 3 mac flavors and copy each into its
+   `/Applications` path, then relaunch (see the macOS section below).
 
 Because the Sources tree is shared, almost any change compiles into the macOS app
 too — so redeploying macOS is the DEFAULT, not an afterthought. The only time you
@@ -51,29 +51,42 @@ Notes:
 - This is the iOS analogue of the macOS "/Applications" rule below: a build the
   user can't launch on their real device is not deployed.
 
-## Deploying the macOS app — ALWAYS copy the build into /Applications
+## Deploying the macOS app — ALWAYS copy the builds into /Applications
 
-The macOS app the user actually launches (Spotlight, Dock, the Cmd+Shift+2
-hotkey — everything LaunchServices resolves) is `/Applications/chat4000.app`.
-`xcodebuild` only writes to DerivedData; `open`-ing that DerivedData bundle by
-path runs a DIFFERENT binary than the user's normal launch target, even though
-both share bundle id `com.neonnode.chat94app` and the same version — so the user
-never sees your changes through their normal launch.
+macOS has THREE flavors (mirroring iPhone), each a distinct bundle id +
+PRODUCT_NAME so all three coexist in `/Applications`:
 
-Therefore: every time you build the macOS app (`chat4000mac` scheme), copy the
-result into `/Applications/chat4000.app` and relaunch from there. This is a
-standing, pre-authorized write to `/Applications` for THIS bundle only.
+  • `chat4000macdevhermes`   → `/Applications/chat4000-hermes.app`   (stage — the DAILY driver)
+  • `chat4000macdevopenclaw` → `/Applications/chat4000-openclaw.app` (stage)
+  • `chat4000macprod`        → `/Applications/chat4000.app`          (prod; bundle `com.neonnode.chat94app`)
+
+The flavor is set by the per-target `APP_ENV` build setting (stage/prod), read at
+runtime via Info.plist — NOT Debug/Release. The app the user launches (Spotlight,
+Dock, hotkey — everything LaunchServices resolves) is the copy in `/Applications`;
+`xcodebuild` only writes to DerivedData, and `open`-ing the DerivedData bundle runs
+a DIFFERENT binary than the normal launch target. So every time you build a mac
+flavor, copy it into its `/Applications` path and relaunch. Standing, pre-authorized
+write to `/Applications` for these bundles.
+
+The dev flavors (`…dev.hermes` / `…dev.openclaw`) need `-allowProvisioningUpdates`
+— their macOS profiles are created on demand; that step fails with "No Accounts"
+only when Xcode isn't open with the developer account signed in. `chat4000macprod`
+already has a cached profile.
 
 ```
+S=chat4000macdevhermes; APPNAME=chat4000-hermes   # or macdevopenclaw/chat4000-openclaw, or macprod/chat4000
 xcodebuild -project /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000/chat4000.xcodeproj \
-  -scheme chat4000mac -destination 'platform=macOS' build
-APP="$(xcodebuild -project /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000/chat4000.xcodeproj \
-  -scheme chat4000mac -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{d=$2} /WRAPPER_NAME/{w=$2} END{print d"/"w}')"
-pkill -x chat4000; sleep 1
-rm -rf /Applications/chat4000.app
-cp -R "$APP" /Applications/chat4000.app
-open /Applications/chat4000.app
+  -scheme "$S" -destination 'platform=macOS' -allowProvisioningUpdates \
+  -derivedDataPath "/tmp/c4k-mac-$APPNAME" build
+osascript -e 'tell application "chat4000" to quit' 2>/dev/null; pkill -x "$APPNAME"; sleep 1
+rm -rf "/Applications/$APPNAME.app"
+cp -R "/tmp/c4k-mac-$APPNAME/Build/Products/Debug/$APPNAME.app" "/Applications/$APPNAME.app"
+open "/Applications/$APPNAME.app"
 ```
+
+NOTE: `chat4000.app` is now PROD (it can't pair without a prod bot). The user's
+daily Mac is `chat4000-hermes.app` (stage). Never overwrite `/Applications` with
+a prod build before the stage flavor is built+ready, or you strand the daily app.
 
 ## Reading the iOS app's logs off the device
 
