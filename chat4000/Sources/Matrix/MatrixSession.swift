@@ -2028,17 +2028,41 @@ final class MatrixSession {
     /// of truth: we resend it on reconnect so un-acked Olm-wrapped Megolm keys are
     /// re-delivered rather than deleted before they were saved.
     private static func toDevicePosKey(_ userId: String?) -> String { "chat4000.toDevicePos.\(userId ?? "")" }
+
+    /// Where the TO-DEVICE cursor is stored. Protocol F.2.1b / D ("Two drainers, one
+    /// shared to-device cursor"): on iOS the app and its NSE both advance this cursor,
+    /// so it MUST live in the **shared App-Group** suite — not app-local — or the two
+    /// processes diverge. Falls back to `.standard` on macOS (no App Group, no NSE)
+    /// and if the suite can't be opened, preserving pre-F2 single-process behavior.
+    /// (The room `pos` stays app-local: the NSE never touches the timeline cursor.)
+    private static var toDeviceDefaults: UserDefaults { AppGroup.sharedDefaults ?? .standard }
+
     private static func saveToDevicePos(_ pos: String, userId: String?) {
-        UserDefaults.standard.set(pos, forKey: toDevicePosKey(userId))
+        toDeviceDefaults.set(pos, forKey: toDevicePosKey(userId))
     }
     private static func loadToDevicePos(userId: String) -> String? {
-        UserDefaults.standard.string(forKey: toDevicePosKey(userId))
+        let key = toDevicePosKey(userId)
+        let store = toDeviceDefaults
+        if let v = store.string(forKey: key) { return v }
+        // One-time migration: if the cursor lived in app-local `.standard` (pre-F2)
+        // and the shared suite doesn't have it yet, adopt the local value — so moving
+        // the cursor to shared storage never re-syncs from scratch (which would drop
+        // the device_lists delta — protocol D) or lose the to-device position.
+        if store !== UserDefaults.standard, let legacy = UserDefaults.standard.string(forKey: key) {
+            store.set(legacy, forKey: key)
+            return legacy
+        }
+        return nil
     }
     /// Discard the durable to-device cursor. Only used when a `sync_reset` EXPLICITLY
     /// names `to_device_pos` — never for a `pos_expired` reset, which leaves the
     /// to-device stream (and its Megolm keys) untouched (protocol D.2).
     private static func clearToDevicePos(userId: String?) {
-        UserDefaults.standard.removeObject(forKey: toDevicePosKey(userId))
+        toDeviceDefaults.removeObject(forKey: toDevicePosKey(userId))
+        // Also clear any stale app-local copy so a later read can't resurrect it.
+        if AppGroup.sharedDefaults != nil {
+            UserDefaults.standard.removeObject(forKey: toDevicePosKey(userId))
+        }
     }
 
     /// Map a `sync_reset` frame's named cursors (protocol D.1/D.2) to the durable

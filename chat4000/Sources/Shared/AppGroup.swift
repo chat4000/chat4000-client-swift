@@ -111,6 +111,20 @@ enum AppGroup {
     }
     #endif
 
+    /// The shared App-Group `UserDefaults` suite (F.2.4) — where the **to-device
+    /// cursor** and the **live-sync heartbeat** live so the app and the NSE agree on
+    /// them (protocol F.2.1b / D "Two drainers, one shared to-device cursor"). iOS
+    /// only; nil on macOS (no App Group) and if the suite can't be opened, so callers
+    /// fall back to `UserDefaults.standard` (app-local), preserving pre-F2 behavior.
+    static var sharedDefaults: UserDefaults? {
+        #if os(iOS)
+        guard let identifier else { return nil }
+        return UserDefaults(suiteName: identifier)
+        #else
+        return nil
+        #endif
+    }
+
     /// The shared App-Group container directory, or nil when the App Group is
     /// unavailable. On macOS this is ALWAYS nil (no App Group — see the file
     /// header), so the Mac app never touches a Group Container. On iOS it is nil
