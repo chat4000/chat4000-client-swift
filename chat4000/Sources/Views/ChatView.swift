@@ -82,7 +82,6 @@ struct ChatView: View {
                 pluginVersion: nil,
                 pluginBundleId: nil,
                 onDisconnect: viewModel.disconnectTapped,
-                onClearHistory: viewModel.clearHistory,
                 onClose: { showSettings = false }
             )
             .presentationDetents([.fraction(0.75)])
@@ -1433,11 +1432,6 @@ final class ChatViewModel {
         front.sendAudio(data: audioData, mimeType: mimeType, duration: duration, waveform: waveform, source: source)
     }
 
-    func clearHistory() {
-        frontRoom?.clearHistory()
-        TelemetryManager.shared.track(.clearHistoryConfirmed,  // CL13
-                                      properties: ["session_count": matrixSession.rooms.count])
-    }
 }
 
 #if os(iOS)

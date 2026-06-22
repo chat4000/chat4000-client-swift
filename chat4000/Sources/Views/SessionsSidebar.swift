@@ -142,7 +142,6 @@ struct ChatShell: View {
                     pluginVersion: nil,
                     pluginBundleId: nil,
                     onDisconnect: viewModel.disconnectTapped,
-                    onClearHistory: viewModel.clearHistory,
                     onClose: { showSettings = false }
                 )
                 .frame(width: 520, height: 680)

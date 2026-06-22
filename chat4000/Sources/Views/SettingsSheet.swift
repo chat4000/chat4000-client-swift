@@ -17,7 +17,6 @@ struct SettingsSheet: View {
     let pluginVersion: String?
     let pluginBundleId: String?
     var onDisconnect: () -> Void
-    var onClearHistory: () -> Void
     /// Optional: ask the paired plugin to update itself (protocol E). Any
     /// control-room member may run it — there's no separate owner role; the
     /// plugin gates on control-room membership. Fire-and-forget.
@@ -739,8 +738,7 @@ struct PairingQRCode: View {
         matrixSession: MatrixSession(),
         pluginVersion: "0.1.0",
         pluginBundleId: "@chat4000/openclaw-plugin",
-        onDisconnect: {},
-        onClearHistory: {}
+        onDisconnect: {}
     )
     .background(AppColors.cardBackground)
 }

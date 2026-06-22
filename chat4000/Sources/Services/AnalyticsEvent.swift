@@ -48,7 +48,8 @@ enum AnalyticsEvent: String {
     case sessionUnpinned = "session_unpinned"    // CL11
     case sessionMuted = "session_muted"          // CL12
     case sessionUnmuted = "session_unmuted"      // CL12
-    case clearHistoryConfirmed = "clear_history_confirmed" // CL13
+    // CL13 clear_history_confirmed REMOVED 2026-06-22 — the "Clear Chat History"
+    // button was removed from Settings; ID retained in the registry, not reused.
     case disconnectTapped = "disconnect_tapped"  // CL14  churn signal
     case fullSyncTriggered = "full_sync_triggered" // CL15
     case notificationDisplayed = "notification_displayed"  // CL16
