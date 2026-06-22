@@ -241,10 +241,11 @@ final class GatewayClient: GatewayRequesting {
     }
 
     /// Build the `sync_ack` frame (protocol D.1). Pure + `nonisolated` so the
-    /// two-cursor wire contract is unit-testable. `to_device_pos` is included only
-    /// when the caller has one on durable storage (carried forward on frames with
-    /// no to-device section); absent leaves the gateway's to-device cursor
-    /// unchanged.
+    /// two-cursor wire contract is unit-testable. `to_device_pos` is ECHO-EXACT:
+    /// the caller passes the acked frame's own `to_device_pos` (present iff that
+    /// frame carried a to-device section), NEVER a carried-forward earlier value
+    /// — the gateway validates the echo and closes with `bad_sync_ack` on a
+    /// mismatch. Absent leaves the gateway's to-device cursor unchanged.
     nonisolated static func syncAckFrame(pos: String, toDevicePos: String?) -> [String: Any] {
         var frame: [String: Any] = ["t": "sync_ack", "pos": pos]
         if let toDevicePos { frame["to_device_pos"] = toDevicePos }

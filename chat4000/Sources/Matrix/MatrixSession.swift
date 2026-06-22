@@ -247,8 +247,10 @@ final class MatrixSession {
     @ObservationIgnored private var reconnectAttempts = 0
     /// Protocol D.1 two-cursor sliding sync: the last to-device cursor we have
     /// DURABLY persisted (alongside its keys). Carried forward and re-sent in
-    /// every `sync_ack`, and re-sent in `sync_start` on reconnect. nil until the
-    /// first to-device batch is durably persisted.
+    /// `sync_start` on reconnect (the resume case). It is NOT what a `sync_ack`
+    /// carries — the ack echoes the acked frame's `to_device_pos` exactly (never
+    /// this carried-forward value). nil until the first to-device batch is
+    /// durably persisted.
     @ObservationIgnored private var lastToDevicePos: String?
     @ObservationIgnored private var pushTokenObserver: NSObjectProtocol?
 
@@ -834,14 +836,15 @@ final class MatrixSession {
         // gateway holds the cursors until this arrives — without it, sync never
         // advances and no new messages are delivered.
         if let pos = sync.pos {
-            // Resolve the to-device cursor to persist + ack: advance to this
-            // frame's `to_device_pos` ONLY if its keys were durably persisted;
-            // otherwise carry the last good value forward (a frame with no
-            // to-device section, or one whose crypto persist failed, must not
-            // advance the cursor past unsaved keys). Persist to durable storage
-            // AFTER the crypto-store write above, then ack — never before, so a
-            // crash can only ever lose the cursor (→ harmless re-delivery), never
-            // ack keys that aren't saved.
+            // Resolve the to-device cursor to persist: advance to this frame's
+            // `to_device_pos` ONLY if its keys were durably persisted; otherwise
+            // carry the last good value forward (a frame with no to-device
+            // section, or one whose crypto persist failed, must not advance the
+            // DURABLE cursor past unsaved keys). Persist to durable storage AFTER
+            // the crypto-store write above, then ack — never before, so a crash
+            // can only ever lose the cursor (→ harmless re-delivery), never
+            // persist a cursor ahead of keys that aren't saved. This carried-
+            // forward durable value is what `sync_start` resends on reconnect.
             let nextToDevicePos = Self.resolveToDevicePos(
                 cryptoPersisted: cryptoPersisted, frame: sync.toDevicePos, last: lastToDevicePos)
             if let nextToDevicePos, nextToDevicePos != lastToDevicePos {
@@ -849,7 +852,19 @@ final class MatrixSession {
             }
             lastToDevicePos = nextToDevicePos
             Self.saveSyncPos(pos, userId: userId)
-            gateway?.syncAck(pos: pos, toDevicePos: lastToDevicePos)
+            // The `sync_ack` to-device cursor is ECHO-EXACT (protocol D.1, "Device
+            // rules"): it echoes THIS frame's `to_device_pos` exactly — present
+            // iff the frame carried a to-device section, omitted otherwise — and
+            // NEVER carries a previous durable value forward (the gateway
+            // validates the echo against the cursor it sent and closes the socket
+            // with `bad_sync_ack` on any mismatch). The carry-forward of the
+            // durable cursor above is for `sync_start` resume ONLY, never the ack.
+            // The "never ack a to-device cursor before its keys are durably saved"
+            // rule still holds: if crypto failed to persist this frame's keys we
+            // omit the echo (do not ack the cursor) and let the homeserver
+            // re-deliver next sync.
+            let ackToDevicePos = cryptoPersisted ? sync.toDevicePos : nil
+            gateway?.syncAck(pos: pos, toDevicePos: ackToDevicePos)
         }
         resumeSyncWaiters()
     }
