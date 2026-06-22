@@ -70,6 +70,11 @@ struct chat4000App: App {
         PushNotificationManager.shared.backgroundWakeHandler = { @MainActor in
             await initialViewModel.backgroundWake()
         }
+        // Notification TAP → open the tapped room (F). Routed through the live
+        // session, which opens immediately if loaded or defers to the next sync.
+        PushNotificationManager.shared.openRoomHandler = { @MainActor roomId in
+            initialViewModel.matrixSession.openRoomFromPush(roomId)
+        }
         PushNotificationManager.shared.clearBadge()
 
         TelemetryManager.shared.configure(from: Self.loadDevConfig())

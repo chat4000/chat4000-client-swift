@@ -12,7 +12,7 @@ final class PushNotificationManager: NSObject {
     static let shared = PushNotificationManager()
     static let deviceTokenDidChangeNotification = Notification.Name("chat4000.PushDeviceTokenDidChange")
     static let founderChatPromptRequested = Notification.Name("chat4000.FounderChatPromptRequested")
-    private static let roomNotificationUserInfoKeys = ["room_id", "roomId", "matrix_room_id"]
+    private nonisolated static let roomNotificationUserInfoKeys = ["room_id", "roomId", "matrix_room_id"]
     private static let eventNotificationUserInfoKey = "event_id"
 
     private let tokenDefaultsKey = "chat4000.PushDeviceToken"
@@ -20,6 +20,10 @@ final class PushNotificationManager: NSObject {
     /// Set by the app to drain queued messages on a silent push. MainActor-
     /// isolated so it can reach the live `MatrixSession`.
     var backgroundWakeHandler: (@MainActor () async -> Bool)?
+
+    /// Set by the app to OPEN a room when a message notification is tapped (F).
+    /// MainActor-isolated so it can reach the live `MatrixSession`.
+    var openRoomHandler: (@MainActor (String) -> Void)?
 
     var deviceToken: String? {
         UserDefaults.standard.string(forKey: tokenDefaultsKey)
@@ -372,6 +376,17 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             var props: [String: Any] = ["type": tapType]
             if let tapPushId { props["push_id"] = tapPushId }
             TelemetryManager.shared.track(.notificationTapped, properties: props)
+        }
+        // Message-notification tap → OPEN that room (F). Extract the room id the
+        // gateway attached to the payload (the same keys the NSE reads). The room may
+        // not be loaded yet on a cold launch / brand-new session — openRoomFromPush
+        // defers to the next sync via autoOpen in that case.
+        if let roomId = Self.roomNotificationUserInfoKeys
+            .lazy
+            .compactMap({ userInfo[$0] as? String })
+            .first(where: { !$0.isEmpty }) {
+            AppLog.log("🔔 [push] tap → open room %@", roomId)
+            Task { @MainActor in Self.shared.openRoomHandler?(roomId) }
         }
         if let type = userInfo["type"] as? String, type == "founder_chat_prompt" {
             let source = (userInfo["source"] as? String) ?? "push_tap"

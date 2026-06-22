@@ -1172,6 +1172,18 @@ final class MatrixSession {
         onActiveRoomChange?(id)
     }
 
+    /// Open a room in response to a notification TAP (protocol F). Opens immediately
+    /// if the room is already loaded; otherwise it's remembered and opened on the
+    /// next sync — covers a cold launch or a brand-new session room not yet synced —
+    /// via the same `autoOpen` path used after `session.new`.
+    func openRoomFromPush(_ roomId: String) {
+        guard !roomId.isEmpty else { return }
+        AppLog.log("🎯 openRoomFromPush room=%@ loaded=%@", roomId,
+                   rooms.contains(where: { $0.id == roomId }) ? "yes" : "no")
+        autoOpenRoomId = roomId
+        applyAutoOpen()
+    }
+
     func clearNotificationsForActiveRoom() {
         guard let activeRoomId else { return }
         PushNotificationManager.shared.clearSessionNotifications(roomId: activeRoomId)
