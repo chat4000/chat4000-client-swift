@@ -1,17 +1,32 @@
 # clawconnect-client-swift — agent notes
 
-## Deploying to iPhone — ALWAYS install every dev target after a push
+## Deploying after a push — ALWAYS redeploy EVERY affected flavor (iOS dev + macOS)
 
-This is an iPhone project. Whenever you push a change, you ALSO deploy it to the
-connected iPhone — don't stop at the commit. Deploy is part of "done", not a
-separate step the user has to ask for. And deploy **ALL** the iOS build targets,
-not just the one you happened to touch: today that's both dev flavors —
-`chat4000iphonedevhermes` and `chat4000iphonedevopenclaw` — so the user always
-has every flavor on-device and current. If new iOS app targets are added, deploy
-those too.
+This is a cross-platform (iPhone + macOS) project sharing one Sources tree.
+Whenever you push a change, you ALSO deploy it — don't stop at the commit. Deploy
+is part of "done", not a separate step the user has to ask for. "Deploy" means
+EVERY user-runnable flavor the change touches, across BOTH platforms:
 
-Standing, pre-authorized: building + installing the iOS app to the user's own
-connected device needs no extra yes.
+1. **Both iOS dev flavors** → install to the connected iPhone:
+   `chat4000iphonedevhermes` and `chat4000iphonedevopenclaw`.
+2. **The macOS app** → build `chat4000mac` and copy it into
+   `/Applications/chat4000.app`, then relaunch (see the macOS section below).
+
+Because the Sources tree is shared, almost any change compiles into the macOS app
+too — so redeploying macOS is the DEFAULT, not an afterthought. The only time you
+skip a platform is when the change is provably platform-specific (e.g. inside an
+`#if os(iOS)` / NSE-only path that macOS never compiles). When unsure, deploy
+both. Do NOT report "deployed" after doing only iOS — that's the miss this rule
+exists to prevent.
+
+Do NOT auto-deploy `chat4000iphoneappstore`: its bundle id is the production
+`com.neonnode.chat94app`, so installing a debug build CLOBBERS the user's real
+App Store / TestFlight install. Ask first. NSE targets ship embedded in their host
+app (not installed separately); `chat4000Tests` is run, not installed.
+
+Standing, pre-authorized: building + installing the iOS DEV apps to the user's own
+connected device, and copying the macOS build into `/Applications/chat4000.app`,
+need no extra yes.
 
 How (build for the device, then `devicectl install` each `.app`):
 
