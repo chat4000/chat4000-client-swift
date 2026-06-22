@@ -41,8 +41,6 @@ struct SettingsSheet: View {
     @State private var diagnosticStatusMessage: String?
     @State private var showDiagnosticAlert = false
     @State private var showAddDeviceInfo = false
-    @State private var showConfettiLab = false   // TEMPORARY — confetti comparison harness
-    @State private var showHapticsLab = false    // TEMPORARY — haptics picker
 
     var body: some View {
         ScrollView {
@@ -79,57 +77,6 @@ struct SettingsSheet: View {
                 VStack(spacing: 20) {
                     deviceSection
                     telemetrySection
-
-                    // TEMPORARY — confetti comparison harness. Delete this button +
-                    // the cover + ConfettiLab.swift + the 3 SPM packages once picked.
-                    Button {
-                        showConfettiLab = true
-                    } label: {
-                        Text("🎊 Confetti Lab (temp)")
-                            .font(AppFonts.button)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    // fullScreenCover is iOS-only; sheet on macOS keeps both building.
-                    #if os(iOS)
-                    .fullScreenCover(isPresented: $showConfettiLab) {
-                        ConfettiLabView()
-                    }
-                    #else
-                    .sheet(isPresented: $showConfettiLab) {
-                        ConfettiLabView()
-                    }
-                    #endif
-
-                    // TEMPORARY — haptics picker. Delete this button + the cover +
-                    // HapticsLab.swift once a vibration is picked.
-                    Button {
-                        showHapticsLab = true
-                    } label: {
-                        Text("📳 Haptics Lab (temp)")
-                            .font(AppFonts.button)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    #if os(iOS)
-                    .fullScreenCover(isPresented: $showHapticsLab) {
-                        HapticsLabView()
-                    }
-                    #else
-                    .sheet(isPresented: $showHapticsLab) {
-                        HapticsLabView()
-                    }
-                    #endif
 
                     Button {
                         onDisconnect()
