@@ -151,6 +151,49 @@ targetTemplates:
             echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
           fi
 
+  # macOS app flavors (Hermes dev / OpenClaw dev / Prod) — same structure as the
+  # iPhone flavors. macOS has NO NSE (live WebSocket, single process), no App Group
+  # and no per-flavor keychain group; flavors are isolated by bundle id (→ the
+  # storage namespace, AppEnvironment.storageNamespace) so 3 builds coexist.
+  macOSApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+        excludes:
+          - "*.json"
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/dev-config.json
+        buildPhase: resources
+        optional: true
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info-macOS.plist
+        PRODUCT_MODULE_NAME: chat4000
+        CODE_SIGN_ENTITLEMENTS: Resources/chat4000Mac.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Required for Apple notarization of Developer ID-signed apps.
+        ENABLE_HARDENED_RUNTIME: YES
+        # Mac does not register for remote notifications — APNS env unused.
+        APP_APNS_ENV: ""
+      configs:
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    dependencies:
+      - package: Sentry
+      - package: PostHog
+      - package: MatrixSDKCrypto
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
+
 targets:
   chat4000iphoneappstore:
     templates: [iOSApp]
@@ -235,47 +278,36 @@ targets:
     scheme:
       gatherCoverageData: false
 
-  chat4000mac:
-    type: application
-    platform: macOS
-    sources:
-      - path: Sources
-        excludes:
-          - "*.json"
-      - path: Resources/Assets.xcassets
-        buildPhase: resources
-      - path: Resources/dev-config.json
-        buildPhase: resources
-        optional: true
+  # Hermes dev Mac (stage, paired to a Hermes bot). Bundle matches the iPhone
+  # Hermes dev flavor so it's one universal identity across platforms.
+  chat4000macdevhermes:
+    templates: [macOSApp]
     settings:
       base:
-        INFOPLIST_FILE: Resources/Info-macOS.plist
-        PRODUCT_MODULE_NAME: chat4000
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.hermes
+        PRODUCT_NAME: chat4000-hermes
+        APP_DISPLAY_NAME: Hermes Dev
+        APP_ENV: stage
+
+  # OpenClaw dev Mac (stage, paired to an OpenClaw bot).
+  chat4000macdevopenclaw:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.openclaw
+        PRODUCT_NAME: chat4000-openclaw
+        APP_DISPLAY_NAME: OpenClaw Dev
+        APP_ENV: stage
+
+  # Prod / shipped Mac (prod backend). Same bundle id as the iPhone App Store flavor.
+  chat4000macprod:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
         PRODUCT_NAME: chat4000
         APP_DISPLAY_NAME: chat4000
-        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
-        CODE_SIGN_ENTITLEMENTS: Resources/chat4000Mac.entitlements
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # Required for Apple notarization of Developer ID-signed apps.
-        ENABLE_HARDENED_RUNTIME: YES
-        # Mac does not register for remote notifications — APNS env unused.
-        APP_APNS_ENV: ""
-      configs:
-        Release:
-          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
-    dependencies:
-      - package: Sentry
-      - package: PostHog
-      - package: MatrixSDKCrypto
-    preBuildScripts:
-      - name: SwiftLint
-        basedOnDependencyAnalysis: false
-        script: |
-          if command -v swiftlint >/dev/null 2>&1; then
-            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
-          else
-            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
-          fi
+        APP_ENV: prod
 
   # F2: the App Store flavor's NSE. Bundle `…chat94app.nse`, base App Group.
   chat4000NSEAppStore:
