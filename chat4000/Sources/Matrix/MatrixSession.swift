@@ -781,6 +781,9 @@ final class MatrixSession {
             mutedRoomIds = Set(muted)
         }
         AppLog.log("🔄 sync pos=%@ rooms=%d to_device=%d", sync.pos ?? "nil", sync.rooms.count, sync.toDevice.count)
+        // Stamp the live-sync heartbeat (F.2.1b): while the app is syncing, the NSE
+        // must NOT also drain to-device (single-writer on the shared cursor).
+        Self.stampLiveSyncHeartbeat(userId: userId)
         for r in sync.rooms {
             AppLog.log("🏠 room %@ kind=%@ space=%@ invite=%@ enc=%@ members=%d tl=%d",
                        r.id, r.roomKind ?? "nil", String(r.isSpace), String(r.isInvite),
@@ -2063,6 +2066,21 @@ final class MatrixSession {
         if AppGroup.sharedDefaults != nil {
             UserDefaults.standard.removeObject(forKey: toDevicePosKey(userId))
         }
+    }
+
+    /// Live-sync heartbeat (protocol F.2.1b / D "Two drainers, one shared to-device
+    /// cursor"): the app stamps this in the SHARED store on every sync frame while
+    /// its WebSocket is up. The NSE reads it and drains to-device for cold-key
+    /// recovery ONLY when it is stale (app suspended) — so the app and the NSE never
+    /// advance the shared cursor at the same instant (single-writer). Written to the
+    /// shared App-Group suite; on macOS (no App Group, no NSE) it harmlessly lands
+    /// in `.standard` and is never read.
+    static func liveSyncHeartbeatKey(_ userId: String?) -> String {
+        "chat4000.liveSyncHeartbeat.\(userId ?? "")"
+    }
+    static func stampLiveSyncHeartbeat(userId: String?) {
+        (AppGroup.sharedDefaults ?? .standard).set(
+            Date().timeIntervalSince1970, forKey: liveSyncHeartbeatKey(userId))
     }
 
     /// Map a `sync_reset` frame's named cursors (protocol D.1/D.2) to the durable
