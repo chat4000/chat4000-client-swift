@@ -91,6 +91,13 @@ if [ -n "${VERSION_OVERRIDE:-}" ]; then
     VERSION="$VERSION_OVERRIDE"
 fi
 
+# Optional: override the on-disk display name (CFBundleDisplayName) — e.g. tag a
+# test update DMG "OC" so you can SEE the upgrade landed. Bundle id is unchanged.
+DISPLAY_ARG=()
+if [ -n "${DISPLAY_NAME_OVERRIDE:-}" ]; then
+    DISPLAY_ARG=(APP_DISPLAY_NAME="$DISPLAY_NAME_OVERRIDE")
+fi
+
 echo "==> Archiving $SCHEME ($VERSION) for Release..."
 xcodebuild archive \
     -project "$PROJECT_PATH" \
@@ -99,6 +106,7 @@ xcodebuild archive \
     -archivePath "$ARCHIVE_PATH" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$VERSION" \
+    "${DISPLAY_ARG[@]}" \
     | xcbeautify 2>/dev/null || true
 
 if [ ! -d "$ARCHIVE_PATH" ]; then
