@@ -25,8 +25,16 @@ enum MacUpdateInstaller {
     /// by someone") — protocol C.5.3 verification (b).
     static let teamID: String = "H45JD827CU"
 
-    /// The user-facing install destination LaunchServices resolves.
-    static let installDestination: URL = URL(fileURLWithPath: "/Applications/chat4000.app")
+    /// The install destination = where THIS running app actually lives, so the
+    /// updater swaps it IN PLACE under whatever name/flavor it was installed as —
+    /// `chat4000.app` for prod, `chat4000-openclaw.app` / `chat4000-hermes.app` for
+    /// the dev flavors — and relaunches the SAME app the user launched.
+    ///
+    /// Previously hardcoded to `/Applications/chat4000.app`. That made every
+    /// non-prod flavor fail `runningFromInstallDestination()`, so the relaunch fell
+    /// through to "just open the staged app": the old app never quit and a stray
+    /// `chat4000.app` launched instead of the flavor self-updating in place.
+    static var installDestination: URL { Bundle.main.bundleURL.standardizedFileURL }
 
     /// Which verification stage failed — also the Sentry/PostHog `stage` prop
     /// (CL26 `verify_failed`: `sha256|team_id|notarization`). Conforms to `Error`
@@ -335,8 +343,14 @@ enum MacUpdateInstaller {
     /// is meaningful). When false (e.g. running from DerivedData) we must NOT
     /// swap — we fall back to opening the DMG (see `MacUpdater`).
     static func runningFromInstallDestination() -> Bool {
-        let bundlePath = Bundle.main.bundleURL.standardizedFileURL.path
-        return bundlePath == installDestination.standardizedFileURL.path
+        // Meaningful only when installed directly under /Applications (not running
+        // from DerivedData / a mounted DMG / some other folder, where an in-place
+        // swap would be wrong). Any flavor name is accepted.
+        let path = Bundle.main.bundleURL.standardizedFileURL.path
+        let apps = "/Applications/"
+        guard path.hasPrefix(apps), path.hasSuffix(".app") else { return false }
+        // Directly in /Applications, not a nested subfolder.
+        return !path.dropFirst(apps.count).contains("/")
     }
 
     /// Whether `/Applications` (the swap destination's parent) is writable by us.
@@ -345,9 +359,10 @@ enum MacUpdateInstaller {
     }
 
     /// Spawn a DETACHED helper that waits for THIS process to exit, then does a
-    /// two-rename atomic swap of `/Applications/chat4000.app` and `open`s the new
-    /// app. Returns after the helper is launched; the caller then terminates the
-    /// app so the helper's `kill -0` wait unblocks.
+    /// two-rename atomic swap of the running app's bundle (`installDestination`,
+    /// e.g. `/Applications/chat4000-openclaw.app`) and `open`s the new app. Returns
+    /// after the helper is launched; the caller then terminates the app so the
+    /// helper's `kill -0` wait unblocks.
     ///
     /// The swap is same-volume renames only (staged app already lives in our
     /// Application Support dir, which may be a different volume than
