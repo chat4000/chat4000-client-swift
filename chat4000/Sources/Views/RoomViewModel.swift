@@ -437,6 +437,22 @@ final class RoomViewModel {
         live: Bool,
         ts: Int64
     ) {
+        // Race-free own-echo dedup (protocol C/D): the homeserver echoes our own
+        // send back via sync, carrying `unsigned.transaction_id` == the localId we
+        // sent. On a fast connection that echo can arrive BEFORE the send HTTP
+        // response that gives the local row its `matrixEventId`, so the
+        // matrixEventId-keyed suppression in handleInnerMessage misses and a second
+        // bubble renders. transaction_id is known instantly, so reconcile here:
+        // stamp the event_id, flip .sending→.sent, and DON'T render again. This only
+        // matches THIS device's just-sent .sending row (msgId == localId == txn id);
+        // the same account's send from ANOTHER device has no such row and falls
+        // through to render normally.
+        if isOwn, let txnId = outer.transactionId,
+           messages.contains(where: { $0.msgId == txnId }) {
+            handleSentEventId(localId: txnId, eventId: outer.eventId ?? "")
+            return
+        }
+
         let isEdit = relation?.relType == "m.replace"
         let pushFlag = cleartextPushFlag(outer)
         let streamLive = MatrixTimelineMapper.shouldStream(

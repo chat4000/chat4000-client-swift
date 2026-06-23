@@ -118,6 +118,11 @@ struct SyncEvent: Sendable, Equatable {
     /// Present for state events ("" for the canonical state key).
     var stateKey: String?
     var originServerTs: Int64?
+    /// The homeserver echo's `unsigned.transaction_id` — the localId we sent as the
+    /// Matrix `transactionId`. Present ONLY on the echo of our OWN send, and known
+    /// at ingest time (unlike `event_id`, which we only learn from the send HTTP
+    /// response). Used to dedup+reconcile our local echo race-free. nil otherwise.
+    var transactionId: String?
     /// The complete event object, re-serialized to JSON.
     var rawJSON: String
 }
@@ -218,6 +223,7 @@ enum SyncModel {
             sender: event["sender"] as? String,
             stateKey: event["state_key"] as? String,
             originServerTs: intField(event["origin_server_ts"]).map(Int64.init),
+            transactionId: (event["unsigned"] as? [String: Any])?["transaction_id"] as? String,
             rawJSON: jsonString(event) ?? "{}"
         )
     }
