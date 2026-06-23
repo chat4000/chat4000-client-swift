@@ -621,13 +621,14 @@ final class RoomViewModel {
         }) { return }
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(msgId: id, text: text, sender: sender, timestamp: eventDate(ts), roomId: roomId)
-        // A `.user` row reaching receiveText is our own message synced from ANOTHER
-        // device (this device's sends are shown via local echo and suppressed). The
-        // `id` IS the homeserver event_id, so stamp it on `matrixEventId` — without
-        // it, the plugin's read receipt (handleRead matches on matrixEventId) can
-        // never flip this row to .delivered, so cross-device sends would be stuck on
-        // a single ✓ forever.
-        if sender == .user { message.matrixEventId = id }
+        // `id` IS the homeserver event_id, so stamp it on `matrixEventId` for EVERY
+        // sender. For a `.user` row (our own message synced from another device) it
+        // lets the plugin's read receipt flip this row to .delivered and suppresses
+        // this device's later echo of the same send. For an `.agent` row it lets
+        // handleRead's CUMULATIVE anchor locate the reply event the receipt points
+        // at — without it, a receipt aimed at the agent's reply finds no anchor and
+        // our preceding message stays stuck on a single ✓.
+        message.matrixEventId = id
         guard appendAndInsertUnique(message, reason: "receive_text") else { return }
         Haptics.success()
         persistContext()
@@ -643,10 +644,10 @@ final class RoomViewModel {
         }) { return }
         if isDuplicateInnerId(id) { return }
         let message = ChatMessage(msgId: id, imageData: imageData, sender: sender, timestamp: eventDate(ts), roomId: roomId)
-        // Own image synced from another device: stamp the event_id so the peer read
-        // receipt can flip its tick (mirrors receiveText) and so this device's later
-        // echo of the same send is suppressed by matrixEventId.
-        if sender == .user { message.matrixEventId = id }
+        // Stamp the event_id on EVERY sender (mirrors receiveText): on a `.user` row
+        // it flips the tick and suppresses this device's echo; on an `.agent` row it
+        // gives handleRead's cumulative anchor an event to locate the receipt at.
+        message.matrixEventId = id
         guard appendAndInsertUnique(message, reason: "receive_image") else { return }
         if sender == .agent { emitMessageReceived(kind: "image") }
         Haptics.success()
@@ -669,7 +670,9 @@ final class RoomViewModel {
             msgId: id, audioData: audioData, audioMimeType: mimeType,
             audioDuration: Double(durationMs) / 1000, audioWaveform: waveform,
             sender: sender, timestamp: eventDate(ts), roomId: roomId)
-        if sender == .user { message.matrixEventId = id }
+        // Stamp the event_id on EVERY sender (mirrors receiveText): flips the `.user`
+        // tick / suppresses the echo, and gives `.agent` rows an anchor for handleRead.
+        message.matrixEventId = id
         guard appendAndInsertUnique(message, reason: "receive_audio") else { return }
         if sender == .agent { emitMessageReceived(kind: "audio") }
         Haptics.success()
@@ -707,6 +710,10 @@ final class RoomViewModel {
             kind: .htmlCard,
             htmlCardHTML: sanitizedHTML
         )
+        // `id` IS the homeserver event_id — stamp it on EVERY sender so handleRead's
+        // cumulative anchor can locate a receipt pointing at this card (mirrors the
+        // other receive helpers).
+        message.matrixEventId = id
         guard appendAndInsertUnique(message, reason: "receive_html_card") else { return }
         if sender == .agent { emitMessageReceived(kind: "html_card") }
         Haptics.success()
@@ -774,8 +781,12 @@ final class RoomViewModel {
         if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
             existing.text = ""
             existing.msgId = streamId
+            // streamId IS the homeserver event_id — keep matrixEventId in sync so a
+            // read receipt aimed at this streamed reply can be anchored by handleRead.
+            existing.matrixEventId = streamId
         } else {
             let message = ChatMessage(msgId: streamId, text: "", sender: sender, timestamp: eventDate(ts), status: .sending, roomId: roomId)
+            message.matrixEventId = streamId
             guard appendAndInsertUnique(message, reason: "stream_begin") else { return false }
             currentStreamMessageId = message.id
         }
@@ -808,6 +819,7 @@ final class RoomViewModel {
                 return
             }
             let message = ChatMessage(msgId: streamId, text: text, sender: sender, status: .sending, roomId: roomId)
+            message.matrixEventId = streamId
             guard appendAndInsertUnique(message, reason: "stream_update") else { return }
             currentStreamMessageId = message.id
         }
@@ -823,6 +835,7 @@ final class RoomViewModel {
             AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
         } else if let streamId = currentStreamId {
             let message = ChatMessage(msgId: streamId, text: text, sender: sender, timestamp: eventDate(ts), roomId: roomId)
+            message.matrixEventId = streamId
             _ = appendAndInsertUnique(message, reason: "stream_finalize")
         }
         // CL18 — the streamed agent answer settled (streaming is always a live
@@ -925,7 +938,10 @@ final class RoomViewModel {
 
     /// Plugin emitted an end-to-end ack for an outbound message → "delivered" tick.
     private func handleInnerAck(refs: String) {
-        guard let match = messages.first(where: { $0.msgId == refs }) else { return }
+        // The plugin's `refs` may be the LOCAL txn id (our row's msgId) OR the
+        // homeserver event_id (our row's matrixEventId). Match either, so the
+        // delivered tick flips regardless of which id the plugin echoes back.
+        guard let match = messages.first(where: { $0.msgId == refs || $0.matrixEventId == refs }) else { return }
         if match.status == .sending || match.status == .sent {
             match.status = .delivered
             persistContext()
