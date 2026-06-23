@@ -153,6 +153,9 @@ final class MacUpdater {
 
         state = .checking
         MacUpdateInstaller.sweepStaleMounts()
+        // Clean up any swap staging/rollback bundles left next to us by a prior
+        // self-update (reaching here means this build launched fine).
+        MacUpdateInstaller.sweepStaleSwapArtifacts()
 
         guard let response = await fetch() else {
             // A failed/garbled check is not user-facing — return to idle and let

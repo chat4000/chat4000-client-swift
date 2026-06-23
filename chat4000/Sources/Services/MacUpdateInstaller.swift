@@ -358,6 +358,21 @@ enum MacUpdateInstaller {
         FileManager.default.isWritableFile(atPath: installDestination.deletingLastPathComponent().path)
     }
 
+    /// Remove the swap helper's staging/rollback siblings left next to the running
+    /// app once we're up on the new build. The rollback bundle only needs to
+    /// survive the swap itself; reaching here means the new build launched fine, so
+    /// it's dead weight. Clears BOTH the new hidden names (`.<app>.new` / `.<app>.old`)
+    /// and any legacy VISIBLE ones (`<app>.new` / `<app>.old`) that earlier builds
+    /// left in /Applications, where LaunchServices indexed them as duplicate apps.
+    static func sweepStaleSwapArtifacts() {
+        let dest = installDestination
+        let dir = dest.deletingLastPathComponent()
+        let base = dest.lastPathComponent
+        for name in [".\(base).new", ".\(base).old", "\(base).new", "\(base).old"] {
+            deleteIfExists(dir.appendingPathComponent(name))
+        }
+    }
+
     /// Spawn a DETACHED helper that waits for THIS process to exit, then does a
     /// two-rename atomic swap of the running app's bundle (`installDestination`,
     /// e.g. `/Applications/chat4000-openclaw.app`) and `open`s the new app. Returns
@@ -417,8 +432,14 @@ enum MacUpdateInstaller {
         PARENT_PID="$1"
         STAGED="$2"
         DEST="$3"
-        NEW="${DEST}.new"
-        OLD="${DEST}.old"
+        # Stage + rollback bundles are DOT-PREFIXED (hidden) so LaunchServices /
+        # Spotlight / Launchpad don't index them as launchable apps. A visible
+        # "<app>.app.new" / "<app>.app.old" in /Applications shows up as a duplicate
+        # app in every launcher. Dot-files in /Applications are hidden and skipped.
+        DEST_DIR=$(dirname "$DEST")
+        DEST_BASE=$(basename "$DEST")
+        NEW="${DEST_DIR}/.${DEST_BASE}.new"
+        OLD="${DEST_DIR}/.${DEST_BASE}.old"
 
         # 1. Wait (bounded) for the parent app to fully exit so no handle pins the bundle.
         i=0
