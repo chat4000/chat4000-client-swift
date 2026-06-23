@@ -105,6 +105,16 @@ struct SyncRoom: Sendable, Identifiable, Equatable {
     var timeline: [SyncEvent]
     /// `required_state` events requested in the sliding-sync list.
     var requiredState: [SyncEvent]
+    /// MSC3575 per-room `limited`: true when this `timeline` is TRUNCATED to the
+    /// list's `timeline_limit` — older events in the catch-up range were dropped
+    /// and the gap must be backfilled via `/messages` (the missing-messages bug).
+    /// The gateway forwards this verbatim from Tuwunel.
+    var isLimited: Bool
+    /// MSC3575 per-room `prev_batch`: pagination token marking the START of this
+    /// truncated `timeline`. Feed it as `from=` to
+    /// `GET /rooms/{id}/messages?dir=b` to walk backward into the dropped gap.
+    /// Present (with `isLimited`) only on a truncated catch-up.
+    var prevBatch: String?
 }
 
 /// A single Matrix event from a room timeline or state, with the common
@@ -206,8 +216,17 @@ enum SyncModel {
             statusState: statusState,
             notificationCount: intField(room["notification_count"]) ?? 0,
             timeline: timeline,
-            requiredState: requiredState
+            requiredState: requiredState,
+            isLimited: (room["limited"] as? Bool) ?? false,
+            prevBatch: room["prev_batch"] as? String
         )
+    }
+
+    /// Parse a `GET /rooms/{id}/messages` response `chunk` (a bare array of raw
+    /// Matrix event objects) into typed `SyncEvent`s, reusing the same envelope
+    /// extraction as timeline events. Used by the offline-gap backfill loop.
+    static func parseMessagesChunk(_ chunk: Any?) -> [SyncEvent] {
+        parseEvents(chunk)
     }
 
     private static func parseEvents(_ value: Any?) -> [SyncEvent] {

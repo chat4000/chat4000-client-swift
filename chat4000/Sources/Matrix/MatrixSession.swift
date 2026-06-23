@@ -965,7 +965,20 @@ final class MatrixSession {
         //   bookmark first would instead LOSE messages on a crash — so we render-first,
         //   advance-the-bookmark-last (same "re-send beats lose" rule as the Megolm
         //   keys), and dedup absorbs the re-send. This is the ONLY reason it exists.
-        for outer in room.timeline {
+        // Offline-gap backfill (missing-messages fix): when this catch-up timeline
+        // is `limited`, the events between what we last saw and this window were
+        // DROPPED by the list's `timeline_limit` truncation (the `chat4000.status`
+        // heartbeat flood fills the window and pushes older USER messages out). Walk
+        // `/messages` backward from `prev_batch` until we reconnect to known history,
+        // then process the gap BEFORE the window so the timeline is contiguous —
+        // nothing renders or acks until the whole gap is loaded into memory
+        // (handleSync awaits processRoom, and the syncAck is last).
+        let backfilled = room.isLimited ? await backfillGap(roomId: room.id, from: room.prevBatch) : []
+        if !backfilled.isEmpty {
+            AppLog.log("🕳️ prepending %d backfilled gap event(s) ahead of %@ window (tl=%d)",
+                       backfilled.count, room.id, room.timeline.count)
+        }
+        for outer in backfilled + room.timeline {
             // Dedup ALL timeline events by event_id — INCLUDING chat4000.status
             // (protocol E). The gateway re-delivers the recent window on state-change
             // syncs, so without this we'd re-process stale status and re-arm the
@@ -1016,6 +1029,75 @@ final class MatrixSession {
         // rides the normal decrypt → onRoomEvent → RoomViewModel.ingest
         // path and drives the label there. The old required_state read was lossy
         // (the timeline is the source of truth) and is removed.
+    }
+
+    /// Backfill the offline gap above a TRUNCATED (`limited`) catch-up timeline.
+    /// Walks `GET /rooms/{id}/messages?dir=b` backward from the room's `prev_batch`,
+    /// collecting every dropped event (messages AND `chat4000.status` — the user
+    /// wants all of it), until it reaches an event we've already processed
+    /// (`seenEventIds`) → the gap is now contiguous with known history — or the
+    /// room start (no further pagination token). No size cap, per the requirement
+    /// to "load everything"; termination is by reaching known history, an empty
+    /// chunk, or a non-advancing token (the only real infinite-loop guards). All
+    /// requests ride the same gateway socket as `req`/`resp`. Returns the gap in
+    /// CHRONOLOGICAL order (oldest→newest) so the caller can prepend it to the
+    /// window and feed both through the normal decrypt → render path in order.
+    private func backfillGap(roomId: String, from prevBatch: String?) async -> [SyncEvent] {
+        guard let gateway else { return [] }
+        guard let start = prevBatch, !start.isEmpty else {
+            AppLog.log("🕳️ backfill skipped for %@ — limited but no prev_batch token", roomId)
+            return []
+        }
+        // Percent-encode the pagination token as a query VALUE (the gateway forwards
+        // the path verbatim to Tuwunel; tokens can contain `/`, `+`, etc.).
+        let tokenAllowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let basePath = percentEncodePath("/_matrix/client/v3/rooms/\(roomId)/messages")
+        var from = start
+        var collected: [SyncEvent] = []   // accumulated newest-first across pages
+        var page = 0
+        while true {
+            page += 1
+            let encFrom = from.addingPercentEncoding(withAllowedCharacters: tokenAllowed) ?? from
+            let path = "\(basePath)?dir=b&limit=200&from=\(encFrom)"
+            let body: Data
+            do {
+                let (status, data) = try await gateway.request(method: "GET", path: path)
+                guard (200..<300).contains(status) else {
+                    AppLog.log("🕳️ backfill %@ page=%d HTTP %d — stopping", roomId, page, status)
+                    break
+                }
+                body = data
+            } catch AppError.cancelled {
+                // Expected: the session tore down / reconnected mid-backfill. The
+                // gap is untouched; the next `limited` catch-up re-triggers this.
+                AppLog.log("🕳️ backfill %@ page=%d cancelled — stopping", roomId, page)
+                break
+            } catch {
+                ErrorReporter.capture(error, context: "MatrixSession.backfillGap")
+                AppLog.log("🕳️ backfill %@ page=%d failed: %@ — stopping", roomId, page, error.localizedDescription)
+                break
+            }
+            guard let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                AppLog.log("🕳️ backfill %@ page=%d bad JSON — stopping", roomId, page)
+                break
+            }
+            let chunk = SyncModel.parseMessagesChunk(obj["chunk"])   // newest-first (dir=b)
+            var hitKnown = false
+            for event in chunk {
+                if let eid = event.eventId, seenEventIds.contains(eid) { hitKnown = true; break }
+                collected.append(event)
+            }
+            let end = obj["end"] as? String
+            AppLog.log("🕳️ backfill %@ page=%d chunk=%d gapTotal=%d hitKnown=%@ end=%@",
+                       roomId, page, chunk.count, collected.count, String(hitKnown), end ?? "nil")
+            if hitKnown { break }
+            // Stop at room start / no-progress / empty page (infinite-loop guards).
+            guard let end, !end.isEmpty, end != from, !chunk.isEmpty else { break }
+            from = end
+        }
+        AppLog.log("🕳️ backfill %@ done: %d gap event(s) over %d page(s)", roomId, collected.count, page)
+        return collected.reversed()   // → oldest→newest, contiguous with the window
     }
 
     /// Re-decrypt buffered UTD events — a sync may have just delivered the key
