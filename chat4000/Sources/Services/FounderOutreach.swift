@@ -2,6 +2,9 @@ import Foundation
 #if os(iOS)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// "Talk to the founder" escalation: try WhatsApp → Telegram → Intercom, opening
 /// the first available channel. An APNs `founder_chat_prompt` push can force-skip
@@ -51,12 +54,30 @@ enum FounderOutreach {
         IntercomService.openMessenger(source: "founder_chat_prompt_\(source)", initialMessage: text)
         return .intercom
         #else
+        // macOS: detect each messenger via NSWorkspace (does the scheme have a
+        // handling app installed?) — no LSApplicationQueriesSchemes needed (that's
+        // an iOS canOpenURL concern); `urlForApplication(toOpen:)` is
+        // non-deprecated, needs no entitlement, and shows no prompt.
+        let workspace = NSWorkspace.shared
+
+        if !disableWhatsApp, let url = whatsAppURL(message: text),
+           workspace.urlForApplication(toOpen: url) != nil {
+            AppLog.log("🤝 [founder] WhatsApp installed → opening source=%@", source)
+            workspace.open(url)
+            return .whatsApp
+        }
+        if !disableTelegram, let url = telegramURL(message: text),
+           workspace.urlForApplication(toOpen: url) != nil {
+            AppLog.log("🤝 [founder] Telegram installed → opening source=%@", source)
+            workspace.open(url)
+            return .telegram
+        }
+        AppLog.log("🤝 [founder] no messenger → Intercom fallback source=%@", source)
         IntercomService.openMessenger(source: "founder_chat_prompt_\(source)", initialMessage: text)
         return .intercom
         #endif
     }
 
-    #if os(iOS)
     /// Telegram supports prefilling the input bar via `text` (draft_text) on a
     /// username resolve link (core.telegram.org/api/links). Prepend a space if the
     /// text starts with `@` so it isn't read as an inline query (per the spec).
@@ -82,5 +103,4 @@ enum FounderOutreach {
         ]
         return comps.url
     }
-    #endif
 }
