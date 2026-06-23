@@ -89,6 +89,19 @@ final class TelemetryManager {
         flushPostHogIfNeeded()
     }
 
+    /// Flush telemetry before a HARD process exit (e.g. the macOS updater's
+    /// swap-and-relaunch calls `NSApp.terminate` within ~1s of capturing
+    /// `macos_update_installed`). PostHog's `flush()` is async fire-and-forget, but
+    /// `SentrySDK.flush(timeout:)` BLOCKS — so it both delivers any queued Sentry
+    /// events AND holds the thread long enough for the in-flight PostHog request
+    /// (already sent because `flushAt == 1`) to complete before we die.
+    func flushBeforeExit(timeout: TimeInterval = 2.0) {
+        flushPostHogIfNeeded()
+        if sentryStarted {
+            SentrySDK.flush(timeout: timeout)
+        }
+    }
+
     /// Sets person-level properties on the current PostHog identity. Used
     /// to attach the APNS device token so the backend can send targeted
     /// push notifications (e.g. founder-chat prompts) via PostHog's
@@ -154,6 +167,13 @@ final class TelemetryManager {
         postHogConfig.captureScreenViews = false
         postHogConfig.sendFeatureFlagEvent = false
         postHogConfig.errorTrackingConfig.autoCapture = false
+        // Flush every event IMMEDIATELY (flushAt defaults to 20, flushIntervalSeconds
+        // to 30). Short-lived macOS sessions — most acutely the updater's
+        // capture→swap→relaunch, which terminates us within ~1s — were dropping
+        // events that sat batched and never flushed. flushAt=1 sends each event as
+        // it's captured; a 10s interval is a backstop only.
+        postHogConfig.flushAt = 1
+        postHogConfig.flushIntervalSeconds = 10
         // PostHog 3.x defaults to `identifiedOnly` which suppresses person
         // profile creation for anonymous users. We need a profile per device
         // so that `setPersonProperties` (e.g. `apns_device_token`) actually

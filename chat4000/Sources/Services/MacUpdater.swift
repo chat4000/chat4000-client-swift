@@ -231,6 +231,10 @@ final class MacUpdater {
         case .success:
             track(.macosUpdateInstalled, ["to_version": version, "from_version": AppRegistrationIdentity.currentAppVersion])
             AppLog.log("⬆️ swap helper spawned; terminating for relaunch into v%@", version)
+            // We're about to hard-terminate for the swap; block briefly so the
+            // just-captured install event (and any queued Sentry events) actually
+            // leave the process instead of dying batched.
+            TelemetryManager.shared.flushBeforeExit()
             NSApp.terminate(nil)
         case .failure(let error):
             reportSwapFailure(error, version: version)
