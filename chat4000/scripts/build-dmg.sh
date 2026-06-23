@@ -99,15 +99,23 @@ if [ -n "${DISPLAY_NAME_OVERRIDE:-}" ]; then
 fi
 
 echo "==> Archiving $SCHEME ($VERSION) for Release..."
-xcodebuild archive \
-    -project "$PROJECT_PATH" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -archivePath "$ARCHIVE_PATH" \
-    DEVELOPMENT_TEAM="$TEAM_ID" \
-    MARKETING_VERSION="$VERSION" \
-    "${DISPLAY_ARG[@]}" \
-    | xcbeautify 2>/dev/null || true
+# NOTE: do NOT pipe xcodebuild into xcbeautify. When xcbeautify isn't installed
+# the pipe's read end dies immediately and xcodebuild gets SIGPIPE mid-archive —
+# an intermittent "Archive failed — xcarchive not found". Run it directly; the
+# `[ ! -d "$ARCHIVE_PATH" ]` check below is the real success gate. Use xcbeautify
+# only if present (it never receives SIGPIPE when it's actually running).
+if command -v xcbeautify >/dev/null 2>&1; then
+    set -o pipefail
+    xcodebuild archive \
+        -project "$PROJECT_PATH" -scheme "$SCHEME" -configuration Release \
+        -archivePath "$ARCHIVE_PATH" DEVELOPMENT_TEAM="$TEAM_ID" \
+        MARKETING_VERSION="$VERSION" ${DISPLAY_ARG[@]+"${DISPLAY_ARG[@]}"} | xcbeautify
+else
+    xcodebuild archive \
+        -project "$PROJECT_PATH" -scheme "$SCHEME" -configuration Release \
+        -archivePath "$ARCHIVE_PATH" DEVELOPMENT_TEAM="$TEAM_ID" \
+        MARKETING_VERSION="$VERSION" ${DISPLAY_ARG[@]+"${DISPLAY_ARG[@]}"}
+fi
 
 if [ ! -d "$ARCHIVE_PATH" ]; then
     echo "ERROR: Archive failed — $ARCHIVE_PATH not found." >&2
