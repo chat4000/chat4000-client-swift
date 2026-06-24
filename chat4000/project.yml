@@ -278,6 +278,34 @@ targets:
     scheme:
       gatherCoverageData: false
 
+  # LOCAL PROD flavor (iOS). A dev-signed build that targets the PROD backend
+  # (registrar.chat4000.com) for testing prod end-to-end WITHOUT clobbering the
+  # real App Store install — it has its OWN bundle id (`…localprod`), App Group,
+  # keychain group and NSE, so it installs side by side with the store app. The
+  # display name is "chat4000 localprod" so you can tell which app it is. The App
+  # Store flavor (`chat4000iphoneappstore`) is the real distribution — never
+  # auto-deployed; it installs from the App Store.
+  chat4000iphonelocalprod:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.localprod
+        APP_DISPLAY_NAME: chat4000 localprod
+        APP_ENV: prod
+        # Dev-signed deployable prod build (like the App Store flavor's Debug
+        # config) — never goes to the store, so dev channel + development push/
+        # attest in BOTH configs.
+        APP_DISTRIBUTION_CHANNEL: dev
+        APP_APNS_ENV: development
+        APP_APPATTEST_ENV: development
+        APP_GROUP_ID: group.com.neonnode.chat94app.localprod
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.localprod.shared
+    dependencies:
+      - target: chat4000NSELocalProd
+        embed: true
+    scheme:
+      gatherCoverageData: false
+
   # Hermes dev Mac (stage, paired to a Hermes bot). Bundle matches the iPhone
   # Hermes dev flavor so it's one universal identity across platforms.
   chat4000macdevhermes:
@@ -299,7 +327,10 @@ targets:
         APP_DISPLAY_NAME: OpenClaw Dev
         APP_ENV: stage
 
-  # Prod / shipped Mac (prod backend). Same bundle id as the iPhone App Store flavor.
+  # REAL prod / shipped Mac (prod backend). Same bundle id as the iPhone App Store
+  # flavor. This is the build the public DOWNLOADS as a notarized DMG from
+  # chat4000.com (the macOS analogue of the iOS App Store) — never auto-deployed
+  # locally, so a local build can't clobber the user's downloaded copy.
   chat4000macprod:
     templates: [macOSApp]
     settings:
@@ -307,6 +338,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
         PRODUCT_NAME: chat4000
         APP_DISPLAY_NAME: chat4000
+        APP_ENV: prod
+
+  # LOCAL PROD flavor (macOS). Prod backend, dev/Developer-ID signed, with its OWN
+  # bundle id + product name so it coexists with the downloaded real-prod
+  # chat4000.app. Display name "chat4000 localprod" so you can tell which app it
+  # is. THIS is the mac flavor we deploy locally for prod testing — NOT
+  # chat4000macprod (that one ships as the website DMG).
+  chat4000maclocalprod:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.localprod
+        PRODUCT_NAME: chat4000-localprod
+        APP_DISPLAY_NAME: chat4000 localprod
         APP_ENV: prod
 
   # F2: the App Store flavor's NSE. Bundle `…chat94app.nse`, base App Group.
@@ -340,6 +385,17 @@ targets:
         APP_GROUP_ID: group.com.neonnode.chat94app.dev.openclaw
         # Same shared keychain group as its app (OpenClaw dev) — F.2.4.
         APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.openclaw.shared
+
+  # F2: the local-prod flavor's NSE. Bundle `…localprod.nse`, local-prod App Group
+  # + keychain group, prod env (matches its app for F.2.1b cold-key sync).
+  chat4000NSELocalProd:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.localprod.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app.localprod
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.localprod.shared
+        APP_ENV: prod
 
   chat4000Tests:
     type: bundle.unit-test
