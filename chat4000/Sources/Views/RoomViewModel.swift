@@ -986,11 +986,21 @@ final class RoomViewModel {
     // MARK: - Busy clock (per room; no shared dictionary)
 
     private func markBusy(phase: String, startTs: Int64) {
-        // Anchor the elapsed clock to the turn's true start (status
-        // origin_server_ts), keeping the earliest seen — stable across switches.
-        let eventStart = startTs > 0 ? Date(timeIntervalSince1970: Double(startTs) / 1000) : .now
-        let start = busyStartTime.map { min($0, eventStart) } ?? eventStart
-        busyStartTime = start
+        // Anchor the elapsed clock to the turn's TRUE start = the latest user
+        // message's timestamp. That value lives on disk (messages are persisted in
+        // SwiftData and restored on launch), so the "· Ns" timer survives relaunch.
+        //
+        // We must NOT anchor to the chat4000.status `origin_server_ts`: the plugin
+        // re-emits status every ~4s (the keep-alive), so a status observed after a
+        // relaunch — or after coming online mid-turn — is "a few seconds ago", not
+        // the turn start. Anchoring to it made the timer reset to ~0 on every
+        // relaunch. The status payload carries no `started_at`, so the user message
+        // (which DID start this turn) is the only reliable, persisted anchor.
+        let statusStart = startTs > 0 ? Date(timeIntervalSince1970: Double(startTs) / 1000) : .now
+        let lastUserTs = messages.filter { $0.sender == .user }.map(\.timestamp).max()
+        // Fall back to the status ts (then now) only when no user message exists yet
+        // (e.g. a status arrived before its triggering message was ingested).
+        busyStartTime = lastUserTs ?? statusStart
         busyPhase = phase
         isAgentBusy = true
         scheduleBusyTTL(statusTs: startTs)
