@@ -55,8 +55,13 @@ enum AppLog {
         return logsDir.appendingPathComponent("chat4000.log")
     }
 
+    /// ISO-8601 with millisecond precision (`2026-06-25T06:29:56.480Z`). The bare
+    /// `ISO8601Format()` is whole-seconds only; sub-second timing matters when
+    /// correlating client lines against server (ws-gateway/registrar) logs.
+    private static let timestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
     private static func write(_ level: Level, _ message: String) {
-        let line = "\(Date().ISO8601Format()) [\(level.rawValue)] \(message)"
+        let line = "\(Date().ISO8601Format(timestampStyle)) [\(level.rawValue)] \(message)"
         Foundation.NSLog("%@", line)
         appendToFile(line)
     }
