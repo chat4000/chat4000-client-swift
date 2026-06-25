@@ -134,6 +134,7 @@ enum VoiceWaveformBuilder {
 
             return downsample(output, targetCount: targetCount)
         } catch {
+            ErrorReporter.capture(error, context: "VoiceNotes.waveform.read")
             return downsample([], targetCount: targetCount)
         }
     }
@@ -155,18 +156,12 @@ final class VoiceNoteRecorder {
         meterTask?.cancel()
     }
 
-    func start() async throws {
+    func start() async throws(AppError) {
         guard !isRecording else { return }
         let granted = await requestPermission()
         guard granted else {
-            throw VoiceNoteError.permissionDenied
+            throw AppError.permissionDenied("Microphone access is required to record voice messages.")
         }
-
-        #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothA2DP])
-        try session.setActive(true)
-        #endif
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("voice-\(UUID().uuidString)")
@@ -177,12 +172,47 @@ final class VoiceNoteRecorder {
             AVSampleRateKey: 24_000,
             AVNumberOfChannelsKey: 1,
             AVEncoderBitRateKey: 32_000,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
         ]
 
-        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        let recorder: AVAudioRecorder
+        do {
+            #if os(iOS)
+            let session = AVAudioSession.sharedInstance()
+            // Record ENTIRELY on the built-in device (mic in + speaker out), with NO
+            // Bluetooth at all. Two reasons:
+            //  • `.allowBluetooth` (HFP) forces AirPods into "call mode" — disruptive.
+            //  • `.allowBluetoothA2DP` keeps AirPods as the OUTPUT, but then iOS has a
+            //    split route (built-in mic IN + Bluetooth OUT) and delivers NO input
+            //    samples → a valid-length but silent clip (dataBytes ≈ header only).
+            // So: no BT options, override output to the speaker, and pin the built-in
+            // mic — input and output both on the phone, which captures reliably and
+            // leaves the AirPods untouched (no call-mode switch).
+            // Use `.record` (input-only), NOT `.playAndRecord`: a voice note never
+            // plays anything, and `.playAndRecord` establishes an OUTPUT route that
+            // touches the connected AirPods and flips them out of ANC/quiet into
+            // Transparency ("hear surroundings"). `.record` has no output route, so
+            // the AirPods are left entirely alone. Pin the built-in mic for input.
+            try session.setCategory(.record, mode: .default)
+            try session.setActive(true)
+            if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                try? session.setPreferredInput(builtIn)
+            }
+            let inputs = session.currentRoute.inputs.map { "\($0.portType.rawValue)/\($0.portName)" }.joined(separator: ",")
+            AppLog.log("🎙️ recording route inputs=[%@] sampleRate=%.0f", inputs, session.sampleRate)
+            #endif
+            recorder = try AVAudioRecorder(url: url, settings: settings)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            ErrorReporter.capture(error, context: "VoiceNoteRecorder.start")
+            throw AppError.unexpected(error)
+        }
         recorder.isMeteringEnabled = true
-        recorder.record()
+        let started = recorder.record()
+        if !started {
+            AppLog.log("🎙️ recorder.record() returned false — recording did not start")
+        }
 
         self.recorder = recorder
         currentURL = url
@@ -211,9 +241,12 @@ final class VoiceNoteRecorder {
 
         meterTask?.cancel()
         meterTask = nil
-        recorder.stop()
 
-        let duration = recorder.currentTime
+        // Read the length BEFORE stop() — `currentTime` returns 0 once the recorder
+        // is no longer recording. Fall back to the meter's last sampled value.
+        let liveTime = recorder.currentTime
+        recorder.stop()
+        let duration = liveTime > 0 ? liveTime : self.duration
         let waveform = VoiceWaveformBuilder.downsample(meterSamples)
 
         self.recorder = nil
@@ -237,6 +270,7 @@ final class VoiceNoteRecorder {
             try? FileManager.default.removeItem(at: currentURL)
             return nil
         }
+        AppLog.log("🎙️ stop: duration=%.2fs liveTime=%.2f dataBytes=%d", duration, liveTime, data.count)
 
         return RecordedVoiceClip(
             url: currentURL,
@@ -331,6 +365,7 @@ final class VoicePlaybackController {
             self.duration = resolvedDuration(hint: durationHint, fallback: player.duration)
             self.currentTime = 0
         } catch {
+            ErrorReporter.capture(error, context: "VoiceNotes.player.init")
             self.player = nil
             self.sourceKey = nil
             self.duration = resolvedDuration(hint: durationHint, fallback: 0)
@@ -414,16 +449,5 @@ final class VoicePlaybackController {
             return hint
         }
         return max(fallback, 0)
-    }
-}
-
-enum VoiceNoteError: LocalizedError {
-    case permissionDenied
-
-    var errorDescription: String? {
-        switch self {
-        case .permissionDenied:
-            return "Microphone access is required to record voice messages."
-        }
     }
 }

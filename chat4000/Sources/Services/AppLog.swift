@@ -16,8 +16,21 @@ enum AppLog {
     //   - persistent flag (Mac):   defaults write com.neonnode.chat94app CHAT4000_VERBOSE -bool true
     //                              (disable: defaults delete com.neonnode.chat94app CHAT4000_VERBOSE)
     static var isVerbose: Bool {
-        if ProcessInfo.processInfo.environment["CHAT4000_VERBOSE"] == "1" { return true }
-        return UserDefaults.standard.bool(forKey: "CHAT4000_VERBOSE")
+        // VERBOSE-BY-DEFAULT, all builds — including the prod DMG (chat4000macprod)
+        // and the iOS App Store build (chat4000iphoneappstore). The crypto/key-share
+        // path is entirely DEBUG-level, and field bugs (device rotation / room-key
+        // sharing to a stale device → silent UTD) are undiagnosable without it on
+        // real installs. The DEBUG firehose is tamed where it would flood: the rust
+        // crypto trace drops the giant session-state dumps (see CryptoTracingLogger),
+        // and the file rotates at 10 MB. Kill switch (no rebuild needed): set the
+        // env var CHAT4000_VERBOSE=0 (the UserDefaults flag proved unreliable through
+        // cfprefsd, so the env var is the supported off-switch).
+        #if DEBUG
+        return true
+        #else
+        if ProcessInfo.processInfo.environment["CHAT4000_VERBOSE"] == "0" { return false }
+        return true
+        #endif
     }
 
     static func log(_ message: @autoclosure () -> String) {
@@ -65,7 +78,11 @@ enum AppLog {
             }
 
             do {
-                let handle = try FileHandle(forWritingTo: logFileURL)
+                // forUpdating (read+write), NOT forWritingTo: rotate() below reads
+                // the file back to trim it, and readToEnd() on a write-only handle
+                // fails with EBADF ("Bad file descriptor") — which made rotation
+                // throw on every append once the log passed maxBytes.
+                let handle = try FileHandle(forUpdating: logFileURL)
                 defer { try? handle.close() }
                 try handle.seekToEnd()
                 try handle.write(contentsOf: data)
@@ -80,16 +97,22 @@ enum AppLog {
         }
     }
 
-    private static func rotate(handle: FileHandle, fileURL: URL) throws {
-        try handle.seek(toOffset: 0)
-        let total = try handle.readToEnd() ?? Data()
-        let keepFrom = max(0, total.count - trimToBytes)
-        var trimmed = total.subdata(in: keepFrom..<total.count)
+    private static func rotate(handle: FileHandle, fileURL: URL) throws(AppError) {
+        do {
+            try handle.seek(toOffset: 0)
+            let total = try handle.readToEnd() ?? Data()
+            let keepFrom = max(0, total.count - trimToBytes)
+            var trimmed = total.subdata(in: keepFrom..<total.count)
 
-        if let firstNewline = trimmed.firstIndex(of: 0x0A), firstNewline + 1 < trimmed.count {
-            trimmed = trimmed.subdata(in: (firstNewline + 1)..<trimmed.count)
+            if let firstNewline = trimmed.firstIndex(of: 0x0A), firstNewline + 1 < trimmed.count {
+                trimmed = trimmed.subdata(in: (firstNewline + 1)..<trimmed.count)
+            }
+
+            try trimmed.write(to: fileURL, options: .atomic)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            throw AppError.storage("log rotate: \(error.localizedDescription)")
         }
-
-        try trimmed.write(to: fileURL, options: .atomic)
     }
 }

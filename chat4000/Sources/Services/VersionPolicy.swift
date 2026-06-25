@@ -1,125 +1,125 @@
 import Foundation
 
-struct VersionPolicy: Decodable, Equatable {
-    let minVersion: String?
-    let recommendedVersion: String?
-    let latestVersion: String?
-
-    enum CodingKeys: String, CodingKey {
-        case minVersion = "min_version"
-        case recommendedVersion = "recommended_version"
-        case latestVersion = "latest_version"
-    }
-}
-
-enum VersionPolicyAction: Equatable {
-    case none
-    case softNag(recommendedVersion: String, latestVersion: String?)
-    case hardBlock(minVersion: String, latestVersion: String?)
-}
-
-enum SemverCompare {
-    static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult? {
-        guard let lhsParts = parts(lhs), let rhsParts = parts(rhs) else { return nil }
-        let count = max(lhsParts.count, rhsParts.count)
-        for index in 0..<count {
-            let l = index < lhsParts.count ? lhsParts[index] : 0
-            let r = index < rhsParts.count ? rhsParts[index] : 0
-            if l < r { return .orderedAscending }
-            if l > r { return .orderedDescending }
-        }
-        return .orderedSame
-    }
-
-    static func isParseable(_ version: String) -> Bool {
-        parts(version) != nil
-    }
-
-    private static func parts(_ version: String) -> [Int]? {
-        let core = version.split(separator: "-", maxSplits: 1).first.map(String.init) ?? version
-        let segments = core.split(separator: ".", omittingEmptySubsequences: false)
-        guard !segments.isEmpty else { return nil }
-        var result: [Int] = []
-        for segment in segments {
-            guard let number = Int(segment), number >= 0 else { return nil }
-            result.append(number)
-        }
-        return result
-    }
-}
-
-enum VersionPolicyResolver {
-    static func resolve(policy: VersionPolicy?, appVersion: String?) -> VersionPolicyAction {
-        guard let policy else { return .none }
-
-        let appParseable: Bool = appVersion.map { SemverCompare.isParseable($0) } ?? false
-
-        if appParseable,
-           let appVersion,
-           let minVersion = policy.minVersion,
-           SemverCompare.compare(appVersion, minVersion) == .orderedAscending {
-            return .hardBlock(minVersion: minVersion, latestVersion: policy.latestVersion)
-        }
-
-        if let recommended = policy.recommendedVersion {
-            if !appParseable {
-                return .softNag(recommendedVersion: recommended, latestVersion: policy.latestVersion)
-            }
-            if let appVersion,
-               SemverCompare.compare(appVersion, recommended) == .orderedAscending {
-                return .softNag(recommendedVersion: recommended, latestVersion: policy.latestVersion)
-            }
-        }
-
-        return .none
-    }
-}
-
+/// App-side version/terms gate (protocol C.5). Calls the registrar's
+/// `POST /version` on every open and exposes the verdict + current terms
+/// version so the app can force/recommend an upgrade and re-prompt terms.
 @MainActor
 @Observable
 final class VersionPolicyManager {
+    enum Action: Equatable {
+        case ok
+        case recommendUpgrade(recommended: String?, message: String?)
+        case forceUpgrade(minVersion: String?, recommended: String?, message: String?)
+    }
+
     static let shared = VersionPolicyManager()
+    private init() {}
 
-    private(set) var action: VersionPolicyAction = .none
-    private(set) var latestPolicy: VersionPolicy?
-    private(set) var nagSnoozed: Bool = false
-
-    private let snoozeUntilKey = "chat4000.versionPolicy.recommendedSnoozedUntil"
-    private let snoozedVersionKey = "chat4000.versionPolicy.recommendedSnoozedVersion"
-    private let snoozeDuration: TimeInterval = 60 * 60 * 24 * 30
+    private(set) var action: Action = .ok
+    private(set) var currentTermsVersion: Int?
+    /// Session-local dismissal of the recommend banner.
+    var nagDismissed = false
 
     var showNag: Bool {
-        if case .softNag = action { return !nagSnoozed }
+        if case .recommendUpgrade = action { return !nagDismissed }
         return false
     }
 
-    var isHardBlocked: Bool {
-        if case .hardBlock = action { return true }
-        return false
+    private struct Response: Decodable {
+        let action: String
+        let minVersion: String?
+        let recommended: String?
+        let currentTermsVersion: Int?
+        let message: String?
+
+        enum CodingKeys: String, CodingKey {
+            case action
+            case minVersion = "min_version"
+            case recommended
+            case currentTermsVersion = "current_terms_version"
+            case message
+        }
     }
 
-    func update(with policy: VersionPolicy?) {
-        latestPolicy = policy
-        let resolved = VersionPolicyResolver.resolve(
-            policy: policy,
-            appVersion: AppRegistrationIdentity.currentAppVersion
+    /// Async, non-blocking (C.5): call on cold launch and every foreground resume.
+    func check() async {
+        let env = MatrixEnvironment.current
+        guard let url = URL(string: env.registrarBaseURL.trimmedSlash + "/version") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // FLW5: phone client_id on /version (omitted entirely when telemetry off).
+        if let clientId = ClientIdentity.headerClientId() {
+            request.setValue(clientId, forHTTPHeaderField: "X-Client-Id")
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: Self.requestBody())
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let parsed = try? JSONDecoder().decode(Response.self, from: data) else { return }
+
+        currentTermsVersion = parsed.currentTermsVersion
+        switch parsed.action {
+        case "force_upgrade":
+            action = .forceUpgrade(minVersion: parsed.minVersion, recommended: parsed.recommended, message: parsed.message)
+        case "recommend_upgrade":
+            action = .recommendUpgrade(recommended: parsed.recommended, message: parsed.message)
+        default:
+            action = .ok
+        }
+    }
+
+    func dismissNag() { nagDismissed = true }
+
+    func requireUpgradeFromGateway(minClientVersion: String?, maxClientVersion: String?) {
+        let message = "This version of chat4000 is no longer supported by the gateway. Please update to continue."
+        action = .forceUpgrade(minVersion: minClientVersion, recommended: nil, message: message)
+        AppLog.log(
+            "⬆️ gateway version gate min=%@ max=%@",
+            minClientVersion ?? "nil",
+            maxClientVersion ?? "nil"
         )
-        action = resolved
-        nagSnoozed = isCurrentlySnoozed(for: resolved)
     }
 
-    func dismissNag() {
-        guard case .softNag(let recommended, _) = action else { return }
-        let defaults = UserDefaults.standard
-        defaults.set(recommended, forKey: snoozedVersionKey)
-        defaults.set(Date().timeIntervalSince1970 + snoozeDuration, forKey: snoozeUntilKey)
-        nagSnoozed = true
+    static var releaseChannel: String {
+        #if targetEnvironment(simulator)
+        return "dev"
+        #else
+        return Bundle.main.object(forInfoDictionaryKey: "TelemetryDistributionChannel") as? String ?? "dev"
+        #endif
     }
 
-    private func isCurrentlySnoozed(for action: VersionPolicyAction) -> Bool {
-        guard case .softNag(let recommended, _) = action else { return false }
-        let defaults = UserDefaults.standard
-        guard defaults.string(forKey: snoozedVersionKey) == recommended else { return false }
-        return Date().timeIntervalSince1970 < defaults.double(forKey: snoozeUntilKey)
+    static var platform: String {
+        #if os(macOS)
+        "macos"
+        #else
+        "ios"
+        #endif
     }
+
+    static func requestBody(postHogDistinctId: String? = TelemetryManager.shared.postHogDistinctId) -> [String: Any] {
+        var body: [String: Any] = [
+            "app_id": Bundle.main.bundleIdentifier ?? "",
+            "client_version": AppRegistrationIdentity.currentAppVersion,
+            "release_channel": Self.releaseChannel,
+            "platform": Self.platform
+        ]
+        if let postHogId = protocolPostHogId(postHogDistinctId) {
+            body["posthog_id"] = postHogId
+        }
+        return body
+    }
+
+    static func protocolPostHogId(_ raw: String?) -> String? {
+        guard let id = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !id.isEmpty,
+              id.count <= 64 else {
+            return nil
+        }
+        return id
+    }
+}
+
+private extension String {
+    var trimmedSlash: String { hasSuffix("/") ? String(dropLast()) : self }
 }

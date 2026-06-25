@@ -43,11 +43,14 @@ final class IntercomMacBridge: NSObject, ObservableObject, WKScriptMessageHandle
         }
     }
 
+    // The completion handler is typed `@MainActor @Sendable` to match
+    // WKUIDelegate's optional requirement exactly under Swift 6 concurrency —
+    // otherwise the compiler emits a "nearly matches" warning.
     func webView(
         _ webView: WKWebView,
         runOpenPanelWith parameters: WKOpenPanelParameters,
         initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping ([URL]?) -> Void
+        completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
     ) {
         // Synchronous modal — avoids the Swift 6 Sendable-capture trap of
         // calling `completionHandler` from inside `panel.begin`'s closure.

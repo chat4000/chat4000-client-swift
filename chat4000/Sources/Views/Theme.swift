@@ -16,7 +16,9 @@ enum AppColors {
     static let agentBubble = Color(hex: 0x1A1A1A)
     static let agentBubbleText = Color(hex: 0xE0E0E0)
 
-    static let connected = Color(hex: 0x10B981)
+    // Connected / online / success accent — the chat4000 site brand pink
+    // (--color-accent #EC4899) instead of the old green, for brand consistency.
+    static let connected = Color(hex: 0xEC4899)
     static let reconnecting = Color(hex: 0xF59E0B)
     static let disconnected = Color(hex: 0xEF4444)
 
@@ -29,37 +31,50 @@ enum AppColors {
 // MARK: - Typography
 
 enum AppFonts {
+    /// Monospace — reserved for the "chat4000" wordmark (brand) and code spans.
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
 
+    /// The app's primary typeface — SF Mono.
+    static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+
+    /// The "chat4000" wordmark keeps its monospace look (everything else is SF Pro).
     #if os(macOS)
-    static let title = mono(20, weight: .bold)
-    static let subtitle = mono(11, weight: .regular)
-    static let label = mono(11, weight: .medium)
-    static let input = mono(12, weight: .regular)
-    static let button = mono(12, weight: .medium)
-    static let body = mono(12, weight: .regular)
+    static let wordmark = mono(20, weight: .bold)
     #else
-    static let title = mono(28, weight: .bold)
-    static let subtitle = mono(14, weight: .regular)
-    static let label = mono(14, weight: .medium)
-    static let input = mono(16, weight: .regular)
-    static let button = mono(16, weight: .medium)
-    static let body = mono(15, weight: .regular)
+    static let wordmark = mono(28, weight: .bold)
+    #endif
+
+    #if os(macOS)
+    static let title = sans(20, weight: .bold)
+    static let subtitle = sans(11, weight: .regular)
+    static let label = sans(11, weight: .medium)
+    static let input = sans(12, weight: .regular)
+    static let button = sans(12, weight: .medium)
+    static let body = sans(12, weight: .regular)
+    #else
+    static let title = sans(28, weight: .bold)
+    static let subtitle = sans(14, weight: .regular)
+    static let label = sans(14, weight: .medium)
+    static let input = sans(16, weight: .regular)
+    static let button = sans(16, weight: .medium)
+    static let body = sans(15, weight: .regular)
     #endif
     #if os(macOS)
-    static let timestamp = mono(10, weight: .regular)
-    static let caption = mono(10, weight: .regular)
-    static let navTitle = mono(14, weight: .bold)
-    static let sheetTitle = mono(16, weight: .bold)
-    static let sectionTitle = mono(11, weight: .medium)
+    static let timestamp = sans(10, weight: .regular)
+    static let caption = sans(10, weight: .regular)
+    static let navTitle = sans(14, weight: .bold)
+    static let sheetTitle = sans(16, weight: .bold)
+    static let sectionTitle = sans(11, weight: .medium)
     #else
-    static let timestamp = mono(12, weight: .regular)
-    static let caption = mono(12, weight: .regular)
-    static let navTitle = mono(20, weight: .bold)
-    static let sheetTitle = mono(22, weight: .bold)
-    static let sectionTitle = mono(14, weight: .medium)
+    static let timestamp = sans(12, weight: .regular)
+    static let caption = sans(12, weight: .regular)
+    static let navTitle = sans(20, weight: .bold)
+    static let sheetTitle = sans(22, weight: .bold)
+    static let sectionTitle = sans(14, weight: .medium)
     #endif
 }
 

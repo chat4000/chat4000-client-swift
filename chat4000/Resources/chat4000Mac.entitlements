@@ -2,14 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<!--
+	  App Sandbox intentionally REMOVED for the macOS Developer-ID DMG build so
+	  the app can self-update in place (download + verify + atomic swap of
+	  /Applications/chat4000.app + relaunch). Sandboxed apps cannot write outside
+	  their container or exec a detached swap helper. Security is retained via
+	  Hardened Runtime + notarization + the mandatory fail-closed update
+	  verification (sha256 + Team-ID H45JD827CU + notarization). See
+	  docs/FUTURE.md ("macOS App Sandbox dropped for in-app self-update").
+	-->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 	<key>com.apple.security.device.camera</key>
 	<true/>
-	<key>com.apple.developer.devicecheck.appattest-environment</key>
-	<string>development</string>
+	<!--
+	  App Attest entitlement intentionally OMITTED on macOS: nothing in the app
+	  calls DCAppAttestService (it's iOS-only here), and this `com.apple.developer.*`
+	  capability is the ONE entitlement that forces a provisioning profile — which
+	  blocks headless Developer ID export of flavors with no cached profile (e.g. the
+	  dev mac flavors) with "No profiles … were found". Dropping it lets Developer ID
+	  export/notarize work profile-free. iOS keeps its own appattest entitlement.
+	-->
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>

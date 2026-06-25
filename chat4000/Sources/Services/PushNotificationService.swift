@@ -12,10 +12,18 @@ final class PushNotificationManager: NSObject {
     static let shared = PushNotificationManager()
     static let deviceTokenDidChangeNotification = Notification.Name("chat4000.PushDeviceTokenDidChange")
     static let founderChatPromptRequested = Notification.Name("chat4000.FounderChatPromptRequested")
+    private nonisolated static let roomNotificationUserInfoKeys = ["room_id", "roomId", "matrix_room_id"]
+    private static let eventNotificationUserInfoKey = "event_id"
 
     private let tokenDefaultsKey = "chat4000.PushDeviceToken"
 
-    var backgroundWakeHandler: (@Sendable () async -> Bool)?
+    /// Set by the app to drain queued messages on a silent push. MainActor-
+    /// isolated so it can reach the live `MatrixSession`.
+    var backgroundWakeHandler: (@MainActor () async -> Bool)?
+
+    /// Set by the app to OPEN a room when a message notification is tapped (F).
+    /// MainActor-isolated so it can reach the live `MatrixSession`.
+    var openRoomHandler: (@MainActor (String) -> Void)?
 
     var deviceToken: String? {
         UserDefaults.standard.string(forKey: tokenDefaultsKey)
@@ -74,6 +82,45 @@ final class PushNotificationManager: NSObject {
         #endif
     }
 
+    func clearSessionNotifications(roomId: String) {
+        #if os(macOS)
+        _ = roomId
+        return
+        #else
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            let pending = await center.pendingNotificationRequests()
+            let deliveredIds = delivered
+                .filter { Self.notificationMatches(roomId: roomId, request: $0.request) }
+                .map(\.request.identifier)
+            let pendingIds = pending
+                .filter { Self.notificationMatches(roomId: roomId, request: $0) }
+                .map(\.identifier)
+
+            if !deliveredIds.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: deliveredIds)
+            }
+            if !pendingIds.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: pendingIds)
+            }
+
+            guard !deliveredIds.isEmpty || !pendingIds.isEmpty else { return }
+            AppLog.log(
+                "🔔 [push] cleared session notifications room=%@ delivered=%ld pending=%ld",
+                roomId,
+                deliveredIds.count,
+                pendingIds.count
+            )
+
+            let remaining = await center.deliveredNotifications()
+            if remaining.isEmpty {
+                clearBadge()
+            }
+        }
+        #endif
+    }
+
     func storeDeviceToken(_ tokenData: Data) {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         let previous = UserDefaults.standard.string(forKey: tokenDefaultsKey)
@@ -92,7 +139,7 @@ final class PushNotificationManager: NSObject {
             TelemetryManager.shared.setPersonProperties([
                 "apns_device_token": token,
                 "apns_env": Self.apnsEnvironment,
-                "platform": Self.platformName,
+                "platform": Self.platformName
             ])
             TelemetryManager.shared.track(
                 .apnsTokenRegistered,
@@ -103,7 +150,7 @@ final class PushNotificationManager: NSObject {
                     "apns_device_token": token,
                     "token_len": token.count,
                     "is_first": previous == nil,
-                    "apns_env": Self.apnsEnvironment,
+                    "apns_env": Self.apnsEnvironment
                 ]
             )
         }
@@ -114,6 +161,10 @@ final class PushNotificationManager: NSObject {
     private static var apnsEnvironment: String {
         Bundle.main.object(forInfoDictionaryKey: "APNSEnvironment") as? String ?? "unknown"
     }
+
+    /// `userInfo["type"]` value the backend sets on the silent liveness-ping push
+    /// (see `handleRemoteNotification`). A bare install check — emits `alive`, no sync.
+    static let aliveCheckPushType = "alive_check"
 
     private static var platformName: String {
         #if os(iOS)
@@ -148,30 +199,50 @@ final class PushNotificationManager: NSObject {
             String(describing: aps?["mutable-content"]),
             alertDescription
         )
+        // Liveness ping: a silent "alive check" push the backend sends purely to
+        // confirm the app is still installed. We don't sync/wake for it — we just
+        // emit the `alive` event (which `track` drops automatically if diagnostics
+        // collection is turned off), and its presence in PostHog is the signal.
+        if (userInfo["type"] as? String) == Self.aliveCheckPushType {
+            AppLog.log("🔔 [push] alive-check ping → emitting alive event")
+            TelemetryManager.shared.track(.alive, properties: ["platform": Self.platformName])
+            return true
+        }
+
         guard silent else { return false }
         let handled = await backgroundWakeHandler?() ?? false
         AppLog.log("🔔 [push] silent push handler finished handled=%@", handled ? "true" : "false")
         return handled
     }
 
-    func presentLocalNotification(body: String) async {
+    func presentLocalNotification(body: String, roomId: String? = nil, eventId: String? = nil) async {
         #if os(macOS)
         _ = body
+        _ = roomId
+        _ = eventId
         return
         #else
         let content = UNMutableNotificationContent()
         content.title = "chat4000"
         content.body = body
         content.sound = .default
+        if let roomId {
+            content.threadIdentifier = roomId
+            content.userInfo[Self.roomNotificationUserInfoKeys[0]] = roomId
+        }
+        if let eventId {
+            content.userInfo[Self.eventNotificationUserInfoKey] = eventId
+        }
 
         let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
+            identifier: eventId ?? UUID().uuidString,
             content: content,
             trigger: nil
         )
 
         do {
             try await UNUserNotificationCenter.current().add(request)
+            TelemetryManager.shared.track(.notificationDisplayed, properties: ["type": "message"])  // CL16
             AppLog.log(
                 "🔔 [push] local notification scheduled id=%@ title=%@ body_length=%ld body_prefix=%@",
                 request.identifier,
@@ -180,6 +251,7 @@ final class PushNotificationManager: NSObject {
                 String(body.prefix(32))
             )
         } catch {
+            ErrorReporter.capture(error, context: "PushNotificationService.enqueueLocalNotification")
             AppLog.log("⚠️ [push] failed to enqueue local notification: \(error.localizedDescription)")
         }
         #endif
@@ -188,6 +260,54 @@ final class PushNotificationManager: NSObject {
     private func isSilentPush(_ userInfo: [AnyHashable: Any]) -> Bool {
         guard let aps = userInfo["aps"] as? [String: Any] else { return false }
         return (aps["content-available"] as? Int) == 1
+    }
+
+    // MARK: - Analytics helpers (CL16 / CL17 / CL24)
+
+    private nonisolated static let pendingOpenViaPushKey = "chat4000.analytics.pendingOpenViaPush"
+    private nonisolated static let pendingOpenPushIdKey = "chat4000.analytics.pendingOpenPushId"
+
+    /// Lenient bool from a push payload field (JSON `true`, NSNumber 1, or the
+    /// strings "true"/"1"/"yes"). Used for `disable_whatsapp` / `disable_telegram`.
+    nonisolated static func boolFlag(_ value: Any?) -> Bool {
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let s = value as? String { return ["true", "1", "yes"].contains(s.lowercased()) }
+        return false
+    }
+
+    /// CL16/CL17 notification `type`: a founder-chat prompt vs an ordinary message.
+    nonisolated static func notificationType(_ userInfo: [AnyHashable: Any]) -> String {
+        (userInfo["type"] as? String) == "founder_chat_prompt" ? "founder_prompt" : "message"
+    }
+
+    /// CL24: record that the app is being entered via a notification tap; the next
+    /// `app_opened` consumes this to attribute `source=push`. UserDefaults so the
+    /// nonisolated delegate callback can write it synchronously off the main actor.
+    nonisolated static func markOpenedViaPush(pushId: String?) {
+        UserDefaults.standard.set(true, forKey: pendingOpenViaPushKey)
+        if let pushId {
+            UserDefaults.standard.set(pushId, forKey: pendingOpenPushIdKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: pendingOpenPushIdKey)
+        }
+    }
+
+    /// CL24: read + clear the open attribution. Returns `("push", pushId?)` once
+    /// after a tap, else `("direct", nil)`.
+    nonisolated static func consumeOpenSource() -> (source: String, pushId: String?) {
+        let viaPush = UserDefaults.standard.bool(forKey: pendingOpenViaPushKey)
+        let pushId = UserDefaults.standard.string(forKey: pendingOpenPushIdKey)
+        UserDefaults.standard.removeObject(forKey: pendingOpenViaPushKey)
+        UserDefaults.standard.removeObject(forKey: pendingOpenPushIdKey)
+        return viaPush ? ("push", pushId) : ("direct", nil)
+    }
+
+    private static func notificationMatches(roomId: String, request: UNNotificationRequest) -> Bool {
+        for key in roomNotificationUserInfoKeys where (request.content.userInfo[key] as? String) == roomId {
+            return true
+        }
+        return request.content.threadIdentifier == roomId
     }
 }
 
@@ -214,11 +334,22 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             let source = (userInfo["source"] as? String) ?? "push"
             let modalTitle = userInfo["modal_title"] as? String
             let modalBody = userInfo["modal_body"] as? String
+            let pushId = userInfo["push_id"] as? String
+            let contactMessage = userInfo["contact_message"] as? String
+            let disableWhatsApp = Self.boolFlag(userInfo["disable_whatsapp"])
+            let disableTelegram = Self.boolFlag(userInfo["disable_telegram"])
             Task { @MainActor in
+                // CL16 notification_displayed (founder prompt, foreground present).
+                var props: [String: Any] = ["type": "founder_prompt"]
+                if let pushId { props["push_id"] = pushId }
+                TelemetryManager.shared.track(.notificationDisplayed, properties: props)
                 Self.shared.handleFounderChatPromptPush(
                     source: source,
                     modalTitle: modalTitle,
-                    modalBody: modalBody
+                    modalBody: modalBody,
+                    contactMessage: contactMessage,
+                    disableWhatsApp: disableWhatsApp,
+                    disableTelegram: disableTelegram
                 )
             }
         }
@@ -237,15 +368,41 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             response.notification.request.identifier,
             userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
         )
+        // CL17 notification_tapped + CL24 push attribution for the next app_opened.
+        let tapType = Self.notificationType(userInfo)
+        let tapPushId = userInfo["push_id"] as? String
+        Self.markOpenedViaPush(pushId: tapPushId)
+        Task { @MainActor in
+            var props: [String: Any] = ["type": tapType]
+            if let tapPushId { props["push_id"] = tapPushId }
+            TelemetryManager.shared.track(.notificationTapped, properties: props)
+        }
+        // Message-notification tap → OPEN that room (F). Extract the room id the
+        // gateway attached to the payload (the same keys the NSE reads). The room may
+        // not be loaded yet on a cold launch / brand-new session — openRoomFromPush
+        // defers to the next sync via autoOpen in that case.
+        if let roomId = Self.roomNotificationUserInfoKeys
+            .lazy
+            .compactMap({ userInfo[$0] as? String })
+            .first(where: { !$0.isEmpty }) {
+            AppLog.log("🔔 [push] tap → open room %@", roomId)
+            Task { @MainActor in Self.shared.openRoomHandler?(roomId) }
+        }
         if let type = userInfo["type"] as? String, type == "founder_chat_prompt" {
             let source = (userInfo["source"] as? String) ?? "push_tap"
             let modalTitle = userInfo["modal_title"] as? String
             let modalBody = userInfo["modal_body"] as? String
+            let contactMessage = userInfo["contact_message"] as? String
+            let disableWhatsApp = Self.boolFlag(userInfo["disable_whatsapp"])
+            let disableTelegram = Self.boolFlag(userInfo["disable_telegram"])
             Task { @MainActor in
                 Self.shared.handleFounderChatPromptPush(
                     source: source,
                     modalTitle: modalTitle,
-                    modalBody: modalBody
+                    modalBody: modalBody,
+                    contactMessage: contactMessage,
+                    disableWhatsApp: disableWhatsApp,
+                    disableTelegram: disableTelegram
                 )
             }
         }
@@ -260,7 +417,10 @@ extension PushNotificationManager {
     func handleFounderChatPromptPush(
         source: String,
         modalTitle: String? = nil,
-        modalBody: String? = nil
+        modalBody: String? = nil,
+        contactMessage: String? = nil,
+        disableWhatsApp: Bool = false,
+        disableTelegram: Bool = false
     ) {
         guard !FounderChatPromptStore.shared.isSnoozed else {
             AppLog.log("🔔 [push] founder_chat_prompt suppressed (snoozed) source=%@", source)
@@ -271,10 +431,22 @@ extension PushNotificationManager {
             return
         }
         AppLog.log(
-            "🔔 [push] founder_chat_prompt firing source=%@ title=%@ body=%@",
+            "🔔 [push] founder_chat_prompt firing source=%@ title=%@ body=%@ disable_wa=%@ disable_tg=%@",
             source,
             modalTitle ?? "<default>",
-            modalBody ?? "<default>"
+            modalBody ?? "<default>",
+            String(disableWhatsApp),
+            String(disableTelegram)
+        )
+        FounderChatPromptStore.shared.storePendingPrompt(
+            FounderChatPromptRequest(
+                source: source,
+                modalTitle: modalTitle,
+                modalBody: modalBody,
+                contactMessage: contactMessage,
+                disableWhatsApp: disableWhatsApp,
+                disableTelegram: disableTelegram
+            )
         )
         var info: [AnyHashable: Any] = ["source": source]
         if let modalTitle { info["modal_title"] = modalTitle }
@@ -284,229 +456,5 @@ extension PushNotificationManager {
             object: nil,
             userInfo: info
         )
-    }
-}
-
-@MainActor
-final class BackgroundRelayWakeService {
-    static let shared = BackgroundRelayWakeService()
-
-    private var isRunning = false
-
-    func handleSilentPush() async -> Bool {
-        guard !isRunning else {
-            AppLog.log("🔔 [push] background wake already running, skipping duplicate wake")
-            return true
-        }
-        guard let config = KeychainService.load() else {
-            AppLog.log("🔔 [push] silent push received but no saved pair config exists")
-            return false
-        }
-
-        AppLog.log("🔔 [push] background wake starting relay reconnect")
-        isRunning = true
-        defer {
-            isRunning = false
-            AppLog.log("🔔 [push] background wake finished")
-        }
-
-        let relay = RelayClient()
-        relay.onInnerMessage = { inner, seq in
-            Task { @MainActor in
-                // Background-wake path also drives the ack high-water mark
-                // so the relay can drop seq from the offline queue.
-                if let seq, let groupId = relay.currentGroupId {
-                    AckSeqStore.recordAcked(seq: seq, forGroupId: groupId)
-                }
-                if let from = inner.from, from.role == .app {
-                    AppLog.log(
-                        "🔔 [push] background inner ignored app-side message type=%@ id=%@ device=%@",
-                        inner.t.rawValue,
-                        inner.id,
-                        from.deviceId ?? "nil"
-                    )
-                    return
-                }
-
-                AppLog.log(
-                    "🔔 [push] background inner received type=%@ id=%@ from_role=%@",
-                    inner.t.rawValue,
-                    inner.id,
-                    inner.from?.role.rawValue ?? "nil"
-                )
-
-                switch inner.body {
-                case .text(let body):
-                    let text = body.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else {
-                        AppLog.log("🔔 [push] skipping empty text id=%@", inner.id)
-                        return
-                    }
-
-                    let dedupeKey = "message:\(inner.id)"
-                    let queued = await PendingIncomingMessageStore.shared.enqueue(
-                        PendingIncomingMessage(
-                            dedupeKey: dedupeKey,
-                            messageId: inner.id,
-                            payload: .text(body.text),
-                            receivedAt: .now
-                        )
-                    )
-                    AppLog.log(
-                        "🔔 [push] queued text id=%@ chars=%ld queued=%@",
-                        inner.id,
-                        body.text.count,
-                        queued ? "true" : "false"
-                    )
-                    guard queued else { return }
-
-                    let notified = await PendingIncomingMessageStore.shared.markNotificationSent(
-                        for: dedupeKey
-                    )
-                    guard notified else { return }
-                    await PushNotificationManager.shared.presentLocalNotification(body: body.text)
-
-                case .textEnd(let body):
-                    if body.reset == true {
-                        AppLog.log("🔔 [push] skipping reset text_end id=%@", inner.id)
-                        return
-                    }
-
-                    let text = body.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else {
-                        AppLog.log("🔔 [push] skipping empty text_end id=%@", inner.id)
-                        return
-                    }
-
-                    let dedupeKey = "stream-final:\(inner.id)"
-                    let queued = await PendingIncomingMessageStore.shared.enqueue(
-                        PendingIncomingMessage(
-                            dedupeKey: dedupeKey,
-                            messageId: inner.id,
-                            payload: .text(body.text),
-                            receivedAt: .now
-                        )
-                    )
-                    AppLog.log(
-                        "🔔 [push] queued text_end id=%@ chars=%ld reset=%@ queued=%@",
-                        inner.id,
-                        body.text.count,
-                        body.reset == true ? "true" : "false",
-                        queued ? "true" : "false"
-                    )
-                    guard queued else { return }
-
-                    let notified = await PendingIncomingMessageStore.shared.markNotificationSent(
-                        for: dedupeKey
-                    )
-                    guard notified else { return }
-                    await PushNotificationManager.shared.presentLocalNotification(body: body.text)
-
-                case .image(let body):
-                    let dedupeKey = "image:\(inner.id)"
-                    let queued = await PendingIncomingMessageStore.shared.enqueue(
-                        PendingIncomingMessage(
-                            dedupeKey: dedupeKey,
-                            messageId: inner.id,
-                            payload: .image(dataBase64: body.dataBase64),
-                            receivedAt: .now
-                        )
-                    )
-                    AppLog.log(
-                        "🔔 [push] queued image id=%@ bytes_b64=%ld queued=%@",
-                        inner.id,
-                        body.dataBase64.count,
-                        queued ? "true" : "false"
-                    )
-
-                case .audio(let body):
-                    let dedupeKey = "audio:\(inner.id)"
-                    let queued = await PendingIncomingMessageStore.shared.enqueue(
-                        PendingIncomingMessage(
-                            dedupeKey: dedupeKey,
-                            messageId: inner.id,
-                            payload: .audio(
-                                dataBase64: body.dataBase64,
-                                mimeType: body.mimeType,
-                                durationMs: body.durationMs,
-                                waveform: body.waveform
-                            ),
-                            receivedAt: .now
-                        )
-                    )
-                    AppLog.log(
-                        "🔔 [push] queued audio id=%@ duration_ms=%ld queued=%@",
-                        inner.id,
-                        body.durationMs,
-                        queued ? "true" : "false"
-                    )
-
-                case .status(let body):
-                    AppLog.log("🔔 [push] background status id=%@ status=%@", inner.id, body.status)
-
-                case .textDelta(let body):
-                    AppLog.log(
-                        "🔔 [push] background text_delta id=%@ chars=%ld",
-                        inner.id,
-                        body.delta.count
-                    )
-
-                case .ack(let body):
-                    // Plugin emitted an end-to-end ack for one of the user's
-                    // outbound messages while we were backgrounded. The
-                    // ChatView ModelContext isn't reachable from this
-                    // background context, so persist the refs and let the
-                    // foreground import flip the matching ChatMessage row to
-                    // .delivered. Without this the ✓✓ tick never lights up
-                    // when the user closes the app right after sending.
-                    if let from = inner.from, from.role == .plugin {
-                        PendingAcksStore.add(body.refs)
-                        AppLog.log(
-                            "🔔 [push] queued plugin ack refs=%@ stage=%@",
-                            body.refs,
-                            body.stage.rawValue
-                        )
-                    } else {
-                        AppLog.log(
-                            "🔔 [push] background ack ignored (non-plugin) refs=%@",
-                            body.refs
-                        )
-                    }
-
-                default:
-                    AppLog.log("🔔 [push] background inner ignored type=%@", inner.t.rawValue)
-                    break
-                }
-            }
-        }
-
-        relay.connect(config: config)
-
-        let connected = await waitForRelayConnection(relay)
-        AppLog.log("🔔 [push] background wake relay connected=%@", connected ? "true" : "false")
-        if connected {
-            try? await Task.sleep(for: .seconds(8))
-        }
-
-        relay.disconnect()
-        return connected
-    }
-
-    private func waitForRelayConnection(_ relay: RelayClient) async -> Bool {
-        let deadline = Date().addingTimeInterval(15)
-        while Date() < deadline {
-            switch relay.state {
-            case .connected:
-                AppLog.log("🔔 [push] background wake saw relay connected")
-                return true
-            case .failed:
-                AppLog.log("🔔 [push] background wake saw relay failed")
-                return false
-            default:
-                try? await Task.sleep(for: .milliseconds(250))
-            }
-        }
-        AppLog.log("🔔 [push] background wake timed out waiting for relay connection")
-        return false
     }
 }

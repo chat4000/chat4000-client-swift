@@ -2,70 +2,30 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
-    @State private var showsTimestamp = false
 
     private var isUser: Bool { message.sender == .user }
-    private var timestampText: String {
-        message.timestamp.formatted(date: .omitted, time: .shortened)
-    }
+    private var isUnavailable: Bool { message.kind == .unavailable }
 
     var body: some View {
         // Tool-call rows render with a dedicated component — they have
         // their own header/expand/status UI distinct from text bubbles.
         if message.kind == .toolCall {
             ToolCallBubble(message: message)
+        } else if message.kind == .htmlCard {
+            HTMLCardBubble(message: message)
         } else {
             HStack(alignment: .top, spacing: 8) {
-                messageLayout
+                bubbleContent
             }
             .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
             .padding(.horizontal, AppSpacing.messageRowInset)
         }
     }
 
-    @ViewBuilder
-    private var messageLayout: some View {
-        if showsTimestamp {
-            ViewThatFits(in: .horizontal) {
-                sideTimestampLayout
-                stackedTimestampLayout
-            }
-        } else {
-            bubbleContent
-        }
-    }
-
-    private var sideTimestampLayout: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isUser {
-                timestampLabel
-                bubbleContent
-            } else {
-                bubbleContent
-                timestampLabel
-            }
-        }
-    }
-
-    private var stackedTimestampLayout: some View {
-        VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
-            bubbleContent
-            timestampLabel
-        }
-    }
-
-    private var timestampLabel: some View {
-        Text(timestampText)
-            .font(AppFonts.timestamp)
-            .foregroundStyle(AppColors.textTimestamp)
-            .fixedSize()
-            .padding(.bottom, 2)
-    }
-
     /// Tiny inline tick that lives at the bottom-right inside user bubbles
     /// (per the chat-app convention). Agent bubbles get no tick.
     /// Color: timestamp grey for sending/sent, green for delivered, red for
-    /// failed. Per protocol §6.6.7.
+    /// failed. Per protocol section 6.6.7.
     @ViewBuilder
     private var statusTick: some View {
         if isUser {
@@ -121,20 +81,21 @@ struct MessageBubble: View {
                 )
             }
 
-            if !message.text.isEmpty {
-                Text(message.text)
+            if isUnavailable {
+                Label {
+                    Text(message.text.isEmpty ? "Message unavailable on this device" : message.text)
+                } icon: {
+                    Image(systemName: "lock.slash")
+                }
+                .font(AppFonts.body)
+                .foregroundStyle(AppColors.textTimestamp)
+            } else if !message.text.isEmpty {
+                Text(attributedText)
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
-                    // Disable Text's built-in selection so a single tap can
-                    // toggle the timestamp on macOS without first being
-                    // captured by the selection gesture. Copy is still
-                    // reachable via the context menu below (right-click on
-                    // macOS, long-press on iOS).
-                    .textSelection(.disabled)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        showsTimestamp.toggle()
-                    }
+                    // Text stays selectable (inherits the message list's
+                    // `.textSelection(.enabled)`): drag-select + ⌘C on macOS,
+                    // long-press on iOS. Copy is also in the context menu below.
                     .contextMenu {
                         Button("Copy") {
                             copyText(message.text)
@@ -144,7 +105,7 @@ struct MessageBubble: View {
         }
         .padding(.horizontal, AppSpacing.messagePaddingH)
         .padding(.vertical, AppSpacing.messagePaddingV)
-        .background(isUser ? AppColors.background : AppColors.agentBubble)
+        .background(bubbleBackground)
         .clipShape(BubbleShape(isUser: isUser))
         .overlay(
             BubbleShape(isUser: isUser)
@@ -162,11 +123,37 @@ struct MessageBubble: View {
         }
     }
 
+    private var bubbleBackground: Color {
+        if isUnavailable {
+            return AppColors.agentBubble.opacity(0.58)
+        }
+        return isUser ? AppColors.background : AppColors.agentBubble
+    }
+
+    /// Render the body as Markdown (bold/italic/`code`/~~strike~~/links), falling
+    /// back to plain text if parsing fails. We use `.inlineOnlyPreservingWhitespace`
+    /// so newlines/blank lines in a chat message are kept verbatim (the `.full`
+    /// syntax would collapse them and try to lay out block elements, which `Text`
+    /// can't render). Inline `code` spans get a monospaced font here because the
+    /// parser only tags the intent — `Text` won't change the font on its own.
+    private var attributedText: AttributedString {
+        var options = AttributedString.MarkdownParsingOptions()
+        options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+        options.failurePolicy = .returnPartiallyParsedIfPossible
+        guard var attributed = try? AttributedString(markdown: message.text, options: options) else {
+            return AttributedString(message.text)
+        }
+        for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            attributed[run.range].font = .system(.body, design: .monospaced)
+        }
+        return attributed
+    }
+
     private var contentSpacing: CGFloat {
         let contentCount = [
             message.imageData != nil,
             message.audioData != nil,
-            !message.text.isEmpty,
+            !message.text.isEmpty
         ].filter { $0 }.count
         return contentCount > 1 ? 8 : 0
     }
@@ -180,19 +167,18 @@ struct BubbleShape: Shape {
         let r = AppRadius.messageBubble
         let tail = AppRadius.messageTail
 
-        if isUser {
-            // User: small radius on bottom-right
-            return RoundedCornerShape(
-                topLeft: r, topRight: r,
-                bottomLeft: r, bottomRight: tail
-            ).path(in: rect)
-        } else {
+        guard isUser else {
             // Agent: small radius on bottom-left
             return RoundedCornerShape(
                 topLeft: r, topRight: r,
                 bottomLeft: tail, bottomRight: r
             ).path(in: rect)
         }
+        // User: small radius on bottom-right
+        return RoundedCornerShape(
+            topLeft: r, topRight: r,
+            bottomLeft: r, bottomRight: tail
+        ).path(in: rect)
     }
 }
 

@@ -24,11 +24,25 @@ final class TelemetryManager {
         TelemetryPreferences.isCollectionEnabled
     }
 
+    var postHogDistinctId: String? {
+        guard postHogStarted, isCollectionEnabled else { return nil }
+        let id = PostHogSDK.shared.getDistinctId().trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
+    /// IDN1 — the analytics `client_id` to send (`X-Client-Id`, FLW1/FLW5) and use
+    /// as the PostHog distinct_id. nil whenever telemetry is off, so callers omit
+    /// the header entirely then.
+    var clientId: String? {
+        guard isCollectionEnabled else { return nil }
+        return ClientIdentity.existingClientId()
+    }
+
     func configure(from json: [String: Any]?) {
         config = Config(
             sentryDsn: json?["sentryDsn"] as? String,
             postHogApiKey: json?["posthogApiKey"] as? String,
-            postHogHost: json?["posthogHost"] as? String ?? "https://us.i.posthog.com",
+            postHogHost: json?["posthogHost"] as? String ?? "https://posthog.chat4000.com",
             postHogProjectId: json?["posthogProjectId"] as? String,
             postHogSessionReplayEnabled: (json?["posthogSessionReplayEnabled"] as? Bool) ?? false
         )
@@ -73,6 +87,19 @@ final class TelemetryManager {
 
     func flush() {
         flushPostHogIfNeeded()
+    }
+
+    /// Flush telemetry before a HARD process exit (e.g. the macOS updater's
+    /// swap-and-relaunch calls `NSApp.terminate` within ~1s of capturing
+    /// `macos_update_installed`). PostHog's `flush()` is async fire-and-forget, but
+    /// `SentrySDK.flush(timeout:)` BLOCKS — so it both delivers any queued Sentry
+    /// events AND holds the thread long enough for the in-flight PostHog request
+    /// (already sent because `flushAt == 1`) to complete before we die.
+    func flushBeforeExit(timeout: TimeInterval = 2.0) {
+        flushPostHogIfNeeded()
+        if sentryStarted {
+            SentrySDK.flush(timeout: timeout)
+        }
     }
 
     /// Sets person-level properties on the current PostHog identity. Used
@@ -133,11 +160,20 @@ final class TelemetryManager {
             return
         }
 
-        let postHogConfig = PostHogConfig(apiKey: apiKey, host: config.postHogHost)
+        // PostHog 3.x renamed `apiKey` → `projectToken` (same value); the old
+        // initializer is deprecated and forwards to this one.
+        let postHogConfig = PostHogConfig(projectToken: apiKey, host: config.postHogHost)
         postHogConfig.captureApplicationLifecycleEvents = false
         postHogConfig.captureScreenViews = false
         postHogConfig.sendFeatureFlagEvent = false
         postHogConfig.errorTrackingConfig.autoCapture = false
+        // Flush every event IMMEDIATELY (flushAt defaults to 20, flushIntervalSeconds
+        // to 30). Short-lived macOS sessions — most acutely the updater's
+        // capture→swap→relaunch, which terminates us within ~1s — were dropping
+        // events that sat batched and never flushed. flushAt=1 sends each event as
+        // it's captured; a 10s interval is a backstop only.
+        postHogConfig.flushAt = 1
+        postHogConfig.flushIntervalSeconds = 10
         // PostHog 3.x defaults to `identifiedOnly` which suppresses person
         // profile creation for anonymous users. We need a profile per device
         // so that `setPersonProperties` (e.g. `apns_device_token`) actually
@@ -160,15 +196,59 @@ final class TelemetryManager {
         PostHogSDK.shared.register([
             "$lib": "posthog-macos",
             "platform": "macos",
+            "environment": Self.appEnvironmentTag
         ])
         #else
-        PostHogSDK.shared.register(["platform": "ios"])
+        PostHogSDK.shared.register([
+            "platform": "ios",
+            "environment": Self.appEnvironmentTag
+        ])
         #endif
         postHogStarted = true
         AppLog.log("📊 PostHog initialized (project_id=%@, host=%@, sessionReplay=%@)",
               config.postHogProjectId ?? "unknown",
               config.postHogHost,
               config.postHogSessionReplayEnabled ? "true" : "false")
+        bootstrapIdentity()
+    }
+
+    /// IDN1/IDN3/INF6 — establish this device's analytics identity once telemetry
+    /// is live: classify the (re)install, set `client_id` as the distinct_id, tag
+    /// Sentry, and emit exactly one CL3/CL4/CL5 event.
+    private func bootstrapIdentity() {
+        // IDN3: read marker state BEFORE creating either marker.
+        let classification = ClientIdentity.classifyFirstLaunch()
+        // IDN1/IDN2: ensure both markers now exist; client_id is the distinct_id.
+        let clientId = ClientIdentity.ensureClientId()
+        ClientIdentity.ensureAppDeviceId()
+        PostHogSDK.shared.identify(clientId)
+        // INF6: crashes join product analytics.
+        if sentryStarted {
+            SentrySDK.configureScope { $0.setTag(value: clientId, key: "client_id") }
+        }
+        // CL3/CL4/CL5 — at most one, never on an ordinary launch.
+        switch classification {
+        case .normalLaunch: break
+        case .installed: track(.appInstalled)
+        case .reinstalled: track(.appReinstalled)
+        case .deviceSwapped: track(.deviceSwapped)
+        }
+    }
+
+    /// IDN4 / CL6 — once at pairing: emit `account_linked`, $set the `user_id`
+    /// person property, and register it as a super property so every later event
+    /// (and all of a user's devices) joins natively.
+    func linkAccount(userId: String) {
+        guard postHogStarted, isCollectionEnabled, !userId.isEmpty else { return }
+        PostHogSDK.shared.register(["user_id": userId])
+        setPersonProperties(["user_id": userId])
+        track(.accountLinked, properties: ["user_id": userId])
+    }
+
+    /// Clear the `user_id` super property on disconnect / sign-out (IDN4).
+    func clearAccount() {
+        guard postHogStarted else { return }
+        PostHogSDK.shared.unregister("user_id")
     }
 
     private func stopSentryIfNeeded() {
@@ -180,6 +260,10 @@ final class TelemetryManager {
 
     private func stopPostHogIfNeeded() {
         guard postHogStarted else { return }
+        // IDN1: opt-out deletes the keychain client_id (and the local marker) so a
+        // later reinstall cannot re-link, and resets the SDK's stored ids.
+        ClientIdentity.clearForOptOut()
+        PostHogSDK.shared.reset()
         PostHogSDK.shared.optOut()
         PostHogSDK.shared.close()
         postHogStarted = false
@@ -217,11 +301,19 @@ final class TelemetryManager {
 
     private func enrichedProperties(_ properties: [String: Any]) -> [String: Any] {
         [
+            "environment": Self.appEnvironmentTag,
             "build_channel": Self.sentryEnvironment,
             "distribution_channel": Self.distributionChannel,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
-            "build_number": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0",
+            "build_number": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         ].merging(properties) { _, new in new }
+    }
+
+    /// Explicit `dev` / `prod` tag attached to every PostHog event and the person
+    /// profile, from the per-flavor `APP_ENV` (via `MatrixEnvironment.isStage`):
+    /// stage flavors → `dev`, prod flavor → `prod`.
+    static var appEnvironmentTag: String {
+        MatrixEnvironment.isStage ? "dev" : "prod"
     }
 
     private static var sentryEnvironment: String {

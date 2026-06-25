@@ -31,5 +31,7 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>APP_ENV</key>
+	<string>$(APP_ENV)</string>
 </dict>
 </plist>

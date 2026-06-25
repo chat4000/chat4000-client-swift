@@ -7,14 +7,19 @@ enum LaunchAction: String {
 
 enum LaunchActionStore {
     private static let key = "chat4000.pendingLaunchAction"
-    static let recordingURL = URL(string: "chat4000://record")!
-    static let composerURL = URL(string: "chat4000://compose")!
+    static let recordingURL: URL = requireURL("chat4000://record")
+    static let composerURL: URL = requireURL("chat4000://compose")
     static let didSetNotification = Notification.Name("chat4000.pendingLaunchActionDidSet")
 
     static func set(_ action: LaunchAction) {
         AppLog.log("🎯 LaunchActionStore.set action=%@", action.rawValue)
         UserDefaults.standard.set(action.rawValue, forKey: key)
         NotificationCenter.default.post(name: didSetNotification, object: action.rawValue)
+    }
+
+    static func peek() -> LaunchAction? {
+        guard let rawValue = UserDefaults.standard.string(forKey: key) else { return nil }
+        return LaunchAction(rawValue: rawValue)
     }
 
     static func consume() -> LaunchAction? {

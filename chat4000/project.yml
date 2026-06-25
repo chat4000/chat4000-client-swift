@@ -14,24 +14,47 @@ packages:
   PostHog:
     url: https://github.com/PostHog/posthog-ios.git
     from: "3.0.0"
-  swift-sodium:
-    url: https://github.com/jedisct1/swift-sodium.git
-    from: "0.9.1"
   Intercom:
     url: https://github.com/intercom/intercom-ios.git
     from: "19.0.0"
+  MatrixSDKCrypto:
+    # Local vendored package: standalone Olm/Megolm crypto FFI
+    # (matrix-sdk-crypto-ffi). The full MatrixRustSDK was removed — the
+    # homeserver has no public hostname (protocol D.3), so the SDK's HTTP mode
+    # can't reach it; v2 talks the gateway WS frame protocol directly
+    # (GatewayClient) and drives this crypto-only lib (CryptoEngine). The 505MB
+    # xcframework is gitignored + rebuilt locally (see the crypto build steps).
+    path: Vendor/MatrixSDKCrypto
 
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.0.2"
-    CURRENT_PROJECT_VERSION: "8"
+    SWIFT_STRICT_CONCURRENCY: complete
+    # Our own code is warning-clean; treat Swift warnings as errors so
+    # regressions fail the build. (Asset-catalog icon-size notes and the
+    # vendored xcframework's link notes are emitted by other toolchains, not
+    # the Swift compiler, so they are unaffected.)
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
+    MARKETING_VERSION: "1.1.2"
+    CURRENT_PROJECT_VERSION: "10"
     DEVELOPMENT_TEAM: H45JD827CU
     CODE_SIGN_STYLE: Automatic
     APP_DISPLAY_NAME: chat4000
     APP_DISTRIBUTION_CHANNEL: dev
     APP_APNS_ENV: development
     APP_APPATTEST_ENV: development
+    # Backend environment (stage/prod), read at runtime via Info.plist by
+    # MatrixEnvironment.isStage. Default stage; the prod flavor(s) override to prod.
+    # NOT coupled to Debug/Release, so a dev-signed build can target prod.
+    APP_ENV: stage
+    # F.2.4: per-flavor shared keychain access group (the bundle-id-bare form;
+    # the `$(AppIdentifierPrefix)` team prefix is prepended in the entitlements).
+    # Default is the App Store flavor's group; the dev flavors override it below
+    # so a Hermes dev build and an OpenClaw dev build never read each other's
+    # SharedCredentials. An app and its NSE MUST carry the SAME value (they share
+    # the store) — that's why it's set explicitly per concrete target, not derived
+    # from PRODUCT_BUNDLE_IDENTIFIER (the NSE's id has a `.nse` suffix).
+    APP_KEYCHAIN_GROUP: com.neonnode.chat94app.shared
 
 targetTemplates:
   iOSApp:
@@ -62,43 +85,77 @@ targetTemplates:
     dependencies:
       - package: Sentry
       - package: PostHog
-      - package: swift-sodium
-        product: Sodium
       - package: Intercom
+      - package: MatrixSDKCrypto
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
     postBuildScripts:
       - name: Upload dSYM to Sentry
         basedOnDependencyAnalysis: false
         script: |
           "$SRCROOT/scripts/upload-dsym-to-sentry.sh"
 
-targets:
-  chat4000iphoneappstore:
-    templates: [iOSApp]
+  # F2 (protocol F.2): the iOS Notification Service Extension. It decrypts a
+  # pushed event on-device and rewrites the banner (decrypt-only). One target per
+  # app flavor (App Store / dev) because each needs its OWN bundle id and its own
+  # per-flavor App Group (F.2.4) — an extension embedded in two apps can't carry
+  # two identities. Both flavors compile the SAME source set: the two NSE files
+  # plus exactly the shared files the NSE needs (CryptoEngine, CryptoStoreLock,
+  # NotificationContentBuilder, MatrixEnvironment, SharedCredentials/AppGroup
+  # creds resolver, SyncModel/ProtocolModels event-JSON helpers, AppLog/AppError/
+  # ErrorReporter/AppEnvironment) and their crypto package.
+  nseExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NSE
+      # Shared files the NSE needs (and their transitive deps). Listed explicitly
+      # so the NSE pulls in NOTHING from the app's view/SwiftData layer.
+      - path: Sources/Shared/CryptoStoreLock.swift
+      - path: Sources/Shared/NotificationContentBuilder.swift
+      - path: Sources/Shared/AppGroup.swift
+      - path: Sources/Shared/SharedCredentials.swift
+      - path: Sources/Matrix/CryptoEngine.swift
+      - path: Sources/Matrix/MatrixEnvironment.swift
+      - path: Sources/Models/AppError.swift
+      - path: Sources/Services/AppLog.swift
+      - path: Sources/Services/ErrorReporter.swift
+      - path: Sources/Services/AppEnvironment.swift
+      - path: Sources/Gateway/ProtocolModels.swift
+      - path: Sources/Gateway/SyncModel.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
-        APP_DISPLAY_NAME: chat4000
-      configs:
-        Debug:
-          APP_DISTRIBUTION_CHANNEL: dev
-          APP_APNS_ENV: development
-          APP_APPATTEST_ENV: development
-        Release:
-          APP_DISTRIBUTION_CHANNEL: app_store
-          APP_APNS_ENV: production
-          APP_APPATTEST_ENV: production
+        INFOPLIST_FILE: Resources/Info-NSE.plist
+        PRODUCT_MODULE_NAME: chat4000NSE
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_ENTITLEMENTS: Resources/chat4000NSE.entitlements
+        # Extensions can't host an app-attest env or APNs env; only the App Group +
+        # keychain group matter (set per concrete target via APP_GROUP_ID).
+    dependencies:
+      - package: MatrixSDKCrypto
+      - package: Sentry
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
 
-  chat4000iphonedev:
-    templates: [iOSApp]
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev
-        APP_DISPLAY_NAME: chat4000Dev
-        APP_DISTRIBUTION_CHANNEL: dev
-        APP_APNS_ENV: development
-        APP_APPATTEST_ENV: development
-
-  chat4000mac:
+  # macOS app flavors (Hermes dev / OpenClaw dev / Prod) — same structure as the
+  # iPhone flavors. macOS has NO NSE (live WebSocket, single process), no App Group
+  # and no per-flavor keychain group; flavors are isolated by bundle id (→ the
+  # storage namespace, AppEnvironment.storageNamespace) so 3 builds coexist.
+  macOSApp:
     type: application
     platform: macOS
     sources:
@@ -114,9 +171,6 @@ targets:
       base:
         INFOPLIST_FILE: Resources/Info-macOS.plist
         PRODUCT_MODULE_NAME: chat4000
-        PRODUCT_NAME: chat4000
-        APP_DISPLAY_NAME: chat4000
-        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
         CODE_SIGN_ENTITLEMENTS: Resources/chat4000Mac.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Required for Apple notarization of Developer ID-signed apps.
@@ -129,8 +183,219 @@ targets:
     dependencies:
       - package: Sentry
       - package: PostHog
-      - package: swift-sodium
-        product: Sodium
+      - package: MatrixSDKCrypto
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint lint --strict --config "$SRCROOT/.swiftlint.yml"
+          else
+            echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
+          fi
+
+targets:
+  chat4000iphoneappstore:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
+        APP_DISPLAY_NAME: chat4000
+        # The prod flavor → prod backend (registrar.chat4000.com), for BOTH configs:
+        # a Debug build is a dev-signed deployable prod build, Release is the store.
+        APP_ENV: prod
+        # F2 (protocol F.2.4): per-flavor App Group. The App Store flavor's base
+        # bundle id → its own group; the NSE strips its `.nse` suffix to join the
+        # SAME group (see Sources/Shared/AppGroup.swift).
+        APP_GROUP_ID: group.com.neonnode.chat94app
+      configs:
+        Debug:
+          APP_DISTRIBUTION_CHANNEL: dev
+          APP_APNS_ENV: development
+          APP_APPATTEST_ENV: development
+        Release:
+          APP_DISTRIBUTION_CHANNEL: appstore
+          APP_APNS_ENV: production
+          APP_APPATTEST_ENV: production
+    # F2: embed the App Store flavor's NSE so it ships inside the app bundle.
+    dependencies:
+      - target: chat4000NSEAppStore
+        embed: true
+    scheme:
+      gatherCoverageData: false
+  # Dev flavor paired to a HERMES bot. This is the canonical dev target (the
+  # former `chat4000iphonedev`, renamed). Same code as the OpenClaw dev flavor —
+  # the only difference is identity (bundle id / App Group / display name) so a
+  # Hermes-paired build and an OpenClaw-paired build coexist on one device with
+  # independent crypto stores.
+  chat4000iphonedevhermes:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.hermes
+        APP_DISPLAY_NAME: Hermes Dev
+        APP_DISTRIBUTION_CHANNEL: dev
+        APP_APNS_ENV: development
+        APP_APPATTEST_ENV: development
+        # F2 (protocol F.2.4): this flavor's SEPARATE App Group, so it never shares
+        # a crypto store with the OpenClaw dev flavor or a shipped build. Must equal
+        # group.<bundle id> — AppGroup.swift derives the group from the bundle id.
+        APP_GROUP_ID: group.com.neonnode.chat94app.dev.hermes
+        # F.2.4: this flavor's SEPARATE shared keychain group (its NSE carries the
+        # same value) so SharedCredentials never collide with the OpenClaw flavor.
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.hermes.shared
+    # F2: embed this flavor's NSE.
+    dependencies:
+      - target: chat4000NSEDevHermes
+        embed: true
+    scheme:
+      # Wire the unit-test bundle into the Hermes dev scheme so local verification
+      # does not build or host against the App Store app target.
+      testTargets:
+        - chat4000Tests
+      gatherCoverageData: false
+
+  # Dev flavor paired to an OPENCLAW bot. Identical code to the Hermes dev flavor;
+  # differs only in identity so both can be installed side by side.
+  chat4000iphonedevopenclaw:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.openclaw
+        APP_DISPLAY_NAME: OpenClaw Dev
+        APP_DISTRIBUTION_CHANNEL: dev
+        APP_APNS_ENV: development
+        APP_APPATTEST_ENV: development
+        # F2 (protocol F.2.4): this flavor's SEPARATE App Group. Must equal
+        # group.<bundle id> (see AppGroup.swift).
+        APP_GROUP_ID: group.com.neonnode.chat94app.dev.openclaw
+        # F.2.4: this flavor's SEPARATE shared keychain group (its NSE matches).
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.openclaw.shared
+    # F2: embed this flavor's NSE.
+    dependencies:
+      - target: chat4000NSEDevOpenclaw
+        embed: true
+    scheme:
+      gatherCoverageData: false
+
+  # LOCAL PROD flavor (iOS). A dev-signed build that targets the PROD backend
+  # (registrar.chat4000.com) for testing prod end-to-end WITHOUT clobbering the
+  # real App Store install — it has its OWN bundle id (`…localprod`), App Group,
+  # keychain group and NSE, so it installs side by side with the store app. The
+  # display name is "chat4000 localprod" so you can tell which app it is. The App
+  # Store flavor (`chat4000iphoneappstore`) is the real distribution — never
+  # auto-deployed; it installs from the App Store.
+  chat4000iphonelocalprod:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.localprod
+        APP_DISPLAY_NAME: chat4000 localprod
+        APP_ENV: prod
+        # Dev-signed deployable prod build (like the App Store flavor's Debug
+        # config) — never goes to the store, so dev channel + development push/
+        # attest in BOTH configs.
+        APP_DISTRIBUTION_CHANNEL: dev
+        APP_APNS_ENV: development
+        APP_APPATTEST_ENV: development
+        APP_GROUP_ID: group.com.neonnode.chat94app.localprod
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.localprod.shared
+    dependencies:
+      - target: chat4000NSELocalProd
+        embed: true
+    scheme:
+      gatherCoverageData: false
+
+  # Hermes dev Mac (stage, paired to a Hermes bot). Bundle matches the iPhone
+  # Hermes dev flavor so it's one universal identity across platforms.
+  chat4000macdevhermes:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.hermes
+        PRODUCT_NAME: chat4000-hermes
+        APP_DISPLAY_NAME: Hermes Dev
+        APP_ENV: stage
+
+  # OpenClaw dev Mac (stage, paired to an OpenClaw bot).
+  chat4000macdevopenclaw:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.openclaw
+        PRODUCT_NAME: chat4000-openclaw
+        APP_DISPLAY_NAME: OpenClaw Dev
+        APP_ENV: stage
+
+  # REAL prod / shipped Mac (prod backend). Same bundle id as the iPhone App Store
+  # flavor. This is the build the public DOWNLOADS as a notarized DMG from
+  # chat4000.com (the macOS analogue of the iOS App Store) — never auto-deployed
+  # locally, so a local build can't clobber the user's downloaded copy.
+  chat4000macprod:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app
+        PRODUCT_NAME: chat4000
+        APP_DISPLAY_NAME: chat4000
+        APP_ENV: prod
+
+  # LOCAL PROD flavor (macOS). Prod backend, dev/Developer-ID signed, with its OWN
+  # bundle id + product name so it coexists with the downloaded real-prod
+  # chat4000.app. Display name "chat4000 localprod" so you can tell which app it
+  # is. THIS is the mac flavor we deploy locally for prod testing — NOT
+  # chat4000macprod (that one ships as the website DMG).
+  chat4000maclocalprod:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.localprod
+        PRODUCT_NAME: chat4000-localprod
+        APP_DISPLAY_NAME: chat4000 localprod
+        APP_ENV: prod
+
+  # F2: the App Store flavor's NSE. Bundle `…chat94app.nse`, base App Group.
+  chat4000NSEAppStore:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app
+        # Match the prod app so the NSE's env matches (F.2.1b cold-key sync).
+        APP_ENV: prod
+
+  # F2: the Hermes dev flavor's NSE. Bundle `…dev.hermes.nse` (strips `.nse` to
+  # rejoin its app's group), Hermes dev App Group.
+  chat4000NSEDevHermes:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.hermes.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app.dev.hermes
+        # Same shared keychain group as its app (Hermes dev) — F.2.4.
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.hermes.shared
+
+  # F2: the OpenClaw dev flavor's NSE. Bundle `…dev.openclaw.nse`, OpenClaw dev
+  # App Group.
+  chat4000NSEDevOpenclaw:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.dev.openclaw.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app.dev.openclaw
+        # Same shared keychain group as its app (OpenClaw dev) — F.2.4.
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.dev.openclaw.shared
+
+  # F2: the local-prod flavor's NSE. Bundle `…localprod.nse`, local-prod App Group
+  # + keychain group, prod env (matches its app for F.2.1b cold-key sync).
+  chat4000NSELocalProd:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.localprod.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app.localprod
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.localprod.shared
+        APP_ENV: prod
 
   chat4000Tests:
     type: bundle.unit-test
@@ -140,5 +405,10 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+        # Test code is not held to the production warning-clean bar; keep
+        # warnings as warnings here so a benign test-only warning doesn't fail
+        # the suite build.
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"
     dependencies:
-      - target: chat4000iphoneappstore
+      - target: chat4000iphonedevhermes
+      - package: MatrixSDKCrypto

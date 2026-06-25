@@ -4,6 +4,38 @@ Features deferred from V1, roughly ordered by priority.
 
 ---
 
+## Revisit — macOS App Sandbox dropped for in-app self-update
+
+The macOS Developer-ID DMG build **dropped the App Sandbox**
+(`com.apple.security.app-sandbox` removed from
+`chat4000/Resources/chat4000Mac.entitlements`) to enable the in-app self-updater
+(protocol C.5.3): a sandboxed app cannot write outside its container or spawn the
+detached two-rename swap helper that replaces `/Applications/chat4000.app` in
+place and relaunches.
+
+**Security tradeoff.** Removing the sandbox loses OS-enforced blast-radius
+containment on an app that parses **untrusted content** — federation traffic from
+the gateway and downloaded media. A bug in that parsing now runs with the full
+ambient authority of the user's session rather than being confined to the app's
+sandbox container.
+
+**Retained to compensate:** Hardened Runtime stays on
+(`ENABLE_HARDENED_RUNTIME: YES`); notarization stays required; TCC still gates
+camera / microphone (`device.camera` / `device.audio-input` kept); and the update
+path is **fail-closed verified** before any swap — SHA-256 pin + Developer-ID
+Team-ID (`H45JD827CU`) signature + notarization/Gatekeeper assessment, with a
+Sentry exception raised on any failure.
+
+**Revisit if** the threat model changes (riskier untrusted parsing, or a
+sandbox-escape-class bug in a dependency), **or** if we ship a **Mac App Store**
+build (the MAS sandbox is mandatory there and MAS handles updates itself, so that
+build would re-add the sandbox and drop the in-app updater; the updater is already
+`#if os(macOS)` + Developer-ID-DMG-only and never runs on iOS / App Store). The
+alternative worth evaluating then is a **privileged helper / XPC service** (or
+`SMAppService`) doing the swap so the main app can stay sandboxed.
+
+---
+
 ## Reliable Delivery — Deferred Items (protocol §6.6)
 
 The acknowledgement layer landed in v1 (App Nap blocker, 25 s heartbeat, `seq`, `recv_ack`, `relay_recv_ack`, inner `ack`, idempotent insert by `msg_id`, plugin-version-policy soft nag). The following are deliberately deferred:

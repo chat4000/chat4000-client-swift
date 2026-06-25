@@ -6,6 +6,7 @@ import AppKit
 
 private let cliSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 private let cliThinkingHints = ["Thinking", "Planning", "Tracing", "Checking", "Exploring", "Reasoning"]
+private let cliWorkingHints = ["Working", "Using tools", "Checking results", "Running steps"]
 private let cliTypingHints = ["Typing", "Drafting", "Shaping", "Answering"]
 
 private enum VoiceRecordingSource: String {
@@ -18,24 +19,27 @@ struct ChatView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var viewModel: ChatViewModel
-    var onAddDevice: () -> Void
+    /// When set, a leading sidebar-toggle button appears in the nav bar.
+    var onToggleSidebar: (() -> Void)?
     @State private var messageText = ""
-    @State private var showSettings = false
+    /// Terminal/zsh-style sent-message recall. `historyIndex` is the cursor into
+    /// `sentMessageHistory` (nil = composing fresh, not navigating). `historyRecallText`
+    /// is the exact text we last placed in the box, so we can tell an *unedited*
+    /// recall (keep navigating) from a draft the user has typed/edited (leave it).
+    @State private var historyIndex: Int?
+    @State private var historyRecallText: String?
+    /// Owned by `ChatShell` so the sidebar's Settings button can open this sheet.
+    @Binding var showSettings: Bool
     @State private var showCamera = false
-    @State private var founderPromptSource: String?
-    @State private var founderPromptTitle: String?
-    @State private var founderPromptBody: String?
     @State private var voiceRecorder = VoiceNoteRecorder()
-    @State private var voiceErrorMessage: String?
+    @State private var bannerErrorMessage: String?
     @FocusState private var inputFocused: Bool
     @State private var hasPrimedInitialFocus = false
     @State private var isHandlingLaunchAction = false
     @State private var pendingLaunchActionTask: Task<Void, Never>?
     @State private var activeRecordingSource: VoiceRecordingSource = .inputBar
     @State private var macComposerHeight: CGFloat = ChatView.defaultMacComposerHeight
-    @State private var pendingScrollTask: Task<Void, Never>?
     @State private var versionPolicy = VersionPolicyManager.shared
-    @State private var pluginVersionPolicy = PluginVersionPolicyManager.shared
     private let macComposerMaxHeight: CGFloat = 210
 
     var body: some View {
@@ -46,85 +50,45 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 navBar
 
-                if versionPolicy.showNag,
-                   case .softNag(let recommended, _) = versionPolicy.action {
+                connectionBanner
+
+                if versionPolicy.showNag, case .recommendUpgrade(let recommended, _) = versionPolicy.action {
                     UpgradeRecommendedBanner(recommendedVersion: recommended) {
                         versionPolicy.dismissNag()
                     }
                 }
 
-                // Per protocol §6.3 plugin_version_policy — soft nag for the
-                // plugin running on the user's paired computer when its
-                // observed version is below recommended_version. Hard-block
-                // case is rendered separately (it gates messaging entirely).
-                if pluginVersionPolicy.showNag,
-                   case .softNag(let recommended, _) = pluginVersionPolicy.action {
-                    PluginUpgradeRecommendedBanner(recommendedVersion: recommended) {
-                        pluginVersionPolicy.dismissNag()
-                    }
+                messageArea
+
+                if let bannerErrorMessage {
+                    errorBanner(bannerErrorMessage)
                 }
 
-                // Messages and busy indicators live inside the scroll view so
-                // they flow with content and don't resize the scroll area when
-                // they appear/disappear.
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        messageListContent
-                        .padding(.vertical, AppSpacing.chatListVerticalInset)
-                        .contentShape(Rectangle())
-                        .textSelection(.enabled)
-                    }
-                    #if os(iOS)
-                    .scrollDismissesKeyboard(.interactively)
-                    .onTapGesture {
-                        dismissKeyboard()
-                    }
-                    #endif
-                    .onAppear {
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(150))
-                            scrollToBottom(using: proxy)
-                        }
-                    }
-                    .onChange(of: viewModel.messages.count) {
-                        scrollToBottom(using: proxy)
-                    }
-                    .onChange(of: viewModel.scrollRevision) {
-                        scrollToBottom(using: proxy)
-                    }
-                    .onChange(of: viewModel.isAgentBusy) {
-                        scrollToBottom(using: proxy)
-                    }
+                // No session → no composer at all (the empty state's New chat
+                // is the only action). Don't show an input you can't send from.
+                if viewModel.hasActiveSession {
+                    inputBar
                 }
-
-                if let voiceErrorMessage {
-                    errorBanner(voiceErrorMessage)
-                }
-
-                if let pluginUpdateWarning = viewModel.pluginUpdateWarning {
-                    errorBanner(pluginUpdateWarning)
-                }
-
-                inputBar
             }
+
         }
+        // iOS: a sheet (already dismisses on an outside tap / swipe-down). macOS
+        // presents Settings as a tap-to-dismiss overlay in ChatShell instead, so
+        // there is no sheet here on the Mac.
+        #if os(iOS)
         .sheet(isPresented: $showSettings) {
             SettingsSheet(
-                config: viewModel.config,
-                pluginVersion: viewModel.lastSeenPluginVersion,
-                pluginBundleId: viewModel.lastSeenPluginBundleId,
-                onAddDevice: onAddDevice,
-                onDisconnect: viewModel.disconnect,
-                onClearHistory: viewModel.clearHistory
+                matrixSession: viewModel.matrixSession,
+                pluginVersion: nil,
+                pluginBundleId: nil,
+                onDisconnect: viewModel.disconnectTapped,
+                onClose: { showSettings = false }
             )
-            #if os(macOS)
-            .presentationDetents([.height(700)])
-            #else
             .presentationDetents([.fraction(0.75)])
-            #endif
             .presentationDragIndicator(.visible)
             .presentationBackground(AppColors.cardBackground)
         }
+        #endif
         .onChange(of: showSettings) { _, isPresented in
             if isPresented {
                 TelemetryManager.shared.screen("settings")
@@ -151,27 +115,15 @@ struct ChatView: View {
             guard newPhase == .active else { return }
             handlePendingLaunchActionIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: LaunchActionStore.didSetNotification)) { _ in
+        // A deferred launch action waits for a session. The retry loop in the
+        // handler can expire before connect+sync finishes, and nothing else
+        // re-fires it — so re-run it the moment a session appears.
+        .onChange(of: viewModel.hasActiveSession) { _, hasSession in
+            guard hasSession else { return }
             handlePendingLaunchActionIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: PushNotificationManager.founderChatPromptRequested)) { note in
-            founderPromptSource = (note.userInfo?["source"] as? String) ?? "push"
-            founderPromptTitle = note.userInfo?["modal_title"] as? String
-            founderPromptBody = note.userInfo?["modal_body"] as? String
-        }
-        .sheet(isPresented: Binding(
-            get: { founderPromptSource != nil },
-            set: { if !$0 {
-                founderPromptSource = nil
-                founderPromptTitle = nil
-                founderPromptBody = nil
-            } }
-        )) {
-            FounderChatPromptModal(
-                source: founderPromptSource ?? "push",
-                modalTitle: founderPromptTitle ?? FounderChatPromptModal.defaultTitle,
-                modalBody: founderPromptBody ?? FounderChatPromptModal.defaultBody
-            )
+        .onReceive(NotificationCenter.default.publisher(for: LaunchActionStore.didSetNotification)) { _ in
+            handlePendingLaunchActionIfNeeded()
         }
         .onDisappear {
             pendingLaunchActionTask?.cancel()
@@ -179,167 +131,125 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Nav Bar
+    // MARK: - Message area (always-mounted per-room views)
 
-    private var navBar: some View {
-        HStack {
-            Spacer()
-
-            Button {
-                Task { @MainActor in
-                    Haptics.impact()
-                }
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppColors.textPrimary)
-                    .frame(width: 28, height: 28)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+    /// Every session room gets its OWN view, all kept alive in this ZStack; only
+    /// the front room is visible + interactive. Switching rooms just changes which
+    /// one is on top — nothing is torn down, re-cooked, or replayed, and each
+    /// view keeps its scroll position and already-rendered rows. A background
+    /// room's view is already correct because its `RoomViewModel` cooked + saved
+    /// its rows live (the active-room delivery gate is gone in `MatrixSession`).
+    @ViewBuilder
+    private var messageArea: some View {
+        ZStack {
+            ForEach(viewModel.matrixSession.rooms) { room in
+                let isFront = viewModel.activeRoomId == room.id
+                RoomMessagesView(
+                    room: viewModel.room(for: room.id),
+                    isFront: isFront,
+                    onDismissKeyboard: { dismissKeyboard() }
                 )
-                .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 5)
+                .opacity(isFront ? 1 : 0)
+                .allowsHitTesting(isFront)
             }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        #if os(iOS)
-        .padding(.top, -15)
-        .padding(.bottom, AppSpacing.navBarBottomInset)
-        #else
-        .padding(.top, -12)
-        .padding(.bottom, AppSpacing.navBarBottomInset)
-        #endif
-    }
 
-    // MARK: - Busy Indicator
-
-    private var busyIndicator: some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { context in
-            let spinnerIndex = Int(context.date.timeIntervalSinceReferenceDate * 12) % cliSpinnerFrames.count
-            let spinner = cliSpinnerFrames[spinnerIndex]
-            let hints = busyHints(for: viewModel.busyPhase)
-            let hintIndex = Int(context.date.timeIntervalSinceReferenceDate / 2) % hints.count
-            let hint = hints[hintIndex]
-
-            HStack(spacing: 8) {
-                Text(spinner)
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-
-                if let start = viewModel.busyStartTime {
-                    let elapsed = max(Int(context.date.timeIntervalSince(start)), 0)
-                    Text("\(elapsed)s")
-                        .font(AppFonts.caption)
-                        .foregroundStyle(AppColors.textTimestamp)
-                        .monospacedDigit()
+            // No room selected yet → the global setup/empty overlay (not a room).
+            if viewModel.activeRoomId == nil {
+                ScrollView {
+                    noSessionPlaceholder
                 }
-
-                Text(hint)
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-
-                Spacer()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(AppColors.background)
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-        .animation(.easeInOut(duration: 0.2), value: viewModel.isAgentBusy)
     }
 
-    private func busyHints(for phase: String) -> [String] {
-        switch phase.lowercased() {
-        case "typing":
-            return cliTypingHints
-        default:
-            return cliThinkingHints
-        }
-    }
-
-    private func scrollToBottom(using proxy: ScrollViewProxy) {
-        AppLog.log(
-            "↕️ scrollToBottom messages=%d revision=%d busy=%@ phase=%@",
-            viewModel.messages.count,
-            viewModel.scrollRevision,
-            viewModel.isAgentBusy ? "true" : "false",
-            viewModel.busyPhase
-        )
-        pendingScrollTask?.cancel()
-        pendingScrollTask = Task { @MainActor in
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            #if os(iOS)
-            try? await Task.sleep(for: .milliseconds(24))
-            guard !Task.isCancelled else { return }
-            AppLog.log("↕️ scrollToBottom delayed follow-up")
-            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            #else
-            AppLog.log("↕️ scrollToBottom async follow-up")
-            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-            #endif
-        }
-    }
-
-    @ViewBuilder
-    private var messageListContent: some View {
-        #if os(iOS)
-        VStack(spacing: AppSpacing.messageGap) {
-            messageListRows
-        }
-        #else
-        LazyVStack(spacing: AppSpacing.messageGap) {
-            messageListRows
-        }
-        #endif
-    }
-
-    @ViewBuilder
-    private var messageListRows: some View {
-        if viewModel.messages.isEmpty && !viewModel.isAgentBusy {
-            emptyChatPlaceholder
-                .id("emptyChatPlaceholder")
-        }
-
-        ForEach(viewModel.messages, id: \.id) { message in
-            MessageBubble(message: message)
-                .id(message.id)
-        }
-
-        if viewModel.isAgentBusy {
-            busyIndicator
-                .id("busyIndicator")
-        }
-
-        Color.clear
-            .frame(height: 1)
-            .id("chatBottomAnchor")
-    }
-
-    private var emptyChatPlaceholder: some View {
+    private var noSessionPlaceholder: some View {
         VStack(spacing: 12) {
-            Image(systemName: "bubble.left.and.bubble.right")
+            Image(systemName: "plus.bubble")
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(AppColors.textSecondary)
 
-            Text("No messages yet")
+            Text("No sessions yet")
                 .font(AppFonts.title)
                 .foregroundStyle(AppColors.textPrimary)
 
-            Text("Type a message below and press send to talk to your agent.")
+            Text("Create a session to start chatting — your plugin sets it up and names it.")
                 .font(AppFonts.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // I2: only offer the button once the workspace is keyed, so a tap can't
+            // fire a command that's encrypted to 0 recipients (the 3-tap bug).
+            if viewModel.matrixSession.isWorkspaceReady {
+                Button {
+                    Haptics.impact()
+                    viewModel.matrixSession.requestNewSession()
+                } label: {
+                    Label("New chat", systemImage: "plus")
+                        .font(AppFonts.button)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 20)
+                        .frame(height: 48)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 48)
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Connection banner
+
+    /// Connection status is intentionally NOT surfaced in the chat. Per product
+    /// decision the app reconnects silently — a transient drop, a cold-launch
+    /// connect, or an offline state never shows a strip or takeover; the socket
+    /// layer redrives queued sends on its own. Kept as an `EmptyView` (rather than
+    /// removing the call site) so the layout slot is preserved and re-enabling is a
+    /// one-spot change.
+    @ViewBuilder
+    private var connectionBanner: some View {
+        EmptyView()
+    }
+
+    // MARK: - Nav Bar
+
+    @ViewBuilder
+    private var navBar: some View {
+        #if os(macOS)
+        // On Mac the chat has no top bar: the sidebar toggle floats at the window
+        // top-left (by the traffic lights, in ChatShell) and Settings lives at the
+        // sidebar's bottom-left.
+        EmptyView()
+        #else
+        // iOS keeps the sidebar toggle top-left; Settings moved into the sidebar
+        // header (top-right, where the account avatar sits).
+        HStack {
+            if let onToggleSidebar {
+                Button {
+                    Task { @MainActor in Haptics.impact() }
+                    onToggleSidebar()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppColors.textPrimary)
+                        .frame(width: 28, height: 28)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, -15)
+        .padding(.bottom, AppSpacing.navBarBottomInset)
+        #endif
     }
 
     private func errorBanner(_ text: String) -> some View {
@@ -356,9 +266,6 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            Divider()
-                .background(AppColors.inputBorder)
-
             if voiceRecorder.isRecording {
                 recordingInputBar
             } else {
@@ -366,6 +273,8 @@ struct ChatView: View {
             }
         }
         .background(AppColors.background)
+        // History recall is per-room: switching sessions starts fresh.
+        .onChange(of: viewModel.activeRoomId) { _, _ in resetHistoryNavigation() }
     }
 
     #if os(iOS)
@@ -388,7 +297,16 @@ struct ChatView: View {
             trailingAccessoryArea
         }
         .padding(.horizontal, AppSpacing.messageRowInset)
+        // The divider above adds visual weight, so an equal top/bottom inset reads
+        // as top-heavy. On macOS bias the inset toward the bottom — same TOTAL as
+        // before (2 + 6 = the old 4 + 4), so the composer's divider still lines up
+        // with the sidebar's Settings-row divider — so it reads visually centered.
+        #if os(macOS)
+        .padding(.top, 2)
+        .padding(.bottom, (AppSpacing.inputBarBottomInset * 2) - 2)
+        #else
         .padding(.vertical, AppSpacing.inputBarBottomInset)
+        #endif
         .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
     }
 
@@ -466,7 +384,9 @@ struct ChatView: View {
                     minHeight: MacComposerTextView.minimumHeight,
                     maxHeight: macComposerMaxHeight,
                     onSubmit: sendMessage,
-                    onTextChange: { _ in }
+                    onTextChange: { _ in },
+                    onHistoryUp: recallPreviousMessage,
+                    onHistoryDown: recallNextMessage
                 )
 
             if messageText.isEmpty {
@@ -509,6 +429,9 @@ struct ChatView: View {
             .onSubmit {
                 sendMessage()
             }
+            // Hardware-keyboard history recall (iPad / external keyboard).
+            .onKeyPress(.upArrow) { recallPreviousMessage() ? .handled : .ignored }
+            .onKeyPress(.downArrow) { recallNextMessage() ? .handled : .ignored }
             .simultaneousGesture(
                 TapGesture().onEnded {
                     Haptics.impact()
@@ -587,10 +510,72 @@ struct ChatView: View {
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // No session bound → don't ghost the message; keep the text and nudge
+        // the user to create/pick a session (the empty state has a New chat).
+        guard viewModel.hasActiveSession else {
+            Haptics.error()
+            return
+        }
 
         Haptics.impact()
         viewModel.send(text: text)
         messageText = ""
+        resetHistoryNavigation()
+    }
+
+    // MARK: - Terminal-style sent-message history recall
+
+    /// The user's own sent text messages in the active room, oldest→newest. Drives
+    /// Up/Down recall in the composer. Image/audio (empty-text) rows are skipped.
+    private var sentMessageHistory: [String] {
+        guard let room = viewModel.frontRoom else { return [] }
+        return room.messages.compactMap { message in
+            guard message.sender == .user else { return nil }
+            return message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : message.text
+        }
+    }
+
+    /// Up arrow: walk BACK through previously-sent messages (newer→older). Only
+    /// engages when the box is empty or holds an unedited recall, so a typed draft
+    /// is never clobbered. Returns true if it consumed the key.
+    private func recallPreviousMessage() -> Bool {
+        guard messageText.isEmpty || messageText == historyRecallText else { return false }
+        let history = sentMessageHistory
+        guard !history.isEmpty else { return false }
+        let newIndex: Int
+        if let idx = historyIndex {
+            guard idx > 0 else { return true }   // already at the oldest — consume, no-op
+            newIndex = idx - 1
+        } else {
+            newIndex = history.count - 1          // first Up → most recent
+        }
+        historyIndex = newIndex
+        historyRecallText = history[newIndex]
+        messageText = history[newIndex]
+        return true
+    }
+
+    /// Down arrow: walk FORWARD (older→newer); past the newest returns to an empty
+    /// fresh draft. Only engages while navigating an unedited recall.
+    private func recallNextMessage() -> Bool {
+        guard let idx = historyIndex, messageText == historyRecallText else { return false }
+        let history = sentMessageHistory
+        guard !history.isEmpty else { return false }
+        if idx < history.count - 1 {
+            let newIndex = idx + 1
+            historyIndex = newIndex
+            historyRecallText = history[newIndex]
+            messageText = history[newIndex]
+        } else {
+            resetHistoryNavigation()
+            messageText = ""
+        }
+        return true
+    }
+
+    private func resetHistoryNavigation() {
+        historyIndex = nil
+        historyRecallText = nil
     }
 
     private func dismissKeyboard() {
@@ -602,7 +587,13 @@ struct ChatView: View {
     private func toggleVoiceRecording() async {
         activeRecordingSource = .inputBar
         dismissKeyboardIfNeeded()
-        voiceErrorMessage = nil
+        bannerErrorMessage = nil
+
+        // Let the mic-button tap haptic actually play before we activate the
+        // `.record` audio session: iOS suppresses the Taptic Engine while audio
+        // input is live, so activating it immediately cuts the buzz off and you
+        // feel nothing. A short gap (imperceptible for recording start) fixes it.
+        try? await Task.sleep(for: .milliseconds(90))
 
         do {
             try await voiceRecorder.start()
@@ -611,12 +602,14 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
-            voiceErrorMessage = error.localizedDescription
+            // start() already reported truly unexpected device failures at its
+            // boundary; permission denial is expected. Surface the user message.
+            bannerErrorMessage = error.message
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
-                    "reason": error.localizedDescription,
-                    "source": activeRecordingSource.rawValue,
+                    "reason": error.message,
+                    "source": activeRecordingSource.rawValue
                 ]
             )
             Haptics.error()
@@ -640,7 +633,7 @@ struct ChatView: View {
         activeRecordingSource = .launchAction
         messageText = ""
         dismissKeyboardIfNeeded()
-        voiceErrorMessage = nil
+        bannerErrorMessage = nil
 
         do {
             try await voiceRecorder.start()
@@ -654,13 +647,14 @@ struct ChatView: View {
                 properties: ["source": activeRecordingSource.rawValue]
             )
         } catch {
-            AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.localizedDescription)
-            voiceErrorMessage = error.localizedDescription
+            // start() reported unexpected device failures at its boundary already.
+            AppLog.log("🎯 ChatView.startVoiceRecordingFromLaunchAction error=%@", error.message)
+            bannerErrorMessage = error.message
             TelemetryManager.shared.track(
                 .voiceRecordingFailed,
                 properties: [
-                    "reason": error.localizedDescription,
-                    "source": activeRecordingSource.rawValue,
+                    "reason": error.message,
+                    "source": activeRecordingSource.rawValue
                 ]
             )
             Haptics.error()
@@ -669,7 +663,7 @@ struct ChatView: View {
 
     private func stopVoiceRecording() async {
         guard let clip = await voiceRecorder.stop() else {
-            voiceErrorMessage = "Recording failed. Try again."
+            bannerErrorMessage = "Recording failed. Try again."
             Haptics.error()
             return
         }
@@ -686,7 +680,7 @@ struct ChatView: View {
             .voiceRecordingFinished,
             properties: [
                 "source": recordingSource.rawValue,
-                "duration_bucket": AnalyticsBuckets.durationBucket(for: clip.duration),
+                "duration_bucket": AnalyticsBuckets.durationBucket(for: clip.duration)
             ]
         )
         activeRecordingSource = .inputBar
@@ -715,7 +709,8 @@ struct ChatView: View {
         pendingLaunchActionTask = Task { @MainActor in
             for attempt in 0..<6 {
                 AppLog.log("🎯 ChatView.handlePendingLaunchActionIfNeeded attempt=%d", attempt)
-                if let action = LaunchActionStore.consume() {
+                if let action = LaunchActionStore.peek() {
+                    _ = LaunchActionStore.consume()
                     isHandlingLaunchAction = true
                     defer { isHandlingLaunchAction = false }
 
@@ -736,9 +731,316 @@ struct ChatView: View {
     }
 }
 
+// MARK: - Per-room messages view (one always-mounted instance per room)
+
+/// Renders ONE room's timeline + busy indicator, bound to that room's
+/// `RoomViewModel`. Each instance keeps its own scroll position because it stays
+/// in the view tree across switches (it's just hidden when not front). Only the
+/// front room sends read receipts.
+struct RoomMessagesView: View {
+    @Bindable var room: RoomViewModel
+    var isFront: Bool
+    var onDismissKeyboard: (() -> Void)?
+
+    @State private var pendingScrollTask: Task<Void, Never>?
+    /// True when the viewport is at/near the latest message. Drives the jump-to-
+    /// bottom button (hidden when at bottom) and pin-gated auto-scroll. Starts true
+    /// (a fresh room opens at the bottom).
+    @State private var isPinnedToBottom = true
+    /// Live viewport height, for the distance-from-bottom math.
+    @State private var viewportHeight: CGFloat = 0
+    /// Content "shape" (count + growing-message length + busy) at the last settled
+    /// pin update. Lets `updatePinned` tell a content-growth maxY change (DON'T unpin
+    /// — keep following) from a genuine user-scroll maxY change (DO unpin — reveal
+    /// the button). This is the ordering-independent fix for the "incoming message
+    /// doesn't follow while pinned" race: a new/taller row changes the signature, so
+    /// it can never unpin us mid-arrival regardless of onChange firing order.
+    @State private var lastContentSignature = ""
+    @State private var signatureSyncTask: Task<Void, Never>?
+
+    /// Named coordinate space the content's bottom edge is measured against.
+    private static let scrollSpace = "roomScroll"
+    /// How close (pt) the content bottom must be to the viewport bottom to count as
+    /// "pinned". Generous so layout jitter / the busy row don't unpin.
+    private static let bottomThreshold: CGFloat = 120
+
+    private var contentSignature: String {
+        "\(room.messages.count)|\(room.messages.last?.text.count ?? 0)|\(room.isAgentBusy)"
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                messageListContent
+                    .padding(.vertical, AppSpacing.chatListVerticalInset)
+                    .contentShape(Rectangle())
+                    .textSelection(.enabled)
+                    // A layout-neutral GeometryReader reports the content's bottom
+                    // edge in the scroll's coordinate space; `.onChange` recomputes
+                    // isPinnedToBottom as it scrolls (see updatePinned).
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.onChange(
+                                of: geo.frame(in: .named(Self.scrollSpace)).maxY, initial: true
+                            ) { _, maxY in
+                                updatePinned(contentMaxY: maxY)
+                            }
+                        }
+                    )
+            }
+            .coordinateSpace(name: Self.scrollSpace)
+            // Viewport height (the scroll view's own size), kept current so the
+            // distance-from-bottom math is correct after rotation / keyboard.
+            .background(
+                GeometryReader { vp in
+                    Color.clear.onChange(of: vp.size.height, initial: true) { _, height in
+                        viewportHeight = height
+                    }
+                }
+            )
+            #if os(iOS)
+            .scrollDismissesKeyboard(.interactively)
+            .onTapGesture { onDismissKeyboard?() }
+            #endif
+            .overlay(alignment: .bottomTrailing) {
+                scrollToBottomButton(proxy)
+            }
+            .onAppear {
+                // Opening / first showing a room always lands at the bottom.
+                lastContentSignature = contentSignature
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(150))
+                    scrollToBottom(using: proxy)
+                }
+                if isFront { room.markRead() }
+            }
+            .onChange(of: room.messages.count) {
+                // Follow ONLY if we were at the bottom. The signature guard in
+                // updatePinned keeps isPinnedToBottom honest across this arrival, so
+                // a tall incoming row can't unpin us before we read it here.
+                if isPinnedToBottom { scrollToBottom(using: proxy) }
+                if isFront { room.markRead() }
+                syncContentSignatureAfterSettle()
+            }
+            .onChange(of: room.scrollRevision) {
+                if isPinnedToBottom { scrollToBottom(using: proxy) }
+                syncContentSignatureAfterSettle()
+            }
+            // The local user just SENT a message: always jump to the bottom,
+            // animated, exactly like tapping the scroll-to-bottom button —
+            // regardless of whether they'd scrolled up. (macOS + iOS.)
+            .onChange(of: room.sendScrollRevision) {
+                scrollToBottom(using: proxy, animated: true)
+            }
+            .onChange(of: room.isAgentBusy) {
+                if isPinnedToBottom { scrollToBottom(using: proxy) }
+                syncContentSignatureAfterSettle()
+            }
+            .onChange(of: isFront) { _, front in
+                guard front else { return }
+                scrollToBottom(using: proxy)
+                room.markRead()
+            }
+        }
+    }
+
+    /// Recompute whether the viewport is at/near the bottom from the content's
+    /// bottom edge. A re-pin (we're near the bottom) always applies. An UNPIN only
+    /// applies when the content is unchanged since the last settled update — i.e.
+    /// it was a genuine user scroll, not a freshly-arrived/taller row pushing the
+    /// bottom down. That single rule fixes the "incoming doesn't follow while
+    /// pinned" race ordering-independently AND stops a scrolled-up reader from being
+    /// disturbed when a message arrives.
+    private func updatePinned(contentMaxY: CGFloat) {
+        guard viewportHeight > 0 else { return }
+        let nearBottom = (contentMaxY - viewportHeight) < Self.bottomThreshold
+        if nearBottom {
+            if !isPinnedToBottom { isPinnedToBottom = true }
+        } else if contentSignature == lastContentSignature {
+            if isPinnedToBottom { isPinnedToBottom = false }
+        }
+        // else: content grew (signature changed) and pushed the bottom past the
+        // threshold — stay pinned; the content onChange scrolls us back down.
+    }
+
+    /// Re-baseline the content signature once arrivals/streaming have settled, so a
+    /// later user scroll (no content change) is recognized and can unpin. Debounced
+    /// so rapid streaming ticks keep us following until the stream pauses.
+    private func syncContentSignatureAfterSettle() {
+        signatureSyncTask?.cancel()
+        signatureSyncTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            lastContentSignature = contentSignature
+        }
+    }
+
+    /// Floating chevron that fades in only when the user has scrolled up; tapping
+    /// it smoothly jumps to the latest message.
+    @ViewBuilder
+    private func scrollToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+        Button {
+            Haptics.impact()
+            AppLog.log("🔽 scroll-button tap pinned=%@ msgs=%d",
+                       String(isPinnedToBottom), room.messages.count)
+            // Route through the robust multi-pass scroll (NOT a single inline
+            // scrollTo): a lone pass lands short ~20% when content is still
+            // settling (busy row / image decode / markdown reflow) at tap time.
+            scrollToBottom(using: proxy, animated: true)
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(AppColors.textPrimary)
+                .frame(width: 38, height: 38)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 16)
+        .padding(.bottom, 12)
+        .opacity(isPinnedToBottom ? 0 : 1)
+        .scaleEffect(isPinnedToBottom ? 0.8 : 1)
+        .allowsHitTesting(!isPinnedToBottom)
+        .animation(.easeInOut(duration: 0.2), value: isPinnedToBottom)
+    }
+
+    @ViewBuilder
+    private var messageListContent: some View {
+        #if os(iOS)
+        VStack(spacing: AppSpacing.messageGap) {
+            messageListRows
+        }
+        #else
+        LazyVStack(spacing: AppSpacing.messageGap) {
+            messageListRows
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var messageListRows: some View {
+        if room.messages.isEmpty && !room.isAgentBusy {
+            noMessagesPlaceholder
+                .id("emptyChatPlaceholder")
+        }
+
+        ForEach(room.messages, id: \.id) { message in
+            MessageBubble(message: message)
+                .id(message.id)
+        }
+
+        if room.isAgentBusy {
+            busyIndicator
+                .id("busyIndicator")
+        }
+
+        Color.clear
+            .frame(height: 1)
+            .id("chatBottomAnchor")
+    }
+
+    private var noMessagesPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(AppColors.textSecondary)
+
+            Text("No messages yet")
+                .font(AppFonts.title)
+                .foregroundStyle(AppColors.textPrimary)
+
+            Text("Type a message below and press send to talk to your agent.")
+                .font(AppFonts.body)
+                .foregroundStyle(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 48)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var busyIndicator: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+            let spinnerIndex = Int(context.date.timeIntervalSinceReferenceDate * 12) % cliSpinnerFrames.count
+            let spinner = cliSpinnerFrames[spinnerIndex]
+            let hints = busyHints(for: room.busyPhase)
+            let hintIndex = Int(context.date.timeIntervalSinceReferenceDate / 2) % hints.count
+            let hint = hints[hintIndex]
+
+            HStack(spacing: 8) {
+                Text(spinner)
+                    .font(AppFonts.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+
+                if let start = room.busyStartTime {
+                    let elapsed = max(Int(context.date.timeIntervalSince(start)), 0)
+                    Text("\(elapsed)s")
+                        .font(AppFonts.caption)
+                        .foregroundStyle(AppColors.textTimestamp)
+                        .monospacedDigit()
+                }
+
+                Text(hint)
+                    .font(AppFonts.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(AppColors.background)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .animation(.easeInOut(duration: 0.2), value: room.isAgentBusy)
+    }
+
+    private func busyHints(for phase: String) -> [String] {
+        switch phase.lowercased() {
+        case "working":
+            return cliWorkingHints
+        case "typing":
+            return cliTypingHints
+        default:
+            return cliThinkingHints
+        }
+    }
+
+    /// Scroll to the bottom anchor, robust against a layout pass that's still
+    /// settling. A SINGLE scrollTo lands short ~20% of the time when content grows
+    /// right after the call (async image decode, the busy row appearing, markdown
+    /// reflow) — it scrolls to the bottom-as-it-was, then more content pushes the
+    /// real bottom further down. So we make one initial pass (animated for the
+    /// button's smooth jump) then two short non-animated nudges that snap to the
+    /// now-final bottom. Idempotent once pinned (each nudge is a no-op at bottom).
+    private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool = false) {
+        AppLog.log("↕️ scrollToBottom msgs=%d pinned=%@ animated=%@ busy=%@",
+                   room.messages.count, String(isPinnedToBottom), String(animated), String(room.isAgentBusy))
+        pendingScrollTask?.cancel()
+        pendingScrollTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            if animated {
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("chatBottomAnchor", anchor: .bottom) }
+            } else {
+                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+            }
+            // Follow-up nudges to reach the FINAL bottom after late content settles.
+            for delay in [Duration.milliseconds(50), .milliseconds(150)] {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+                AppLog.log("↕️ scrollToBottom nudge after %@", String(describing: delay))
+            }
+        }
+    }
+}
+
 #if os(macOS)
 private struct MacComposerTextView: NSViewRepresentable {
-    private static let composerFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    private static let composerFont = NSFont.systemFont(ofSize: 12, weight: .regular)
     static let horizontalInset: CGFloat = 16
     static let verticalInset: CGFloat = 10
     private static let placeholderProbe = NSString(string: "Message ...")
@@ -753,6 +1055,10 @@ private struct MacComposerTextView: NSViewRepresentable {
     let maxHeight: CGFloat
     let onSubmit: () -> Void
     let onTextChange: (String) -> Void
+    /// Up/Down history recall. Return true if the key was consumed (so the text
+    /// view skips its default caret move). See ChatView.recall{Previous,Next}Message.
+    var onHistoryUp: () -> Bool = { false }
+    var onHistoryDown: () -> Bool = { false }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -796,6 +1102,8 @@ private struct MacComposerTextView: NSViewRepresentable {
         textView.minSize = NSSize(width: 0, height: minHeight)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.onSubmit = onSubmit
+        textView.onHistoryUp = onHistoryUp
+        textView.onHistoryDown = onHistoryDown
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -812,9 +1120,14 @@ private struct MacComposerTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? ComposerNSTextView else { return }
         textView.onSubmit = onSubmit
+        textView.onHistoryUp = onHistoryUp
+        textView.onHistoryDown = onHistoryDown
 
         if textView.string != text {
+            // External change (history recall, or clear-on-send): replace and park
+            // the caret at the end so the user types after the recalled text.
             textView.string = text
+            textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
         }
 
         DispatchQueue.main.async {
@@ -840,10 +1153,10 @@ private struct MacComposerTextView: NSViewRepresentable {
 
         @MainActor
         func recalculateHeight() {
-            guard let textView else { return }
-            textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+            guard let textView, let textContainer = textView.textContainer else { return }
+            textView.layoutManager?.ensureLayout(for: textContainer)
 
-            let usedHeight = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? parent.minHeight
+            let usedHeight = textView.layoutManager?.usedRect(for: textContainer).height ?? parent.minHeight
             let verticalPadding = MacComposerTextView.verticalInset * 2
             let nextHeight = min(parent.maxHeight, max(parent.minHeight, ceil(usedHeight + verticalPadding)))
 
@@ -857,6 +1170,34 @@ private struct MacComposerTextView: NSViewRepresentable {
 
     final class ComposerNSTextView: NSTextView {
         var onSubmit: (() -> Void)?
+        /// Up/Down history recall; return true if consumed. Only fired when the
+        /// caret is on the first (Up) / last (Down) line, so multi-line editing
+        /// still moves the caret normally.
+        var onHistoryUp: (() -> Bool)?
+        var onHistoryDown: (() -> Bool)?
+
+        /// True when the caret sits on the first line (nothing before it but the
+        /// current line) — i.e. an Up press should recall history, not move up.
+        private var caretOnFirstLine: Bool {
+            let caret = min(selectedRange().location, (string as NSString).length)
+            return !(string as NSString).substring(to: caret).contains("\n")
+        }
+
+        /// True when the caret sits on the last line — Down should recall history.
+        private var caretOnLastLine: Bool {
+            let caret = min(selectedRange().location, (string as NSString).length)
+            return !(string as NSString).substring(from: caret).contains("\n")
+        }
+
+        override func moveUp(_ sender: Any?) {
+            if caretOnFirstLine, onHistoryUp?() == true { return }
+            super.moveUp(sender)
+        }
+
+        override func moveDown(_ sender: Any?) {
+            if caretOnLastLine, onHistoryDown?() == true { return }
+            super.moveDown(sender)
+        }
 
         /// Auto-focus the composer the moment it's installed in a
         /// window. SwiftUI's `@FocusState`/`.focused()` isn't bound to
@@ -893,932 +1234,204 @@ private struct MacComposerTextView: NSViewRepresentable {
 }
 #endif
 
-// MARK: - View Model
+// MARK: - Global app view model
 
+/// App-global state owner: the connection, the first-run setup phase, the shared
+/// `MatrixSession`, and the registry of per-room `RoomViewModel`s. It routes each
+/// sync event to the matching room's view model by `roomId` — with NO active-room
+/// gate, so every room (front or background) cooks + persists its rows live. There
+/// is no shared "messages" tray here and no replay-on-switch: switching rooms only
+/// changes which mounted room view is front.
 @MainActor
 @Observable
 final class ChatViewModel {
-    private enum PluginMetadataStore {
-        private static let versionPrefix = "chat4000.plugin-version"
-        private static let bundlePrefix = "chat4000.plugin-bundle-id"
-
-        static func load(groupId: String) -> (version: String?, bundleId: String?) {
-            let defaults = UserDefaults.standard
-            return (
-                defaults.string(forKey: "\(versionPrefix).\(groupId)"),
-                defaults.string(forKey: "\(bundlePrefix).\(groupId)")
-            )
-        }
-
-        static func save(version: String?, bundleId: String?, groupId: String) {
-            let defaults = UserDefaults.standard
-
-            if let version, !version.isEmpty {
-                defaults.set(version, forKey: "\(versionPrefix).\(groupId)")
-            }
-
-            if let bundleId, !bundleId.isEmpty {
-                defaults.set(bundleId, forKey: "\(bundlePrefix).\(groupId)")
-            }
-        }
-    }
-
-    var messages: [ChatMessage] = []
     var connectionState: ConnectionState = .disconnected
-    var isAgentBusy = false
-    var busyStartTime: Date?
-    var busyPhase: String = "Thinking"
-    var pluginUpdateWarning: String?
-    var lastSeenPluginVersion: String?
-    var lastSeenPluginBundleId: String?
-    var config: GroupConfig?
-    var scrollRevision = 0
+    /// Which room is front (mirrors `MatrixSession.activeRoomId`, the single
+    /// source of truth). Drives which mounted room view is visible.
+    var activeRoomId: String?
 
-    private let transport: MessageTransport = RelayMessageTransport()
-    private var modelContext: ModelContext?
-    private let minimumPluginVersion = "0.1.0"
-
-    // Tracks current streaming message being assembled
-    private var currentStreamId: String?
-    private var currentStreamText = ""
-    private var currentStreamMessageId: UUID?
+    @ObservationIgnored let matrixSession = MatrixSession()
+    @ObservationIgnored private var modelContext: ModelContext?
+    /// One view model per room, created lazily and KEPT ALIVE across switches.
+    @ObservationIgnored private var roomVMs: [String: RoomViewModel] = [:]
 
     var onTermsVersionUpdate: ((Int) -> Void)?
 
-    private func requestScrollToBottom() {
-        scrollRevision &+= 1
-        AppLog.log("↕️ requestScrollToBottom revision=%d messages=%d", scrollRevision, messages.count)
-    }
-
     init() {
-        transport.onReceive = { [weak self] inner in
-            self?.handleInnerMessage(inner)
-        }
-        transport.onStatus = { [weak self] update in
-            switch update.status {
-            case .sent:
-                self?.handleRelayRecvAck(msgId: update.msgId)
-            case .failed:
-                // Transport-layer send failure. v1: leave the row in
-                // .sending; the relay's redrive on reconnect will eventually
-                // produce a relay_recv_ack. A future revision could surface
-                // a UI "failed" state here.
-                AppLog.log("📦 transport status=failed msg_id=%@", update.msgId)
-            }
-        }
-        transport.onConnectionState = { [weak self] state in
+        matrixSession.onConnectionStateChange = { [weak self] state in
             self?.connectionState = state
         }
-        transport.onTermsVersionUpdate = { [weak self] currentTermsVersion in
-            self?.onTermsVersionUpdate?(currentTermsVersion)
+        // Deliver EVERY room's events to its own view model — no active gate.
+        matrixSession.onRoomEvent = { [weak self] roomId, event, live in
+            self?.room(for: roomId).ingest(event, live: live)
         }
+        // session.new auto-open / first-room select sets the front pointer here.
+        matrixSession.onActiveRoomChange = { [weak self] id in
+            guard let self else { return }
+            self.setFrontRoom(id)
+        }
+        // Outbound correlation + read receipts: broadcast to all rooms; the one
+        // that owns the local id / event id acts, the rest no-op.
+        matrixSession.onSentEventId = { [weak self] localId, eventId in
+            self?.roomVMs.values.forEach { $0.handleSentEventId(localId: localId, eventId: eventId) }
+        }
+        matrixSession.onReadReceipt = { [weak self] eventId in
+            self?.roomVMs.values.forEach { $0.handleRead(eventId: eventId) }
+        }
+        matrixSession.onRoomDeleted = { [weak self] roomId in
+            guard let self else { return }
+            self.roomVMs[roomId]?.clearHistory()
+            self.roomVMs.removeValue(forKey: roomId)
+        }
+    }
+
+    /// Lazily create (and persist-attach) the view model for a room, keeping it
+    /// alive for the rest of the session.
+    func room(for roomId: String) -> RoomViewModel {
+        if let existing = roomVMs[roomId] { return existing }
+        let vm = RoomViewModel(roomId: roomId, session: matrixSession)
+        if let modelContext { vm.attach(modelContext: modelContext) }
+        roomVMs[roomId] = vm
+        return vm
+    }
+
+    var frontRoom: RoomViewModel? { activeRoomId.map { room(for: $0) } }
+
+    private func setFrontRoom(_ roomId: String?) {
+        activeRoomId = roomId
+        if let roomId { _ = room(for: roomId) }
+    }
+
+    func syncActiveRoomFromSession() {
+        setFrontRoom(matrixSession.activeRoomId)
     }
 
     func attach(modelContext: ModelContext) {
-        let isFirstAttachment = self.modelContext == nil
         self.modelContext = modelContext
+        matrixSession.attach(modelContext: modelContext)
+        for vm in roomVMs.values { vm.attach(modelContext: modelContext) }
+        syncActiveRoomFromSession()
+    }
 
-        if isFirstAttachment || !messages.isEmpty {
-            loadMessagesMergingTransientState()
-        }
-
-        Task { @MainActor in
-            importPendingIncomingMessagesIfNeeded()
+    /// v2 chat-screen setup: attach persistence, restore the session from disk so
+    /// rooms + history are on screen immediately, then connect in the background.
+    /// Re-entrancy-safe: both onAppear paths (ModelContextBinder + ChatShell) call
+    /// this on a returning user, and the synchronous `.connecting` flip below makes
+    /// the second call a no-op so we never open two clients.
+    func setupMatrix(modelContext: ModelContext) {
+        attach(modelContext: modelContext)
+        matrixSession.restoreFromDisk()
+        syncActiveRoomFromSession()
+        // Only kick a connect from a cold/failed state; a re-entrant onAppear that
+        // arrives while we're already connecting/connected/reconnecting is a no-op.
+        switch connectionState {
+        case .disconnected, .failed:
+            connectionState = .connecting
+            Task { await matrixSession.connect() }
+        case .connecting, .connected, .reconnecting:
+            break
         }
     }
 
-    func setup(modelContext: ModelContext, config: GroupConfig) {
-        attach(modelContext: modelContext)
-        self.config = config
-        loadStoredPluginMetadata(for: config)
-        loadMessagesMergingTransientState()
-        if connectionState != .connected {
-            startConnection(config: config)
-        }
+    /// Bring a room to front. The session's `selectRoom` is the single source of
+    /// truth; it no longer replays anything — the room's mounted view is already
+    /// up to date.
+    func switchRoom(id: String) {
+        matrixSession.selectRoom(id)
+        TelemetryManager.shared.track(.sessionSwitched,  // CL8
+                                      properties: ["session_count": matrixSession.rooms.count])
+    }
+
+    /// Cycle the front room to the next/previous session in the sidebar's display
+    /// order (`matrixSession.rooms`, already sorted), wrapping around at the ends.
+    /// Backs the macOS Ctrl+Tab / Ctrl+Shift+Tab shortcuts. No-op with <2 rooms.
+    func cycleActiveRoom(forward: Bool) {
+        let rooms = matrixSession.rooms
+        guard rooms.count > 1 else { return }
+        let current = activeRoomId.flatMap { id in rooms.firstIndex(where: { $0.id == id }) } ?? 0
+        let next = forward
+            ? (current + 1) % rooms.count
+            : (current - 1 + rooms.count) % rooms.count
+        switchRoom(id: rooms[next].id)
+    }
+
+    /// Session reset (new pairing / signed out) — no room is front.
+    func clearActiveRoom() {
+        setFrontRoom(nil)
     }
 
     func refreshMessages() {
         guard modelContext != nil else { return }
-        loadMessagesMergingTransientState()
-        Task { @MainActor in
-            importPendingIncomingMessagesIfNeeded()
-        }
+        roomVMs.values.forEach { $0.reloadHistory() }
     }
 
-    func startConnection(config: GroupConfig) {
-        guard connectionState != .connected else { return }
-        self.config = config
-        loadStoredPluginMetadata(for: config)
-        transport.connect(config: config)
-        // Connection state is delivered via transport.onConnectionState.
+    func markRead() { frontRoom?.markRead() }
+
+    func pair(code: String) async {
+        await matrixSession.pair(code: code)
     }
 
-    // MARK: - Busy state
+    var isPaired: Bool { matrixSession.isPaired }
+    /// True when a session room is front. Sending requires this.
+    var hasActiveSession: Bool { activeRoomId != nil }
+    var setupPhase: MatrixSession.SetupPhase { matrixSession.setupPhase }
+    var isSettingUp: Bool { matrixSession.setupPhase != .ready }
+    var showSetupProgress: Bool { isSettingUp }
+    /// True once setup has been stuck waiting on the plugin past the timeout.
+    var setupStalled: Bool { matrixSession.setupStalled }
+    /// Keep waiting after a stall (clears the flag, restarts the timeout clock).
+    func retrySetupWait() { matrixSession.retrySetupWait() }
 
-    private func markBusy(phase: String) {
-        if !isAgentBusy {
-            isAgentBusy = true
-            busyStartTime = .now
-        }
-        if busyPhase != phase {
-            busyPhase = phase
-        }
+    func backgroundWake() async -> Bool {
+        await matrixSession.backgroundWake()
     }
 
-    private func clearBusy() {
-        if isAgentBusy {
-            isAgentBusy = false
-            busyStartTime = nil
-        }
+    /// CL14: user tapped "Disconnect" in Settings (a churn signal) — distinct from
+    /// the programmatic disconnects (pairing-cancel / start-over) that call
+    /// `disconnect()` directly without emitting.
+    func disconnectTapped() {
+        TelemetryManager.shared.track(.disconnectTapped,
+                                      properties: ["session_count": matrixSession.rooms.count])
+        disconnect()
     }
 
     func disconnect() {
-        transport.disconnect()
         connectionState = .disconnected
-        KeychainService.delete()
-        config = nil
+        TelemetryManager.shared.clearAccount()  // CL6: drop user_id super prop on sign-out
+        Task { await matrixSession.signOut() }
     }
 
-    func disconnectRelayForBackground() {
-        AppLog.log("🔌 Background disconnect: closing relay only")
-        transport.disconnect()
-        connectionState = .disconnected
-    }
+    // MARK: - Outbound (forwarded to the front room)
 
     func send(text: String) {
-        let message = ChatMessage(text: text, sender: .user, status: .sending)
-        messages.append(message)
-        modelContext?.insert(message)
-        try? modelContext?.save()
-        requestScrollToBottom()
-
-        // Capture the wire-level inner id and store it on the local row so
-        // we can correlate `relay_recv_ack` and inner `ack` frames back to
-        // the bubble for tick-state updates (per protocol §6.6.7).
-        let wireId = transport.send(.text(text))
-        message.msgId = wireId
-        try? modelContext?.save()
-        TelemetryManager.shared.track(
-            .messageSentText,
-            properties: [
-                "source": "keyboard",
-                "length_bucket": AnalyticsBuckets.lengthBucket(for: text),
-            ]
-        )
-        // Status stays `.sending` until the relay confirms via
-        // `relay_recv_ack`. Pre-ack relays will not send that frame, so we
-        // also flip to `.sent` here as a defensive fallback so legacy users
-        // don't see a perpetual "sending" indicator.
-        if message.status == .sending {
-            message.status = .sent
+        guard let front = frontRoom else {
+            AppLog.log("✋ send blocked — no active session")
+            return
         }
+        front.send(text: text)
     }
 
     func sendImage(_ image: PlatformImage) {
         guard let jpegData = image.clawConnectJPEGData else { return }
+        sendImageData(jpegData, mimeType: "image/jpeg", source: "camera")
+    }
 
-        let message = ChatMessage(imageData: jpegData, sender: .user, status: .sending)
-        messages.append(message)
-        modelContext?.insert(message)
-        try? modelContext?.save()
-        requestScrollToBottom()
-
-        let wireId = transport.send(.image(data: jpegData, mimeType: "image/jpeg"))
-        message.msgId = wireId
-        try? modelContext?.save()
-        TelemetryManager.shared.track(
-            .messageSentImage,
-            properties: [
-                "source": "camera",
-                "count": 1,
-            ]
-        )
-        if message.status == .sending {
-            message.status = .sent
+    func sendImageData(_ data: Data, mimeType: String, source: String) {
+        guard let front = frontRoom else {
+            AppLog.log("✋ image send blocked — no active session")
+            return
         }
-        Haptics.impact()
+        front.sendImage(data: data, mimeType: mimeType, source: source)
     }
 
     func sendAudio(_ audioData: Data, mimeType: String, duration: TimeInterval, waveform: [Float], source: String) {
-        let message = ChatMessage(
-            audioData: audioData,
-            audioMimeType: mimeType,
-            audioDuration: duration,
-            audioWaveform: waveform,
-            sender: .user,
-            status: .sending
-        )
-        messages.append(message)
-        modelContext?.insert(message)
-        try? modelContext?.save()
-        requestScrollToBottom()
-
-        let wireId = transport.send(
-            .audio(
-                data: audioData,
-                mimeType: mimeType,
-                durationMs: Int((duration * 1000).rounded()),
-                waveform: waveform
-            )
-        )
-        message.msgId = wireId
-        try? modelContext?.save()
-        TelemetryManager.shared.track(
-            .messageSentAudio,
-            properties: [
-                "source": source,
-                "duration_bucket": AnalyticsBuckets.durationBucket(for: duration),
-            ]
-        )
-        if message.status == .sending {
-            message.status = .sent
-        }
-    }
-
-    func clearHistory() {
-        for message in messages {
-            modelContext?.delete(message)
-        }
-        try? modelContext?.save()
-        messages.removeAll()
-        requestScrollToBottom()
-    }
-
-    // MARK: - Inner Message Handling
-
-    private func handleInnerMessage(_ inner: InnerMessage) {
-        rememberPluginMetadata(from: inner.from)
-        updatePluginVersionWarning(from: inner.from)
-
-        if let from = inner.from,
-           from.role == .app,
-           from.deviceId == DeviceIdentity.currentDeviceId {
-            AppLog.log("📥 inner ignored self_echo type=%@ id=%@", inner.t.rawValue, inner.id)
-            // Self-echo: transport already advanced the ack high-water mark.
+        guard let front = frontRoom else {
+            AppLog.log("✋ audio send blocked — no active session")
             return
         }
-
-        let sender = messageSender(for: inner)
-        AppLog.log(
-            "📥 inner dispatch type=%@ sender=%@ from_role=%@ status=%@ stream_id=%@",
-            inner.t.rawValue,
-            sender.rawValue,
-            inner.from?.role.rawValue ?? "nil",
-            inner.statusLabelForLogging,
-            inner.id
-        )
-
-        switch inner.body {
-        case .text(let b):
-            receiveText(b.text, id: inner.id, sender: sender)
-            if sender == .agent { clearBusy() }
-
-        case .image(let b):
-            receiveImage(dataBase64: b.dataBase64, id: inner.id, sender: sender)
-            if sender == .agent { clearBusy() }
-
-        case .audio(let b):
-            receiveAudio(
-                dataBase64: b.dataBase64,
-                mimeType: b.mimeType,
-                durationMs: b.durationMs,
-                waveform: b.waveform,
-                id: inner.id,
-                sender: sender
-            )
-            if sender == .agent { clearBusy() }
-
-        case .textDelta(let b):
-            // Per §6.4.2 (transitional): prefer `body.stream_id`, fall back
-            // to `inner.id` for senders that still reuse `inner.id == stream_id`.
-            let streamId = b.streamId ?? inner.id
-            if currentStreamId != streamId {
-                beginStreamingMessage(streamId: streamId, sender: sender)
-            }
-            currentStreamText += b.delta
-            updateCurrentStreamingMessage(text: currentStreamText, sender: sender)
-            if sender == .agent { markBusy(phase: "Typing") }
-
-        case .textEnd(let b):
-            // Per §6.4.2 (transitional): prefer `body.stream_id`, fall back
-            // to `inner.id` for senders that still reuse `inner.id == stream_id`.
-            let streamId = b.streamId ?? inner.id
-            if b.reset == true {
-                cancelCurrentStreamingMessage(streamId: streamId)
-            } else if currentStreamId == streamId {
-                finalizeCurrentStreamingMessage(text: b.text, sender: sender)
-            } else if currentStreamId == nil {
-                receiveText(b.text, id: inner.id, sender: sender)
-            }
-            if sender == .agent { clearBusy() }
-
-        case .status(let s):
-            // Plugin's status signals from the agent side. `typing` is a per-delta
-            // heartbeat during streaming — it is NOT "stop thinking". `idle` marks
-            // the end of a reply. `thinking` re-enters across tool-use loops.
-            if sender != .agent { break }
-            switch s.status {
-            case "thinking":
-                markBusy(phase: "Thinking")
-            case "typing":
-                markBusy(phase: "Typing")
-            case "idle":
-                clearBusy()
-            default:
-                break
-            }
-
-        case .ack(let a):
-            // Per §6.6.7 v1 rule: only **plugin** acks drive the "delivered"
-            // tick. App-sourced acks (other devices in a multi-app group) are
-            // ignored for rendering. A future protocol revision may add
-            // app-to-app delivery indicators.
-            if let from = inner.from, from.role == .plugin {
-                handleInnerAck(refs: a.refs)
-            }
-
-        // ─── Tool-call streaming (Hermes-specific) ──────────────────────
-        // tool_start opens a new bubble; tool_delta appends streamed
-        // stdout into toolResult; tool_end flips status + sets duration.
-        // We only render tool calls from the agent — peer apps don't
-        // run tools.
-        case .toolStart(let b):
-            if sender == .agent { markBusy(phase: "Thinking") }
-            beginToolCallBubble(
-                toolId: b.toolId,
-                toolName: b.name,
-                args: b.args,
-                icon: b.icon,
-                sender: sender
-            )
-
-        case .toolDelta(let b):
-            appendToolCallDelta(toolId: b.toolId, delta: b.delta)
-
-        case .toolEnd(let b):
-            completeToolCallBubble(
-                toolId: b.toolId,
-                status: b.status,
-                result: b.result,
-                durationMs: b.durationMs
-            )
-        }
-        // Transport advances the relay-ack high-water mark internally
-        // (see RelayMessageTransport.recordPersistedSeq, §6.6.3).
+        front.sendAudio(data: audioData, mimeType: mimeType, duration: duration, waveform: waveform, source: source)
     }
 
-    /// Per protocol §6.6.4: relay confirmed our outbound message reached the
-    /// queue. Flips the matching local row from `.sending` → `.sent`.
-    private func handleRelayRecvAck(msgId: String) {
-        AppLog.log("📦 relay_recv_ack received msg_id=%@", msgId)
-        guard let match = messages.first(where: { $0.msgId == msgId }) else { return }
-        if match.status == .sending {
-            match.status = .sent
-            try? modelContext?.save()
-        }
-    }
-
-    // ─── Tool-call rendering (Hermes-specific) ────────────────────────────
-    // Three frame types from the plugin: tool_start opens a bubble keyed by
-    // tool_id, tool_delta appends stream output, tool_end flips status +
-    // sets duration. The bubble itself is a ChatMessage with kind=.toolCall;
-    // MessageBubble.swift defers rendering to ToolCallBubble for that kind.
-
-    private func beginToolCallBubble(
-        toolId: String,
-        toolName: String,
-        args: String,
-        icon: String?,
-        sender: MessageSender
-    ) {
-        AppLog.log(
-            "🔧 toolCall start id=%@ name=%@ sender=%@ args_len=%d",
-            toolId, toolName, sender.rawValue, args.count
-        )
-        // §6.6.9 dedup: if we already have a row for this tool_id (e.g.
-        // relay redrive of tool_start), update its fields in place rather
-        // than creating a duplicate bubble.
-        if let existing = messages.first(where: {
-            $0.kind == .toolCall && $0.toolId == toolId
-        }) {
-            existing.toolName = toolName
-            existing.toolArgs = args
-            if let icon, !icon.isEmpty { existing.toolIcon = icon }
-            if existing.toolStatus == nil {
-                existing.toolStatus = .running
-            }
-            try? modelContext?.save()
-            requestScrollToBottom()
-            return
-        }
-
-        let bubble = ChatMessage(
-            sender: sender,
-            kind: .toolCall,
-            toolId: toolId,
-            toolName: toolName,
-            toolArgs: args,
-            toolResult: "",
-            toolStatus: .running,
-            toolDurationMs: nil,
-            toolIcon: icon
-        )
-        messages.append(bubble)
-        modelContext?.insert(bubble)
-        try? modelContext?.save()
-        requestScrollToBottom()
-    }
-
-    private func appendToolCallDelta(toolId: String, delta: String) {
-        guard !delta.isEmpty else { return }
-        guard let row = messages.first(where: {
-            $0.kind == .toolCall && $0.toolId == toolId
-        }) else {
-            // tool_delta with no preceding tool_start — relay reorder edge
-            // case. Drop silently; the next tool_end will close the gap by
-            // creating the bubble in-place anyway.
-            AppLog.log("🔧 toolCall delta orphan tool_id=%@", toolId)
-            return
-        }
-        let current = row.toolResult ?? ""
-        // Cap the in-memory accumulation at 64 KB so a runaway tool can't
-        // bloat the row indefinitely. The plugin caps result at ~4 KB on
-        // tool_end anyway; this guard only matters for very chatty streams.
-        let combined = current + delta
-        row.toolResult = combined.count > 65_536
-            ? String(combined.suffix(65_536))
-            : combined
-        try? modelContext?.save()
-        requestScrollToBottom()
-    }
-
-    private func completeToolCallBubble(
-        toolId: String,
-        status: InnerToolStatus,
-        result: String,
-        durationMs: Int
-    ) {
-        AppLog.log(
-            "🔧 toolCall end id=%@ status=%@ duration=%dms result_len=%d",
-            toolId, status.rawValue, durationMs, result.count
-        )
-        // Either update the existing bubble or — if tool_start was missed
-        // due to a relay redrive race — synthesize the bubble from the end
-        // frame so the user sees the completed call.
-        if let row = messages.first(where: {
-            $0.kind == .toolCall && $0.toolId == toolId
-        }) {
-            row.toolStatus = mapToolStatus(status)
-            if !result.isEmpty {
-                row.toolResult = result  // final result replaces streamed
-            }
-            row.toolDurationMs = durationMs
-            try? modelContext?.save()
-        } else {
-            let bubble = ChatMessage(
-                sender: .agent,
-                kind: .toolCall,
-                toolId: toolId,
-                toolName: "tool",
-                toolArgs: nil,
-                toolResult: result,
-                toolStatus: mapToolStatus(status),
-                toolDurationMs: durationMs
-            )
-            messages.append(bubble)
-            modelContext?.insert(bubble)
-            try? modelContext?.save()
-        }
-        requestScrollToBottom()
-    }
-
-    private func mapToolStatus(_ status: InnerToolStatus) -> ToolCallStatus {
-        switch status {
-        case .running: return .running
-        case .done:    return .done
-        case .failed:  return .failed
-        }
-    }
-
-    /// Per protocol §6.6.5: plugin or peer-app emitted an end-to-end ack for
-    /// an outbound message we sent. Flips the matching local row to
-    /// `.delivered`. We accept any `stage` value as a delivered signal in v1.
-    private func handleInnerAck(refs: String) {
-        AppLog.log("📦 inner ack received refs=%@", refs)
-        guard let match = messages.first(where: { $0.msgId == refs }) else { return }
-        // Only advance forward — never demote a message that's already
-        // delivered or failed.
-        if match.status == .sending || match.status == .sent {
-            match.status = .delivered
-            try? modelContext?.save()
-        }
-    }
-
-    /// Per protocol §6.6.9 — idempotent insert by inner `msg_id`. Returns
-    /// true if a row with the same wire id already exists locally; callers
-    /// must skip the insert in that case but should still record the seq for
-    /// the relay's ack high-water mark.
-    private func isDuplicateInnerId(_ id: String) -> Bool {
-        if messages.contains(where: { $0.msgId == id }) { return true }
-        guard let modelContext else { return false }
-        var descriptor = FetchDescriptor<ChatMessage>(
-            predicate: #Predicate { $0.msgId == id }
-        )
-        descriptor.fetchLimit = 1
-        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty {
-            return true
-        }
-        return false
-    }
-
-    private func receiveText(_ text: String, id: String, sender: MessageSender) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        if isDuplicateInnerId(id) {
-            AppLog.log("📥 receiveText skipping duplicate id=%@", id)
-            return
-        }
-        Haptics.success()
-        AppLog.log(
-            "📥 receiveText id=%@ sender=%@ chars=%d",
-            id,
-            sender.rawValue,
-            text.count
-        )
-
-        let message = ChatMessage(msgId: id, text: text, sender: sender)
-        messages.append(message)
-        modelContext?.insert(message)
-        try? modelContext?.save()
-        requestScrollToBottom()
-    }
-
-    private func receiveImage(dataBase64: String, id: String, sender: MessageSender) {
-        guard let imageData = Data(base64Encoded: dataBase64) else { return }
-        if isDuplicateInnerId(id) {
-            AppLog.log("📥 receiveImage skipping duplicate id=%@", id)
-            return
-        }
-        Haptics.success()
-        AppLog.log(
-            "📥 receiveImage id=%@ sender=%@ bytes=%d",
-            id,
-            sender.rawValue,
-            imageData.count
-        )
-
-        let message = ChatMessage(msgId: id, imageData: imageData, sender: sender)
-        messages.append(message)
-        modelContext?.insert(message)
-        try? modelContext?.save()
-        requestScrollToBottom()
-    }
-
-    private func receiveAudio(dataBase64: String, mimeType: String, durationMs: Int, waveform: [Float], id: String, sender: MessageSender) {
-        guard let audioData = Data(base64Encoded: dataBase64) else { return }
-        if isDuplicateInnerId(id) {
-            AppLog.log("📥 receiveAudio skipping duplicate id=%@", id)
-            return
-        }
-        Haptics.success()
-        AppLog.log(
-            "📥 receiveAudio id=%@ sender=%@ mime=%@ duration_ms=%d bytes=%d waveform=%d",
-            id,
-            sender.rawValue,
-            mimeType,
-            durationMs,
-            audioData.count,
-            waveform.count
-        )
-
-        let message = ChatMessage(
-            msgId: id,
-            audioData: audioData,
-            audioMimeType: mimeType,
-            audioDuration: Double(durationMs) / 1000,
-            audioWaveform: waveform,
-            sender: sender
-        )
-        messages.append(message)
-        modelContext?.insert(message)
-        try? modelContext?.save()
-        requestScrollToBottom()
-    }
-
-    private func beginStreamingMessage(streamId: String, sender: MessageSender) {
-        AppLog.log(
-            "🧵 beginStreamingMessage stream_id=%@ sender=%@ existing_stream=%@",
-            streamId,
-            sender.rawValue,
-            currentStreamId ?? "nil"
-        )
-        currentStreamId = streamId
-        currentStreamText = ""
-
-        if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
-            existing.text = ""
-            existing.msgId = streamId
-        } else if isDuplicateInnerId(streamId) {
-            // Stream already finalized locally — relay redrive of an
-            // already-handled stream. Skip creation; subsequent deltas will
-            // also be no-ops because the existing finalized row matches.
-            AppLog.log("🧵 beginStreamingMessage skipping duplicate stream_id=%@", streamId)
-        } else {
-            let message = ChatMessage(msgId: streamId, text: "", sender: sender, status: .sending)
-            messages.append(message)
-            modelContext?.insert(message)
-            currentStreamMessageId = message.id
-        }
-        requestScrollToBottom()
-    }
-
-    private func updateCurrentStreamingMessage(text: String, sender: MessageSender) {
-        AppLog.log(
-            "🧵 updateStreamingMessage stream_id=%@ sender=%@ chars=%d",
-            currentStreamId ?? "nil",
-            sender.rawValue,
-            text.count
-        )
-        if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
-            existing.text = text
-        } else {
-            let streamId = currentStreamId
-            let message = ChatMessage(msgId: streamId, text: text, sender: sender, status: .sending)
-            messages.append(message)
-            modelContext?.insert(message)
-            currentStreamMessageId = message.id
-        }
-        requestScrollToBottom()
-    }
-
-    private func finalizeCurrentStreamingMessage(text: String, sender: MessageSender) {
-        Haptics.success()
-        AppLog.log(
-            "🧵 finalizeStreamingMessage stream_id=%@ sender=%@ chars=%d",
-            currentStreamId ?? "nil",
-            sender.rawValue,
-            text.count
-        )
-
-        if let existing = currentStreamingMessage(), existing.sender == sender, existing.status == .sending {
-            existing.text = text
-            existing.status = .sent
-        } else {
-            let streamId = currentStreamId
-            // Per §6.6.9 dedupe: if the stream was already finalized in a
-            // prior session and we re-received the redrive, skip the insert.
-            if let streamId, isDuplicateInnerId(streamId) {
-                AppLog.log("🧵 finalize skipping duplicate stream_id=%@", streamId)
-            } else {
-                let message = ChatMessage(msgId: streamId, text: text, sender: sender)
-                messages.append(message)
-                modelContext?.insert(message)
-            }
-        }
-
-        currentStreamId = nil
-        currentStreamText = ""
-        currentStreamMessageId = nil
-        try? modelContext?.save()
-        requestScrollToBottom()
-    }
-
-    private func cancelCurrentStreamingMessage(streamId: String) {
-        AppLog.log("🧵 cancelStreamingMessage stream_id=%@ current=%@", streamId, currentStreamId ?? "nil")
-
-        if currentStreamId == streamId, let existing = currentStreamingMessage() {
-            withAnimation(.easeOut(duration: 0.2)) {
-                if let index = messages.firstIndex(where: { $0.id == existing.id }) {
-                    messages.remove(at: index)
-                }
-            }
-            modelContext?.delete(existing)
-            try? modelContext?.save()
-        }
-
-        if currentStreamId == streamId {
-            currentStreamId = nil
-            currentStreamText = ""
-            currentStreamMessageId = nil
-        }
-
-        requestScrollToBottom()
-    }
-
-    private func currentStreamingMessage() -> ChatMessage? {
-        guard let currentStreamMessageId else { return nil }
-        return messages.first(where: { $0.id == currentStreamMessageId })
-    }
-
-    private func messageSender(for inner: InnerMessage) -> MessageSender {
-        guard let from = inner.from else { return .agent }
-        switch from.role {
-        case .app:
-            return .user
-        case .plugin, .unknown:
-            return .agent
-        }
-    }
-
-    private func updatePluginVersionWarning(from sender: SenderInfo?) {
-        guard let sender, sender.role == .plugin else { return }
-        guard let version = sender.appVersion, !version.isEmpty else {
-            pluginUpdateWarning = nil
-            return
-        }
-
-        if Self.compareVersions(version, minimumPluginVersion) == .orderedAscending {
-            let package = sender.bundleId ?? "plugin"
-            pluginUpdateWarning = "Update \(package) to \(minimumPluginVersion) or newer."
-        } else {
-            pluginUpdateWarning = nil
-        }
-    }
-
-    private func loadStoredPluginMetadata(for config: GroupConfig) {
-        guard let groupId = config.groupId else {
-            lastSeenPluginVersion = nil
-            lastSeenPluginBundleId = nil
-            return
-        }
-
-        let stored = PluginMetadataStore.load(groupId: groupId)
-        lastSeenPluginVersion = stored.version
-        lastSeenPluginBundleId = stored.bundleId
-    }
-
-    private func rememberPluginMetadata(from sender: SenderInfo?) {
-        guard let sender, sender.role == .plugin else { return }
-        guard let groupId = config?.groupId else { return }
-
-        if let version = sender.appVersion, !version.isEmpty {
-            lastSeenPluginVersion = version
-        }
-
-        if let bundleId = sender.bundleId, !bundleId.isEmpty {
-            lastSeenPluginBundleId = bundleId
-        }
-
-        PluginMetadataStore.save(
-            version: lastSeenPluginVersion,
-            bundleId: lastSeenPluginBundleId,
-            groupId: groupId
-        )
-    }
-
-    private static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        let lhsParts = numericVersionParts(lhs)
-        let rhsParts = numericVersionParts(rhs)
-        let count = max(lhsParts.count, rhsParts.count)
-
-        for index in 0..<count {
-            let left = index < lhsParts.count ? lhsParts[index] : 0
-            let right = index < rhsParts.count ? rhsParts[index] : 0
-            if left < right { return .orderedAscending }
-            if left > right { return .orderedDescending }
-        }
-        return .orderedSame
-    }
-
-    private static func numericVersionParts(_ version: String) -> [Int] {
-        version
-            .split(separator: ".", omittingEmptySubsequences: true)
-            .map { part in
-                let digits = part.prefix(while: { $0.isNumber })
-                return Int(digits) ?? 0
-            }
-    }
-
-    private func loadMessagesMergingTransientState() {
-        let descriptor = FetchDescriptor<ChatMessage>(
-            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
-        )
-        let storedMessages = (try? modelContext?.fetch(descriptor)) ?? []
-        let storedIds = Set(storedMessages.map(\.id))
-
-        var mergedMessages = storedMessages
-        for message in messages where !storedIds.contains(message.id) {
-            modelContext?.insert(message)
-            mergedMessages.append(message)
-        }
-
-        mergedMessages.sort { $0.timestamp < $1.timestamp }
-        try? modelContext?.save()
-        messages = mergedMessages
-        requestScrollToBottom()
-    }
-
-    private func importPendingIncomingMessagesIfNeeded() {
-        guard modelContext != nil else { return }
-
-        // Drain any plugin acks that were received during background-wake.
-        // The background path can't touch SwiftData directly, so it parks the
-        // refs in PendingAcksStore. Apply them here so outbound rows flip
-        // from .sent to .delivered (✓ → ✓✓) on app launch.
-        let pendingAcks = PendingAcksStore.drain()
-        if !pendingAcks.isEmpty {
-            AppLog.log("📬 importing pending plugin acks count=%ld", pendingAcks.count)
-            for refs in pendingAcks {
-                handleInnerAck(refs: refs)
-            }
-        }
-
-        Task { @MainActor in
-            let pending = await PendingIncomingMessageStore.shared.drain()
-            guard !pending.isEmpty else { return }
-
-            AppLog.log("📬 importing pending incoming messages count=%ld", pending.count)
-
-            for pendingMessage in pending {
-                // Per §6.6.9 — dedupe by inner msg_id (stream_id for streamed
-                // text). Without this, if the live foreground receive path
-                // already finalized this stream, the import would create a
-                // duplicate bubble.
-                if isDuplicateInnerId(pendingMessage.messageId) {
-                    AppLog.log(
-                        "📬 imported pending skipping duplicate id=%@",
-                        pendingMessage.messageId
-                    )
-                    continue
-                }
-
-                switch pendingMessage.payload {
-                case .text(let text):
-                    let message = ChatMessage(
-                        msgId: pendingMessage.messageId,
-                        text: text,
-                        sender: .agent,
-                        timestamp: pendingMessage.receivedAt,
-                        status: .sent
-                    )
-                    messages.append(message)
-                    modelContext?.insert(message)
-                    AppLog.log(
-                        "📬 imported pending text id=%@ chars=%ld",
-                        pendingMessage.messageId,
-                        text.count
-                    )
-
-                case .image(let dataBase64):
-                    guard let imageData = Data(base64Encoded: dataBase64) else {
-                        AppLog.log("ERROR: Failed to decode pending image id=%@", pendingMessage.messageId)
-                        continue
-                    }
-                    let message = ChatMessage(
-                        msgId: pendingMessage.messageId,
-                        imageData: imageData,
-                        sender: .agent,
-                        timestamp: pendingMessage.receivedAt,
-                        status: .sent
-                    )
-                    messages.append(message)
-                    modelContext?.insert(message)
-                    AppLog.log(
-                        "📬 imported pending image id=%@ bytes=%ld",
-                        pendingMessage.messageId,
-                        imageData.count
-                    )
-
-                case .audio(let dataBase64, let mimeType, let durationMs, let waveform):
-                    guard let audioData = Data(base64Encoded: dataBase64) else {
-                        AppLog.log("ERROR: Failed to decode pending audio id=%@", pendingMessage.messageId)
-                        continue
-                    }
-                    let message = ChatMessage(
-                        msgId: pendingMessage.messageId,
-                        audioData: audioData,
-                        audioMimeType: mimeType,
-                        audioDuration: Double(durationMs) / 1000,
-                        audioWaveform: waveform,
-                        sender: .agent,
-                        timestamp: pendingMessage.receivedAt,
-                        status: .sent
-                    )
-                    messages.append(message)
-                    modelContext?.insert(message)
-                    AppLog.log(
-                        "📬 imported pending audio id=%@ bytes=%ld duration_ms=%ld",
-                        pendingMessage.messageId,
-                        audioData.count,
-                        durationMs
-                    )
-                }
-            }
-
-            messages.sort { $0.timestamp < $1.timestamp }
-            try? modelContext?.save()
-            clearBusy()
-            requestScrollToBottom()
-        }
-    }
-}
-
-private extension InnerMessage {
-    var statusLabelForLogging: String {
-        if case .status(let body) = self.body {
-            return body.status
-        }
-        return "n/a"
-    }
 }
 
 #if os(iOS)
@@ -1829,7 +1442,7 @@ import AppKit
 typealias PlatformImage = NSImage
 #endif
 
-private extension PlatformImage {
+extension PlatformImage {
     var clawConnectJPEGData: Data? {
         // Cap the produced JPEG so the resulting WebSocket frame
         // (≈ 1.78× after base64 + encrypt + base64) stays comfortably
@@ -1843,7 +1456,7 @@ private extension PlatformImage {
             (896, 0.66),
             (768, 0.62),
             (640, 0.58),
-            (512, 0.54),
+            (512, 0.54)
         ]
 
         for (maxDimension, quality) in candidates {
@@ -1894,5 +1507,260 @@ private extension PlatformImage {
         else { return nil }
         return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality])
         #endif
+    }
+}
+
+/// Lightweight confetti burst — ~90 colored pieces fall + fade from the top over a
+/// few seconds. Self-contained (no package): a `TimelineView(.animation)` drives a
+/// `Canvas`, and each piece's position is a pure function of elapsed time, so there
+/// is no per-frame state to manage.
+struct ConfettiView: View {
+    private struct Piece {
+        let x: CGFloat        // 0…1 horizontal start
+        let delay: Double
+        let duration: Double
+        let drift: CGFloat
+        let size: CGFloat
+        let color: Color
+        let emoji: String?    // nil = colored rectangle; else drawn as text
+    }
+
+    @State private var start = Date()
+    private let pieces: [Piece]
+
+    /// `intensity` 0…1 scales the piece count (2/10 = a light burst); ~1 in 4
+    /// pieces is a celebratory emoji mixed in with the colored confetti.
+    init(intensity: Double = 1.0) {
+        let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple, .pink, .cyan]
+        let emojis = ["🎉", "🎊", "✨", "🥳", "🎈"]
+        let count = max(8, Int(90 * intensity))
+        pieces = (0..<count).map { index in
+            let isEmoji = index % 4 == 0
+            return Piece(
+                x: .random(in: 0...1),
+                delay: .random(in: 0...0.5),
+                duration: .random(in: 1.8...2.8),
+                drift: .random(in: -40...40),
+                size: isEmoji ? .random(in: 18...26) : .random(in: 6...12),
+                color: colors.randomElement() ?? .white,
+                emoji: isEmoji ? emojis.randomElement() : nil
+            )
+        }
+    }
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { ctx, size in
+                let elapsed = timeline.date.timeIntervalSince(start)
+                for piece in pieces {
+                    let local = elapsed - piece.delay
+                    guard local >= 0 else { continue }
+                    let progress = min(local / piece.duration, 1)
+                    let y = -20 + (size.height + 40) * progress
+                    let x = piece.x * size.width + piece.drift * CGFloat(progress)
+                    let fade = progress < 0.85 ? 1.0 : max(0, 1 - (progress - 0.85) / 0.15)
+                    ctx.opacity = fade
+                    if let emoji = piece.emoji {
+                        ctx.draw(Text(emoji).font(.system(size: piece.size)), at: CGPoint(x: x, y: y))
+                    } else {
+                        let rect = CGRect(x: x, y: y, width: piece.size, height: piece.size * 0.6)
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(piece.color))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The pretty "you're connected" card shown briefly over the confetti when the
+/// workspace becomes ready: a big emoji, a bold "Connected!" headline, and a small
+/// "congratz" line under it, on a frosted rounded card.
+struct ConnectedCelebrationCard: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            Text("🎉")
+                .font(.system(size: 52))
+            Text("Connected!")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .foregroundStyle(AppColors.textPrimary)
+            Text("congratz")
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textSecondary)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 26)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 26, x: 0, y: 10)
+    }
+}
+
+/// First-run setup progress, shown in the chat area until the workspace is ready
+/// (control room found). Steps mirror MatrixSession.SetupPhase: connect → sync →
+/// wait for the plugin → join the workspace.
+struct SetupProgressView: View {
+    let phase: MatrixSession.SetupPhase
+    /// True once the wait on the plugin has timed out — swaps the active-step
+    /// spinner for a warning and shows the recovery actions below.
+    var stalled: Bool = false
+    /// Keep waiting (re-arm the timeout). No-op closure by default for previews.
+    var onRetry: () -> Void = {}
+    /// Bail out and re-enter a pairing code.
+    var onStartOver: () -> Void = {}
+
+    /// How many step boxes we've already buzzed for, so each checkmark fires its
+    /// haptic exactly once across phase changes (and a backward phase can re-arm).
+    @State private var buzzedCheckCount = 0
+
+    // Order MUST match SetupPhase's rawValue order so the checkmarks fill
+    // top-to-bottom (done = a lower-rawValue phase). You wait for the plugin's
+    // invite first, THEN join the workspace.
+    private static let steps: [(phase: MatrixSession.SetupPhase, label: String)] = [
+        (.connecting, "Connecting"),
+        (.syncing, "Syncing"),
+        (.waitingForPlugin, "Waiting for your plugin"),
+        (.joiningWorkspace, "Joining your workspace")
+    ]
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("Setting up")
+                .font(AppFonts.title)
+                .foregroundStyle(AppColors.textPrimary)
+
+            ProgressView(value: phase.progress)
+                .tint(.white)
+                .frame(maxWidth: 220)
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Self.steps, id: \.phase.rawValue) { step in
+                    stepRow(step.phase, step.label)
+                }
+            }
+
+            if stalled {
+                stalledFooter
+            } else {
+                VStack(spacing: 8) {
+                    Text("This may take 1–2 minutes — please don't close the app or switch screens 🙏🏻")
+                        .font(AppFonts.caption)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if phase == .waitingForPlugin {
+                        Text("Your plugin is setting things up. Make sure it's running on your computer.")
+                            .font(AppFonts.caption)
+                            .foregroundStyle(AppColors.textTimestamp)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 48)
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.2), value: phase.rawValue)
+        .animation(.easeInOut(duration: 0.2), value: stalled)
+        // One vibration per checkbox that ticks — on appear for any already-done at
+        // first paint, then one per box as the phase advances.
+        .onAppear { buzzNewlyCheckedBoxes() }
+        .onChange(of: phase.rawValue) { _, _ in buzzNewlyCheckedBoxes() }
+    }
+
+    @ViewBuilder
+    private var stalledFooter: some View {
+        VStack(spacing: 16) {
+            Text("Your plugin isn't responding. Make sure it's running on your computer, then try again.")
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 12) {
+                Button(action: onStartOver) {
+                    Text("Re-enter code")
+                        .font(AppFonts.label)
+                        .foregroundStyle(AppColors.textSecondary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                Button(action: onRetry) {
+                    Text("Try again")
+                        .font(AppFonts.label)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func stepRow(_ stepPhase: MatrixSession.SetupPhase, _ label: String) -> some View {
+        let current = phase.rawValue
+        let isDone = current > stepPhase.rawValue
+        let isActive = current == stepPhase.rawValue
+        HStack(spacing: 12) {
+            Group {
+                if isDone {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppColors.connected)
+                } else if isActive {
+                    // A stalled wait shows a warning where the spinner was, so the
+                    // stuck step reads as "needs attention" rather than "in progress".
+                    if stalled {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(AppColors.reconnecting)
+                    } else {
+                        ProgressView().controlSize(.small).tint(AppColors.textSecondary)
+                    }
+                } else {
+                    Image(systemName: "circle")
+                        .foregroundStyle(AppColors.textTimestamp)
+                }
+            }
+            .font(.system(size: 16))
+            .frame(width: 20, height: 20)
+
+            Text(label)
+                .font(AppFonts.body)
+                .foregroundStyle(isActive ? AppColors.textPrimary
+                                 : (isDone ? AppColors.textSecondary : AppColors.textTimestamp))
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Fire one success haptic for each step box that has newly become checked
+    /// (`phase.rawValue > stepPhase.rawValue`). A box's checkmark and its buzz stay
+    /// in lock-step: we track `buzzedCheckCount` so a box never double-buzzes, and a
+    /// backward phase re-arms it. Multiple boxes ticking at once are staggered so
+    /// each is felt as its own tap.
+    private func buzzNewlyCheckedBoxes() {
+        let doneCount = min(phase.rawValue, Self.steps.count)
+        guard doneCount > buzzedCheckCount else {
+            buzzedCheckCount = doneCount   // unchanged or went backward — re-arm
+            return
+        }
+        let newChecks = doneCount - buzzedCheckCount
+        buzzedCheckCount = doneCount
+        Task { @MainActor in
+            for index in 0..<newChecks {
+                if index > 0 { try? await Task.sleep(for: .milliseconds(130)) }
+                Haptics.success()
+            }
+        }
     }
 }

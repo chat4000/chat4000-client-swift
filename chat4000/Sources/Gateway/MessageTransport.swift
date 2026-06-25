@@ -1,9 +1,9 @@
 import Foundation
 
-/// Session-time messaging facade per protocol §6.6.11.
+/// Session-time messaging facade per protocol section 6.6.11.
 ///
 /// Hides everything below the application layer — WebSocket lifecycle,
-/// XChaCha20-Poly1305 encryption, outer envelope construction, the §6.6
+/// XChaCha20-Poly1305 encryption, outer envelope construction, the section 6.6
 /// ack flow (`seq`, `recv_ack`, `relay_recv_ack`, `last_acked_seq`),
 /// dedup by `inner.id`, reconnect-with-backoff, in-order delivery on
 /// redrive. Consumers (ChatViewModel, push-wake service) call `send`,
@@ -13,7 +13,7 @@ import Foundation
 /// **Scope: session-time only.** Pairing is explicitly NOT in scope.
 /// Pairing runs before the group key exists, uses a different frame
 /// family (`pair_open` / `pair_data` / `pair_complete` / `pair_cancel`),
-/// routes by `room_id` not `group_id`, and has no overlap with the §6.6
+/// routes by `room_id` not `group_id`, and has no overlap with the section 6.6
 /// ack machinery. Pairing remains in `PairingService`. A
 /// `MessageTransport` instance must only be constructed after pairing
 /// has succeeded and a stable group key is available.
@@ -34,7 +34,7 @@ protocol MessageTransport: AnyObject {
     /// in send order. Inner `ack` messages flow through here unchanged —
     /// the transport does NOT interpret them. The consumer is responsible
     /// for finding outbound rows whose `msgId == ack.refs` and flipping
-    /// status to `.delivered` (per §6.6.7 the "delivered" tick is an
+    /// status to `.delivered` (per section 6.6.7 the "delivered" tick is an
     /// application-layer event).
     var onReceive: ((InnerMessage) -> Void)? { get set }
 
@@ -53,8 +53,22 @@ protocol MessageTransport: AnyObject {
     /// itself does not interpret the policy.
     var onTermsVersionUpdate: ((Int) -> Void)? { get set }
 
-    func connect(config: GroupConfig)
+    /// Fired when an outbound message's wire-level send completes and the
+    /// homeserver assigns it an `event_id`. `localId` is the value `send`
+    /// returned; the consumer correlates it to its local row and stores the
+    /// `eventId` so a later read receipt can be matched.
+    var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)? { get set }
+
+    /// Fired when a peer (the plugin) read up to `eventId` — drives the "read"
+    /// tick. The consumer flips the matching outbound row (by stored event_id).
+    var onRead: ((_ eventId: String) -> Void)? { get set }
+
+    func connect()
     func disconnect()
+
+    /// Send a private read receipt for the latest message in the active room
+    /// (protocol D.2 `m.read.private`). Clears unread + suppresses redundant push.
+    func markRead()
 }
 
 /// What a consumer hands the transport. The transport translates this
@@ -67,14 +81,14 @@ enum OutboundMessage {
     case textDelta(streamId: String, delta: String)
     case textEnd(streamId: String, text: String, reset: Bool? = nil)
     case status(String)
-    /// End-to-end application-layer acknowledgement (§6.6.5). Travels
+    /// End-to-end application-layer acknowledgement (section 6.6.5). Travels
     /// inside the encrypted envelope. The transport does not synthesize
     /// these — only the consumer (e.g. plugin) decides when to emit one.
     case ack(refs: String, stage: InnerAckStage)
 }
 
 /// Per-msg outbound status surfaced to the consumer. Drives the local
-/// `MessageStatus` field on `ChatMessage`. Per §6.6.7 only the transport
+/// `MessageStatus` field on `ChatMessage`. Per section 6.6.7 only the transport
 /// layer states (sent/failed) are emitted here; the application layer
 /// determines `.delivered` from inner `ack` frames.
 struct MessageStatusUpdate {

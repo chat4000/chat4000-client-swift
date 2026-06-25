@@ -23,15 +23,19 @@
 #   chat4000/scripts/build-dmg.sh                 # full pipeline (sign + notarize + staple)
 #   chat4000/scripts/build-dmg.sh --no-notarize   # skip Apple notarization (fast local test)
 #
+# Builds the PROD macOS flavor (chat4000macprod → bundle com.neonnode.chat94app,
+# the App-Store-free Developer-ID distribution build). Override SCHEME for a
+# different flavor.
+#
 # Environment overrides (rarely needed):
 #   TEAM_ID         Apple Developer team. Default: H45JD827CU
-#   SCHEME          Xcode scheme.        Default: chat4000mac
+#   SCHEME          Xcode scheme.        Default: chat4000macprod
 #   NOTARY_PROFILE  Keychain profile.    Default: chat4000-notary
 
 set -euo pipefail
 
 TEAM_ID="${TEAM_ID:-H45JD827CU}"
-SCHEME="${SCHEME:-chat4000mac}"
+SCHEME="${SCHEME:-chat4000macprod}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-chat4000-notary}"
 SKIP_NOTARIZE=0
 
@@ -79,14 +83,39 @@ if [ -z "${VERSION:-}" ]; then
 fi
 VERSION="${VERSION:-0.0.0}"
 
+# Optional: build a specific version without editing project.yml (e.g. cutting a
+# 1.1.1 update DMG while the project baseline stays 1.1.0). Forces the archived
+# app's MARKETING_VERSION too, so the DMG, its name, and CFBundleShortVersionString
+# all agree.
+if [ -n "${VERSION_OVERRIDE:-}" ]; then
+    VERSION="$VERSION_OVERRIDE"
+fi
+
+# Optional: override the on-disk display name (CFBundleDisplayName) — e.g. tag a
+# test update DMG "OC" so you can SEE the upgrade landed. Bundle id is unchanged.
+DISPLAY_ARG=()
+if [ -n "${DISPLAY_NAME_OVERRIDE:-}" ]; then
+    DISPLAY_ARG=(APP_DISPLAY_NAME="$DISPLAY_NAME_OVERRIDE")
+fi
+
 echo "==> Archiving $SCHEME ($VERSION) for Release..."
-xcodebuild archive \
-    -project "$PROJECT_PATH" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -archivePath "$ARCHIVE_PATH" \
-    DEVELOPMENT_TEAM="$TEAM_ID" \
-    | xcbeautify 2>/dev/null || true
+# NOTE: do NOT pipe xcodebuild into xcbeautify. When xcbeautify isn't installed
+# the pipe's read end dies immediately and xcodebuild gets SIGPIPE mid-archive —
+# an intermittent "Archive failed — xcarchive not found". Run it directly; the
+# `[ ! -d "$ARCHIVE_PATH" ]` check below is the real success gate. Use xcbeautify
+# only if present (it never receives SIGPIPE when it's actually running).
+if command -v xcbeautify >/dev/null 2>&1; then
+    set -o pipefail
+    xcodebuild archive \
+        -project "$PROJECT_PATH" -scheme "$SCHEME" -configuration Release \
+        -archivePath "$ARCHIVE_PATH" DEVELOPMENT_TEAM="$TEAM_ID" \
+        MARKETING_VERSION="$VERSION" ${DISPLAY_ARG[@]+"${DISPLAY_ARG[@]}"} | xcbeautify
+else
+    xcodebuild archive \
+        -project "$PROJECT_PATH" -scheme "$SCHEME" -configuration Release \
+        -archivePath "$ARCHIVE_PATH" DEVELOPMENT_TEAM="$TEAM_ID" \
+        MARKETING_VERSION="$VERSION" ${DISPLAY_ARG[@]+"${DISPLAY_ARG[@]}"}
+fi
 
 if [ ! -d "$ARCHIVE_PATH" ]; then
     echo "ERROR: Archive failed — $ARCHIVE_PATH not found." >&2

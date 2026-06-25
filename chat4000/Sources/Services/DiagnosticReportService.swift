@@ -9,8 +9,11 @@ import Foundation
 /// ProcessInfo for system metadata.
 ///
 /// Triggered by the 20-tap gesture on the "Privacy" header in
-/// `SettingsSheet`. Fires PostHog events at every stage so a missing
-/// upload still leaves an auditable trail in our analytics.
+/// `SettingsSheet`. Emits CL23 `diagnostic_started` / `diagnostic_completed`
+/// through `TelemetryManager.track` (same identity + toggle gate as every
+/// other event), so a missing upload still leaves a trail in analytics —
+/// except when the user has opted out, where nothing is sent and the upload
+/// URL itself is the support channel.
 @MainActor
 final class DiagnosticReportService {
     static let shared = DiagnosticReportService()
@@ -36,8 +39,6 @@ final class DiagnosticReportService {
     ///   openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
     ///     -in bundle.enc -out bundle.tar.gz -pass pass:<this>
     private static let sharedPassword = "chat4000-support-diag-shared-2026"
-    private static let posthogHost = "https://us.i.posthog.com"
-    private static let posthogApiKey = "phc_s49DnTamyFDnEC6MyumNmmjjf7p455LXCVzPE94hPemZ"
     private static let uploadEndpoint = "https://uguu.se/upload"
 
     private let sessionId = UUID().uuidString
@@ -59,19 +60,34 @@ final class DiagnosticReportService {
         }
     }
 
+    // CL23: just two events — `diagnostic_started`, then `diagnostic_completed`
+    // with `path` (uploaded|collect_failed|encrypt_failed|upload_failed), `url?`,
+    // `bundle_size_bytes`, and `elapsed_ms`. Routed through `TelemetryManager.track`
+    // like every other event (OQ1 ruling): distinct_id = client_id, toggle-gated,
+    // joins the same PostHog person. The accepted consequence is that an opted-out
+    // user's diagnostic upload leaves no analytics trail — the upload still works and
+    // surfaces its URL, which is the real support channel.
+    private func emitCompleted(path: String, bundleSize: Int, url: String? = nil) {
+        var props: [String: Any] = [
+            "path": path,
+            "bundle_size_bytes": bundleSize,
+            "session_id": sessionId,
+            "elapsed_ms": Int(Date().timeIntervalSince(startedAt) * 1000)
+        ]
+        if let url { props["url"] = url }
+        TelemetryManager.shared.track(.diagnosticCompleted, properties: props)
+    }
+
     private func runReportAsync() async {
-        emit("diagnostic_started")
+        TelemetryManager.shared.track(.diagnosticStarted, properties: ["session_id": sessionId])
         status = .collecting
 
         let json: Data
         do {
             json = try await collectBundleJSON()
-            emit(
-                "diagnostic_bundle_built",
-                ["bundle_size_bytes": json.count]
-            )
         } catch {
-            emit("diagnostic_collect_failed", ["error": String(describing: error)])
+            ErrorReporter.capture(error, context: "DiagnosticReportService.collect")
+            emitCompleted(path: "collect_failed", bundleSize: 0)
             status = .failed(reason: "Could not collect diagnostics")
             return
         }
@@ -83,12 +99,9 @@ final class DiagnosticReportService {
                 plaintext: json,
                 password: Self.sharedPassword
             )
-            emit(
-                "diagnostic_bundle_encrypted",
-                ["bundle_size_bytes": encrypted.count]
-            )
         } catch {
-            emit("diagnostic_encrypt_failed", ["error": String(describing: error)])
+            ErrorReporter.capture(error, context: "DiagnosticReportService.encrypt")
+            emitCompleted(path: "encrypt_failed", bundleSize: json.count)
             status = .failed(reason: "Could not encrypt diagnostics")
             return
         }
@@ -96,20 +109,11 @@ final class DiagnosticReportService {
         status = .uploading
         do {
             let url = try await uploadToUguu(data: encrypted)
-            emit(
-                "diagnostic_bundle_uploaded",
-                [
-                    "url": url,
-                    "bundle_size_bytes": encrypted.count,
-                    "host": "uguu.se",
-                    "retention_hours": 48,
-                ]
-            )
-            emit("diagnostic_completed", ["path": "uploaded"])
+            emitCompleted(path: "uploaded", bundleSize: encrypted.count, url: url)
             status = .succeeded(url: url)
         } catch {
-            emit("diagnostic_upload_failed", ["error": String(describing: error)])
-            emit("diagnostic_completed", ["path": "upload_failed"])
+            ErrorReporter.capture(error, context: "DiagnosticReportService.upload")
+            emitCompleted(path: "upload_failed", bundleSize: encrypted.count)
             status = .failed(reason: "Could not upload diagnostics")
         }
     }
@@ -125,7 +129,7 @@ final class DiagnosticReportService {
 
     /// Builds the diagnostic bundle as JSON. Everything we collect must
     /// be inside the sandbox boundary (app container + ProcessInfo).
-    private func collectBundleJSON() async throws -> Data {
+    private func collectBundleJSON() async throws(AppError) -> Data {
         // File I/O is small (capped at 2 MB), runs on main actor —
         // avoids Swift 6 strict-concurrency hassles around bouncing
         // `[String: Any]` across actor boundaries.
@@ -136,7 +140,7 @@ final class DiagnosticReportService {
         bundle["meta"] = [
             "schema": "chat4000-diag-inapp/1",
             "session_id": sessionId,
-            "collected_at": ISO8601DateFormatter().string(from: Date()),
+            "collected_at": ISO8601DateFormatter().string(from: Date())
         ]
         bundle["app"] = Self.appInfo()
         bundle["system"] = Self.systemInfo()
@@ -145,10 +149,13 @@ final class DiagnosticReportService {
         bundle["preferences"] = Self.safeUserDefaults()
         bundle["log"] = log
 
-        return try JSONSerialization.data(
+        guard let data = try? JSONSerialization.data(
             withJSONObject: bundle,
             options: [.prettyPrinted, .sortedKeys]
-        )
+        ) else {
+            throw AppError.encode("diagnostic bundle JSON")
+        }
+        return data
     }
 
     nonisolated private static func readSelfLog() -> [String: Any] {
@@ -159,12 +166,12 @@ final class DiagnosticReportService {
         #if os(macOS)
         candidates = [
             FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
-                .first?.appendingPathComponent("Logs/chat4000.log"),
+                .first?.appendingPathComponent("Logs/chat4000.log")
         ].compactMap { $0 }
         #else
         candidates = [
             FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
-                .first?.appendingPathComponent("Logs/chat4000.log"),
+                .first?.appendingPathComponent("Logs/chat4000.log")
         ].compactMap { $0 }
         #endif
 
@@ -182,12 +189,12 @@ final class DiagnosticReportService {
             return [
                 "source": url.path,
                 "size_bytes": data.count,
-                "content": Self.redact(raw),
+                "content": Self.redact(raw)
             ]
         }
         return [
             "source": "<not found>",
-            "checked_paths": candidates.map { $0.path },
+            "checked_paths": candidates.map { $0.path }
         ]
     }
 
@@ -225,7 +232,7 @@ final class DiagnosticReportService {
             "telemetry_distribution_channel": info["TelemetryDistributionChannel"] as? String ?? "",
             "minimum_system_version": info["LSMinimumSystemVersion"] as? String ?? "",
             "sdk_name": info["DTSDKName"] as? String ?? "",
-            "xcode_build": info["DTXcodeBuild"] as? String ?? "",
+            "xcode_build": info["DTXcodeBuild"] as? String ?? ""
         ]
     }
 
@@ -247,7 +254,7 @@ final class DiagnosticReportService {
             "locale_region_code": locale.region?.identifier ?? "",
             "timezone": TimeZone.current.identifier,
             "is_low_power": ProcessInfo.processInfo.isLowPowerModeEnabled,
-            "thermal_state": Self.thermalState(),
+            "thermal_state": Self.thermalState()
         ]
     }
 
@@ -289,7 +296,7 @@ final class DiagnosticReportService {
         if kerr == KERN_SUCCESS {
             return [
                 "resident_size_bytes": info.resident_size,
-                "virtual_size_bytes": info.virtual_size,
+                "virtual_size_bytes": info.virtual_size
             ]
         }
         return ["error": "task_info failed kerr=\(kerr)"]
@@ -300,7 +307,9 @@ final class DiagnosticReportService {
         // can statically. Live URLSession probes are too slow for a
         // user-facing tap.
         return [
-            "default_relay_url": "wss://relay.chat4000.com/ws",
+            // v2 talks to the registrar (and the per-pair gateway WS); the v1 relay
+            // is gone. Report the registrar base so diagnostics show the backend env.
+            "registrar_url": MatrixEnvironment.current.registrarBaseURL
             // Sandbox blocks reading the system DNS resolvers list, so
             // we leave network probing to the sample we pulled from the
             // user's machine via `diagnose.py` historically.
@@ -310,10 +319,8 @@ final class DiagnosticReportService {
     private static func safeUserDefaults() -> [String: Any] {
         let knownKeys = [
             "chat4000.actionButtonMode",
-            "chat4000.lastSeenPluginVersion",
-            "chat4000.lastSeenPluginBundleId",
             "chat4000.telemetryCollectionEnabled",
-            "chat4000.legalConsentAcceptedVersion",
+            "chat4000.legalConsentAcceptedVersion"
         ]
         let defaults = UserDefaults.standard
         var dump: [String: Any] = [:]
@@ -329,14 +336,13 @@ final class DiagnosticReportService {
 
     // MARK: - Encryption (OpenSSL "Salted__" + AES-256-CBC + PBKDF2 SHA256, 100k)
 
-    enum EncryptionError: Error { case keyDerivationFailed, encryptFailed }
-
-    static func encryptOpenSSLCompatible(plaintext: Data, password: String) throws -> Data {
+    static func encryptOpenSSLCompatible(plaintext: Data, password: String) throws(AppError) -> Data {
         var salt = Data(count: 8)
-        let saltResult = salt.withUnsafeMutableBytes { ptr in
-            SecRandomCopyBytes(kSecRandomDefault, 8, ptr.baseAddress!)
+        let saltResult = salt.withUnsafeMutableBytes { ptr -> Int32 in
+            guard let base = ptr.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, 8, base)
         }
-        guard saltResult == errSecSuccess else { throw EncryptionError.keyDerivationFailed }
+        guard saltResult == errSecSuccess else { throw AppError.crypto("diag salt generation failed") }
 
         // Derive 48 bytes: 32-byte key + 16-byte IV via PBKDF2-SHA256 100k iters.
         var derived = Data(count: 48)
@@ -357,7 +363,7 @@ final class DiagnosticReportService {
                 }
             }
         }
-        guard kdf == kCCSuccess else { throw EncryptionError.keyDerivationFailed }
+        guard kdf == kCCSuccess else { throw AppError.crypto("diag PBKDF2 derivation failed") }
         let key = derived.prefix(32)
         let iv = derived.suffix(16)
 
@@ -385,12 +391,12 @@ final class DiagnosticReportService {
                 }
             }
         }
-        guard status == kCCSuccess else { throw EncryptionError.encryptFailed }
+        guard status == kCCSuccess else { throw AppError.crypto("diag AES encrypt failed") }
         output.count = written
 
         // OpenSSL framing: "Salted__" || salt(8) || ciphertext.
         var framed = Data()
-        framed.append("Salted__".data(using: .ascii)!)
+        framed.append(requireUTF8("Salted__"))
         framed.append(salt)
         framed.append(output)
         return framed
@@ -398,85 +404,44 @@ final class DiagnosticReportService {
 
     // MARK: - Upload
 
-    enum UploadError: Error { case noUrlInResponse, badStatus(Int), badBody(String) }
-
-    private func uploadToUguu(data: Data) async throws -> String {
+    private func uploadToUguu(data: Data) async throws(AppError) -> String {
         let boundary = "----chat4000-diag-\(UUID().uuidString)"
         let filename = "chat4000-diag-\(ISO8601DateFormatter().string(from: Date())).enc"
 
         var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(requireUTF8("--\(boundary)\r\n"))
+        body.append(requireUTF8("Content-Disposition: form-data; name=\"files[]\"; filename=\"\(filename)\"\r\n"))
+        body.append(requireUTF8("Content-Type: application/octet-stream\r\n\r\n"))
         body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(requireUTF8("\r\n--\(boundary)--\r\n"))
 
-        var req = URLRequest(url: URL(string: Self.uploadEndpoint)!)
+        var req = URLRequest(url: requireURL(Self.uploadEndpoint))
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("chat4000-diagnose-inapp/1.0", forHTTPHeaderField: "User-Agent")
         req.httpBody = body
         req.timeoutInterval = 60
 
-        let (respData, resp) = try await URLSession.shared.data(for: req)
-        if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
-            throw UploadError.badStatus(http.statusCode)
+        let respData: Data
+        let resp: URLResponse
+        do {
+            (respData, resp) = try await URLSession.shared.data(for: req)
+        } catch is CancellationError {
+            throw AppError.cancelled
+        } catch {
+            throw AppError.network("diag upload: \(error.localizedDescription)")
         }
-        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+        if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
+            throw AppError.httpStatus(http.statusCode)
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let files = json["files"] as? [[String: Any]],
               let first = files.first,
               let url = first["url"] as? String
         else {
-            throw UploadError.noUrlInResponse
+            throw AppError.decode("diag upload response had no URL")
         }
         return url
     }
 
-    // MARK: - PostHog (fire-and-forget, mirrors diagnose.py event names)
-
-    private func emit(_ event: String, _ extras: [String: Any] = [:]) {
-        #if os(macOS)
-        let platformName = "macos"
-        #else
-        let platformName = "ios"
-        #endif
-        var properties: [String: Any] = [
-            "$lib": "chat4000-diagnose-inapp",
-            "$lib_version": "1.0",
-            "platform": platformName,
-            "session_id": sessionId,
-            "elapsed_ms": Int(Date().timeIntervalSince(startedAt) * 1000),
-            "host_name": ProcessInfo.processInfo.hostName,
-            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
-            "app_build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "",
-            "app_bundle_id": Bundle.main.bundleIdentifier ?? "",
-            "macos_version": {
-                let v = ProcessInfo.processInfo.operatingSystemVersion
-                return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
-            }(),
-        ]
-        for (k, v) in extras { properties[k] = v }
-
-        let payload: [String: Any] = [
-            "api_key": Self.posthogApiKey,
-            "event": event,
-            "distinct_id": distinctId(),
-            "properties": properties,
-        ]
-        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
-
-        var req = URLRequest(url: URL(string: "\(Self.posthogHost)/i/v0/e/")!)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("chat4000-diagnose-inapp/1.0", forHTTPHeaderField: "User-Agent")
-        req.httpBody = body
-        req.timeoutInterval = 5
-        URLSession.shared.dataTask(with: req).resume()
-    }
-
-    private func distinctId() -> String {
-        // Stable per-machine id derived from hostname. We deliberately
-        // don't pull the IOPlatformUUID (sandbox can't read ioreg).
-        "mac-\(ProcessInfo.processInfo.hostName)"
-    }
 }

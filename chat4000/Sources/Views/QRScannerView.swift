@@ -141,16 +141,16 @@ struct QRScannerView: View {
     }
 
     private func handleScannedCode(_ code: String) {
-        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = RelayCrypto.normalizePairingCode(trimmed)
-        let pairingInvite = RelayCrypto.parsePairingURI(trimmed)
-        let parsedConfig = GroupConfig.parse(trimmed)
-
-        guard normalized.count == 8 || pairingInvite != nil || parsedConfig != nil else {
-            errorMessage = "Not a valid chat4000 pairing code or group key"
+        // v2: a QR encodes the 6-digit pairing code as a
+        // https://pair.chat4000.com/?code=NNNNNN Universal Link (older QRs used the
+        // chat4000://pair?code= scheme). Parse the `code` param — do NOT
+        // digit-filter the whole payload ("chat4000" contributes 4000).
+        let digits = MatrixPairing.extractCode(from: code)
+        guard digits.count == 6 else {
+            errorMessage = "Not a valid chat4000 pairing code"
             Task {
                 try? await Task.sleep(for: .seconds(2))
-                if errorMessage == "Not a valid chat4000 pairing code or group key" {
+                if errorMessage == "Not a valid chat4000 pairing code" {
                     errorMessage = nil
                 }
             }
@@ -159,7 +159,7 @@ struct QRScannerView: View {
 
         errorMessage = nil
         Haptics.success()
-        onScanned(normalized.count == 8 ? normalized : trimmed)
+        onScanned(digits)
     }
 
     private func openSettings() {
@@ -252,7 +252,8 @@ final class QRCameraPlatformView: PlatformView, @preconcurrency AVCaptureMetadat
         captureSession.addOutput(output)
         output.setMetadataObjectsDelegate(self, queue: .main)
         output.metadataObjectTypes = [.qr]
-        AppLog.log("📷 QR config: metadata output attached, types=%@", "\(output.metadataObjectTypes)")
+        AppLog.log("📷 QR config: metadata output attached, types=%@",
+                   output.metadataObjectTypes.map(\.rawValue).joined(separator: ","))
         #elseif os(macOS)
         let output = AVCaptureVideoDataOutput()
         guard captureSession.canAddOutput(output) else {
@@ -393,6 +394,9 @@ extension QRCameraPlatformView: AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
             }
         } catch {
+            // Expected, high-frequency: a per-frame Vision barcode pass that finds
+            // no readable code throws here. This runs on every camera frame, so it
+            // is a benign no-op — not reported (would be pure noise).
             return
         }
     }

@@ -1,5 +1,17 @@
 import SwiftUI
 
+struct FounderChatPromptRequest: Codable, Equatable {
+    let source: String
+    let modalTitle: String?
+    let modalBody: String?
+    /// Prefill text for the WhatsApp / Intercom outreach (from the push, optional).
+    var contactMessage: String?
+    /// Push overrides to force-skip a channel so the next one can be tested without
+    /// uninstalling the app (e.g. skip WhatsApp to verify Telegram).
+    var disableWhatsApp: Bool?
+    var disableTelegram: Bool?
+}
+
 /// Modal shown after an APNS push tags this device as "looks stuck."
 ///
 /// Title + three actions: Chat now (opens Intercom), Remind me later
@@ -13,6 +25,10 @@ struct FounderChatPromptModal: View {
     let source: String
     let modalTitle: String
     let modalBody: String
+    /// Outreach config (from the push, or defaults for the QA trigger).
+    let contactMessage: String?
+    let disableWhatsApp: Bool
+    let disableTelegram: Bool
 
     static let defaultTitle = "Need a hand?"
     static let defaultBody = "We noticed you might be having trouble. Would you like to chat with a founder right now?"
@@ -20,11 +36,17 @@ struct FounderChatPromptModal: View {
     init(
         source: String,
         modalTitle: String = FounderChatPromptModal.defaultTitle,
-        modalBody: String = FounderChatPromptModal.defaultBody
+        modalBody: String = FounderChatPromptModal.defaultBody,
+        contactMessage: String? = nil,
+        disableWhatsApp: Bool = false,
+        disableTelegram: Bool = false
     ) {
         self.source = source
         self.modalTitle = modalTitle
         self.modalBody = modalBody
+        self.contactMessage = contactMessage
+        self.disableWhatsApp = disableWhatsApp
+        self.disableTelegram = disableTelegram
     }
 
     var body: some View {
@@ -96,12 +118,19 @@ struct FounderChatPromptModal: View {
     }
 
     private func chatNow() {
+        FounderChatPromptStore.shared.markDismissedNow()
+        // Escalate WhatsApp → Telegram → Intercom. `channel` is the one actually
+        // opened — surface it for analytics (the analytics agent fires the event).
+        let channel = FounderOutreach.contactFounder(
+            message: contactMessage,
+            disableWhatsApp: disableWhatsApp,
+            disableTelegram: disableTelegram,
+            source: source
+        )
         TelemetryManager.shared.track(
             .founderChatPromptAction,
-            properties: ["source": source, "action": "chat_now"]
+            properties: ["source": source, "action": "chat_now", "channel": channel.rawValue]
         )
-        FounderChatPromptStore.shared.markDismissedNow()
-        IntercomService.openMessenger(source: "founder_chat_prompt_\(source)")
         dismiss()
     }
 
@@ -131,6 +160,7 @@ final class FounderChatPromptStore {
     static let shared = FounderChatPromptStore()
 
     private let snoozeUntilKey = "chat4000.FounderChatPrompt.snoozeUntil"
+    private let pendingPromptKey = "chat4000.FounderChatPrompt.pendingPrompt"
     private let snoozeWindow: TimeInterval = 60 * 60 * 24 // 24 hours
 
     private init() {}
@@ -150,5 +180,33 @@ final class FounderChatPromptStore {
         // No persistent suppression — a future targeted push can fire again.
         // We just clear any active snooze.
         UserDefaults.standard.removeObject(forKey: snoozeUntilKey)
+    }
+
+    func storePendingPrompt(_ request: FounderChatPromptRequest) {
+        do {
+            let data = try JSONEncoder().encode(request)
+            UserDefaults.standard.set(data, forKey: pendingPromptKey)
+            AppLog.log("🔔 [push] founder_chat_prompt stored pending source=%@", request.source)
+        } catch {
+            ErrorReporter.capture(error, context: "FounderChatPromptStore.storePendingPrompt")
+            AppLog.log("⚠️ [push] failed to store founder_chat_prompt pending request: \(error.localizedDescription)")
+        }
+    }
+
+    func consumePendingPrompt() -> FounderChatPromptRequest? {
+        guard let data = UserDefaults.standard.data(forKey: pendingPromptKey) else {
+            return nil
+        }
+
+        UserDefaults.standard.removeObject(forKey: pendingPromptKey)
+        do {
+            let request = try JSONDecoder().decode(FounderChatPromptRequest.self, from: data)
+            AppLog.log("🔔 [push] founder_chat_prompt consumed pending source=%@", request.source)
+            return request
+        } catch {
+            ErrorReporter.capture(error, context: "FounderChatPromptStore.consumePendingPrompt")
+            AppLog.log("⚠️ [push] failed to decode founder_chat_prompt pending request: \(error.localizedDescription)")
+            return nil
+        }
     }
 }

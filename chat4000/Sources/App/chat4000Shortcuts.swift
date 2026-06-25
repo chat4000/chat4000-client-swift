@@ -9,6 +9,7 @@ struct StartVoiceRecordingIntent: AppIntent, ForegroundContinuableIntent {
     static let description = IntentDescription("Open chat4000 and start recording a voice message.")
     static var openAppWhenRun: Bool { true }
 
+    // EXEMPT: AppIntents `perform()` is a framework requirement that mandates untyped `throws`.
     func perform() async throws -> some IntentResult {
         if #available(iOS 26.0, *) {
             LaunchActionStore.set(.startVoiceRecording)
@@ -31,6 +32,7 @@ struct OpenComposerIntent: AppIntent, ForegroundContinuableIntent {
     static let description = IntentDescription("Open chat4000 and focus the message input so you can start typing right away.")
     static var openAppWhenRun: Bool { true }
 
+    // EXEMPT: AppIntents `perform()` is a framework requirement that mandates untyped `throws`.
     func perform() async throws -> some IntentResult {
         if #available(iOS 26.0, *) {
             LaunchActionStore.set(.openComposer)
@@ -54,7 +56,7 @@ struct chat4000Shortcuts: AppShortcutsProvider {
             phrases: [
                 "Start recording in \(.applicationName)",
                 "Record with \(.applicationName)",
-                "Open \(.applicationName) and record",
+                "Open \(.applicationName) and record"
             ],
             shortTitle: "Start Recording",
             systemImageName: "mic.fill"
@@ -64,7 +66,7 @@ struct chat4000Shortcuts: AppShortcutsProvider {
             phrases: [
                 "Type in \(.applicationName)",
                 "Compose in \(.applicationName)",
-                "Open \(.applicationName) to type",
+                "Open \(.applicationName) to type"
             ],
             shortTitle: "Open to Type",
             systemImageName: "keyboard"

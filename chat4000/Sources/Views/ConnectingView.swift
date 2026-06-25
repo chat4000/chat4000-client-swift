@@ -99,6 +99,90 @@ struct ConnectingView: View {
     }
 }
 
+struct Chat4000ConnectingScreen: View {
+    let connectionState: ConnectionState
+
+    var body: some View {
+        ZStack {
+            AppColors.background
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(AppColors.textSecondary)
+
+                Text("chat4000 connecting")
+                    .font(AppFonts.navTitle)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+
+                Text(subtitle)
+                    .font(AppFonts.subtitle)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+
+    private var subtitle: String {
+        switch connectionState {
+        case .reconnecting:
+            return "Restoring your relay session."
+        default:
+            return "Opening your workspace."
+        }
+    }
+}
+
+struct SetupProgressScreen: View {
+    let phase: MatrixSession.SetupPhase
+    var stalled: Bool = false
+    var onRetry: () -> Void = {}
+    var onStartOver: () -> Void = {}
+
+    var body: some View {
+        ZStack {
+            AppColors.background
+                .ignoresSafeArea()
+
+            // Sit in the upper third — below the top, but clearly above center.
+            // Top spacer : bottom spacers = 1 : 2 → content centered at ~1/3 height.
+            VStack(spacing: 0) {
+                Spacer()
+                SetupProgressView(
+                    phase: phase,
+                    stalled: stalled,
+                    onRetry: onRetry,
+                    onStartOver: onStartOver
+                )
+                .padding(.horizontal, 12)
+                Spacer()
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+struct ConnectedCelebrationScreen: View {
+    var body: some View {
+        ZStack {
+            AppColors.background
+                .ignoresSafeArea()
+
+            ConfettiView(intensity: 0.2)
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
+
+            ConnectedCelebrationCard()
+                .allowsHitTesting(false)
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+        }
+    }
+}
+
 #Preview {
     ConnectingView(
         connectionState: .connecting,

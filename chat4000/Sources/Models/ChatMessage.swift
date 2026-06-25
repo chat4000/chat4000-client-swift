@@ -18,6 +18,8 @@ enum MessageStatus: String, Codable {
 enum MessageKind: String, Codable {
     case message
     case toolCall = "tool_call"
+    case htmlCard = "html_card"
+    case unavailable
 }
 
 /// Lifecycle of a Hermes tool-call row (mirrors the wire `tool_status`
@@ -31,7 +33,7 @@ enum ToolCallStatus: String, Codable {
 @Model
 final class ChatMessage {
     var id: UUID
-    /// Relay-protocol inner message id (per protocol §6.4.1 + §6.6.9). Used
+    /// Relay-protocol inner message id (per protocol 6.4.1 + 6.6.9). Used
     /// for idempotent insert (dedupe on relay redrive) and to correlate
     /// `relay_recv_ack` / inner `ack` frames back to local outbound rows.
     /// Nullable for backwards compatibility with rows persisted before the
@@ -43,9 +45,20 @@ final class ChatMessage {
     var audioMimeType: String?
     var audioDuration: Double?
     var audioWaveformData: Data?
+    var htmlCardHTML: String?
     var sender: MessageSender
     var timestamp: Date
     var status: MessageStatus
+
+    /// v2: the Matrix room (session) this message belongs to. Optional/additive
+    /// so rows persisted before multi-session decode as nil (treated as the
+    /// active room on load). New rows always set this.
+    var roomId: String?
+
+    /// v2: the homeserver `event_id` assigned to this (outbound) message once the
+    /// send returns. Used to match inbound read receipts → "read" tick. nil until
+    /// the send completes / for inbound rows. Additive (old rows decode as nil).
+    var matrixEventId: String?
 
     // MARK: - Hermes tool-call fields
     //
@@ -67,7 +80,7 @@ final class ChatMessage {
     }
 
     /// Stable correlator across all `tool_start` / `tool_delta` / `tool_end`
-    /// frames for one tool invocation (per protocol §6.4.x).
+    /// frames for one tool invocation (per protocol 6.4.x).
     var toolId: String?
 
     /// Short tool identifier emitted by the Hermes agent (e.g. `"bash"`,
@@ -107,7 +120,9 @@ final class ChatMessage {
         sender: MessageSender,
         timestamp: Date = .now,
         status: MessageStatus = .sent,
+        roomId: String? = nil,
         kind: MessageKind = .message,
+        htmlCardHTML: String? = nil,
         toolId: String? = nil,
         toolName: String? = nil,
         toolArgs: String? = nil,
@@ -130,7 +145,10 @@ final class ChatMessage {
         self.sender = sender
         self.timestamp = timestamp
         self.status = status
+        self.roomId = roomId
+        self.matrixEventId = nil
         self.kindRaw = kind.rawValue
+        self.htmlCardHTML = htmlCardHTML
         self.toolId = toolId
         self.toolName = toolName
         self.toolArgs = toolArgs

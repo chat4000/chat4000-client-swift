@@ -54,20 +54,24 @@ final class IntercomMacWindowController {
 }
 
 private final class WindowCloseObserver: NSObject {
-    private let onClose: () -> Void
+    private let onClose: @MainActor @Sendable () -> Void
     private var token: NSObjectProtocol?
 
-    init(onClose: @escaping () -> Void) {
+    init(onClose: @escaping @MainActor @Sendable () -> Void) {
         self.onClose = onClose
     }
 
     func attach(to window: NSWindow) {
+        // `addObserver`'s block is `@Sendable`. Capture the `@Sendable onClose`
+        // value (not the non-Sendable observer) and run it via
+        // `MainActor.assumeIsolated` — the block is delivered on `.main`.
+        let onClose = self.onClose
         token = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
-            self?.onClose()
+        ) { _ in
+            MainActor.assumeIsolated { onClose() }
         }
     }
 

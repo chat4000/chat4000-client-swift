@@ -2,8 +2,8 @@ import Foundation
 import SwiftUI
 
 enum LegalConsent {
-    static let termsURL = URL(string: "https://chat4000.com/terms")!
-    static let privacyURL = URL(string: "https://chat4000.com/privacy")!
+    static let termsURL: URL = requireURL("https://chat4000.com/terms")
+    static let privacyURL: URL = requireURL("https://chat4000.com/privacy")
 
     private static let acceptedKey = "chat4000.legal.consentAccepted"
     private static let versionKey = "chat4000.legal.consentVersion"
@@ -19,6 +19,19 @@ enum LegalConsent {
 
     static func requiresTermsAcceptance(currentTermsVersion: Int) -> Bool {
         acceptedTermsVersion < currentTermsVersion
+    }
+
+    /// Whether to present the standalone "Legal Update" re-consent modal.
+    ///
+    /// The three legal states:
+    /// - **A. Never accepted** (`!hasAcceptedAnyVersion`): a fresh install. Consent
+    ///   happens via the signup checkbox in `SetupView` (`LegalConsentCheckboxRow`),
+    ///   NOT this modal — so return false.
+    /// - **B. Accepted but behind** (`hasAcceptedAnyVersion && acceptedTermsVersion
+    ///   < current`): an existing user whose terms version bumped → show the modal.
+    /// - **C. Accepted current**: nothing to do → false.
+    static func requiresReconsent(currentTermsVersion: Int) -> Bool {
+        hasAcceptedAnyVersion && requiresTermsAcceptance(currentTermsVersion: currentTermsVersion)
     }
 
     static func acceptNow(currentTermsVersion: Int) {

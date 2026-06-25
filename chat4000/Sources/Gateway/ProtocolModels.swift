@@ -6,524 +6,6 @@ import UIKit
 import AppKit
 #endif
 
-// MARK: - Protocol Constants
-
-enum RelayProtocol {
-    static let version = 1
-    static let maxMessageSize = 4 * 1024 * 1024
-    /// Application-layer ping cadence. 25s keeps the relay's 60s idle-ping
-    /// timeout from ever firing under normal conditions and stops macOS App
-    /// Nap from suspending the receive loop because there is regular outbound
-    /// activity.
-    static let heartbeatIntervalSecs: TimeInterval = 25
-    static let defaultRelayURL = "wss://relay.chat4000.com/ws"
-}
-
-// MARK: - Wire Message Types
-
-/// Matches relay's `MessageType` (serde snake_case).
-enum RelayMessageType: String, Codable {
-    // Pairing room
-    case pairOpen = "pair_open"
-    case pairOpenOk = "pair_open_ok"
-    case pairReady = "pair_ready"
-    case pairData = "pair_data"
-    case pairComplete = "pair_complete"
-    case pairCancel = "pair_cancel"
-
-    // Registration
-    case challenge
-    case challengeOk = "challenge_ok"
-    case register
-    case registerOk = "register_ok"
-    case registerError = "register_error"
-
-    // Handshake
-    case hello
-    case helloOk = "hello_ok"
-    case helloError = "hello_error"
-
-    // Encrypted messages
-    case msg
-
-    // Reliable delivery (per protocol §6.6)
-    case recvAck = "recv_ack"
-    case relayRecvAck = "relay_recv_ack"
-
-    // Keepalive
-    case ping
-    case pong
-}
-
-// MARK: - Outgoing Payloads
-
-struct HelloPayload: Encodable {
-    let role: String
-    let groupId: String
-    let deviceId: String?
-    let deviceToken: String?
-    let appId: String?
-    let appVersion: String
-    let releaseChannel: String
-    /// Highest relay-assigned `seq` the client has stably persisted for this
-    /// `(group_id, device_id)` triple (per protocol §6.1 + §6.6.8). Allows the
-    /// relay to redrive only un-acked tail. Optional for legacy compat.
-    let lastAckedSeq: UInt64?
-
-    enum CodingKeys: String, CodingKey {
-        case role
-        case groupId = "group_id"
-        case deviceId = "device_id"
-        case deviceToken = "device_token"
-        case appId = "app_id"
-        case appVersion = "app_version"
-        case releaseChannel = "release_channel"
-        case lastAckedSeq = "last_acked_seq"
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(role, forKey: .role)
-        try c.encode(groupId, forKey: .groupId)
-        try c.encodeIfPresent(deviceId, forKey: .deviceId)
-        try c.encodeIfPresent(deviceToken, forKey: .deviceToken)
-        try c.encodeIfPresent(appId, forKey: .appId)
-        try c.encode(appVersion, forKey: .appVersion)
-        try c.encode(releaseChannel, forKey: .releaseChannel)
-        try c.encodeIfPresent(lastAckedSeq, forKey: .lastAckedSeq)
-    }
-}
-
-struct HelloOkPayload: Decodable {
-    let currentTermsVersion: Int?
-    let versionPolicy: VersionPolicy?
-    let pluginVersionPolicy: VersionPolicy?
-
-    enum CodingKeys: String, CodingKey {
-        case currentTermsVersion = "current_terms_version"
-        case versionPolicy = "version_policy"
-        case pluginVersionPolicy = "plugin_version_policy"
-    }
-}
-
-struct RegisterPayload: Encodable {
-    let groupId: String
-    let attestation: String
-    let challenge: String
-
-    enum CodingKeys: String, CodingKey {
-        case groupId = "group_id"
-        case attestation, challenge
-    }
-}
-
-struct MsgPayload: Codable {
-    let nonce: String
-    let ciphertext: String
-    let msgId: String
-    let notifyIfOffline: Bool?
-    /// Relay-assigned per-recipient monotonic sequence number (per protocol
-    /// §6.4 + §6.6.3). Present only on relay-→client deliveries; senders MUST
-    /// NOT set this on outbound msg envelopes.
-    let seq: UInt64?
-
-    enum CodingKeys: String, CodingKey {
-        case nonce, ciphertext
-        case msgId = "msg_id"
-        case notifyIfOffline = "notify_if_offline"
-        case seq
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(nonce, forKey: .nonce)
-        try c.encode(ciphertext, forKey: .ciphertext)
-        try c.encode(msgId, forKey: .msgId)
-        try c.encodeIfPresent(notifyIfOffline, forKey: .notifyIfOffline)
-        try c.encodeIfPresent(seq, forKey: .seq)
-    }
-}
-
-/// Per protocol §6.6.3 — client → relay persistence acknowledgement (Flow A).
-struct RecvAckPayload: Encodable {
-    let upToSeq: UInt64
-    let ranges: [[UInt64]]?
-
-    enum CodingKeys: String, CodingKey {
-        case upToSeq = "up_to_seq"
-        case ranges
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(upToSeq, forKey: .upToSeq)
-        try c.encodeIfPresent(ranges, forKey: .ranges)
-    }
-}
-
-/// Per protocol §6.6.4 — relay → originating client receipt for an outbound
-/// message. Drives the "✓ sent" tick. Optional in v1; clients MUST NOT depend
-/// on it for correctness.
-struct RelayRecvAckPayload: Decodable {
-    let msgId: String
-    let queuedFor: [String]?
-
-    enum CodingKeys: String, CodingKey {
-        case msgId = "msg_id"
-        case queuedFor = "queued_for"
-    }
-}
-
-struct PairOpenPayload: Encodable {
-    let role: String
-    let roomId: String
-
-    enum CodingKeys: String, CodingKey {
-        case role
-        case roomId = "room_id"
-    }
-}
-
-struct PairDataPayload: Codable {
-    let t: String
-    let salt: String?
-    let proof: String?
-    let wrappedKey: WrappedGroupKey?
-
-    enum CodingKeys: String, CodingKey {
-        case t, salt, proof
-        case wrappedKey = "wrapped_key"
-    }
-}
-
-struct PairCompletePayload: Encodable {
-    let status: String
-}
-
-struct PairCancelPayload: Encodable {
-    let reason: String
-}
-
-struct WrappedGroupKey: Codable, Equatable {
-    let ephemeralPub: String
-    let nonce: String
-    let ciphertext: String
-
-    enum CodingKeys: String, CodingKey {
-        case ephemeralPub = "ephemeral_pub"
-        case nonce, ciphertext
-    }
-}
-
-// MARK: - Incoming Payloads
-
-struct ChallengeOkPayload: Decodable {
-    let nonce: String
-    let expiresInSecs: Int
-
-    enum CodingKeys: String, CodingKey {
-        case nonce
-        case expiresInSecs = "expires_in_secs"
-    }
-}
-
-struct RegisterOkPayload: Decodable {
-    let groupId: String
-
-    enum CodingKeys: String, CodingKey {
-        case groupId = "group_id"
-    }
-}
-
-struct ErrorPayload: Decodable {
-    let code: String
-    let message: String
-}
-
-// MARK: - Parsed Incoming Message
-
-/// All possible messages the app can receive from the relay.
-enum RelayMessage {
-    case pairOpenOk
-    case pairReady
-    case pairData(PairDataMessage)
-    case pairComplete
-    case pairCancel
-
-    case challengeOk(nonce: String, expiresInSecs: Int)
-    case registerOk(groupId: String)
-    case registerError(code: String, message: String)
-    case helloOk(currentTermsVersion: Int, versionPolicy: VersionPolicy?, pluginVersionPolicy: VersionPolicy?)
-    case helloError(code: String, message: String)
-    case msg(nonce: String, ciphertext: String, msgId: String, seq: UInt64?)
-    case relayRecvAck(msgId: String, queuedFor: [String]?)
-    case pong
-
-    /// Parse a raw WebSocket text frame into a typed message.
-    static func parse(from text: String) -> RelayMessage? {
-        guard let data = text.data(using: .utf8) else { return nil }
-        return parse(from: data)
-    }
-
-    static func parse(from data: Data) -> RelayMessage? {
-        struct Header: Decodable {
-            let version: Int
-            let type: String
-        }
-
-        guard let header = try? JSONDecoder().decode(Header.self, from: data) else { return nil }
-        guard let type = RelayMessageType(rawValue: header.type) else {
-            // Legacy outer activity frames were removed from the transport layer.
-            // Treat them as ignored so only encrypted inner `status` messages
-            // drive UI activity state.
-            switch header.type {
-            case "typing", "typing_stop":
-                return nil
-            default:
-                return nil
-            }
-        }
-
-        switch type {
-        case .pairOpenOk:
-            return .pairOpenOk
-
-        case .pairReady:
-            return .pairReady
-
-        case .pairData:
-            guard let env = try? JSONDecoder().decode(Envelope<PairDataPayload>.self, from: data) else { return nil }
-            switch env.payload.t {
-            case "hello":
-                guard let salt = env.payload.salt else { return nil }
-                return .pairData(.hello(salt: salt))
-            case "join":
-                guard let salt = env.payload.salt else { return nil }
-                return .pairData(.join(salt: salt))
-            case "proof_b":
-                guard let proof = env.payload.proof else { return nil }
-                return .pairData(.proofB(proof: proof))
-            case "grant":
-                guard let proof = env.payload.proof,
-                      let wrappedKey = env.payload.wrappedKey
-                else { return nil }
-                return .pairData(.grant(proof: proof, wrappedKey: wrappedKey))
-            default:
-                return nil
-            }
-
-        case .pairCancel:
-            return .pairCancel
-
-        case .pairComplete:
-            return .pairComplete
-
-        case .challengeOk:
-            guard let env = try? JSONDecoder().decode(Envelope<ChallengeOkPayload>.self, from: data) else { return nil }
-            return .challengeOk(nonce: env.payload.nonce, expiresInSecs: env.payload.expiresInSecs)
-
-        case .registerOk:
-            guard let env = try? JSONDecoder().decode(Envelope<RegisterOkPayload>.self, from: data) else { return nil }
-            return .registerOk(groupId: env.payload.groupId)
-
-        case .registerError:
-            guard let env = try? JSONDecoder().decode(Envelope<ErrorPayload>.self, from: data) else { return nil }
-            return .registerError(code: env.payload.code, message: env.payload.message)
-
-        case .helloOk:
-            guard let env = try? JSONDecoder().decode(Envelope<HelloOkPayload>.self, from: data) else { return nil }
-            return .helloOk(
-                currentTermsVersion: env.payload.currentTermsVersion ?? 0,
-                versionPolicy: env.payload.versionPolicy,
-                pluginVersionPolicy: env.payload.pluginVersionPolicy
-            )
-
-        case .helloError:
-            guard let env = try? JSONDecoder().decode(Envelope<ErrorPayload>.self, from: data) else { return nil }
-            return .helloError(code: env.payload.code, message: env.payload.message)
-
-        case .msg:
-            guard let env = try? JSONDecoder().decode(Envelope<MsgPayload>.self, from: data) else { return nil }
-            return .msg(
-                nonce: env.payload.nonce,
-                ciphertext: env.payload.ciphertext,
-                msgId: env.payload.msgId,
-                seq: env.payload.seq
-            )
-
-        case .relayRecvAck:
-            guard let env = try? JSONDecoder().decode(Envelope<RelayRecvAckPayload>.self, from: data) else { return nil }
-            return .relayRecvAck(msgId: env.payload.msgId, queuedFor: env.payload.queuedFor)
-
-        case .pong:
-            return .pong
-
-        // Messages the app sends, not receives
-        case .pairOpen, .challenge, .register, .hello, .ping, .recvAck:
-            return nil
-        }
-    }
-}
-
-enum PairDataMessage: Equatable {
-    case hello(salt: String)
-    case join(salt: String)
-    case proofB(proof: String)
-    case grant(proof: String, wrappedKey: WrappedGroupKey)
-}
-
-// MARK: - Envelope (for typed decoding)
-
-private struct Envelope<P: Decodable>: Decodable {
-    let version: Int
-    let type: RelayMessageType
-    let payload: P
-}
-
-// MARK: - Outgoing Envelope Builder
-
-enum RelayOutgoing {
-    static func pairOpen(role: String, roomId: String) -> String? {
-        encode(type: .pairOpen, payload: PairOpenPayload(role: role, roomId: roomId))
-    }
-
-    static func pairHello(salt: String) -> String? {
-        encode(type: .pairData, payload: PairDataPayload(t: "hello", salt: salt, proof: nil, wrappedKey: nil))
-    }
-
-    static func pairJoin(salt: String) -> String? {
-        encode(type: .pairData, payload: PairDataPayload(t: "join", salt: salt, proof: nil, wrappedKey: nil))
-    }
-
-    static func pairProofB(_ proof: String) -> String? {
-        encode(type: .pairData, payload: PairDataPayload(t: "proof_b", salt: nil, proof: proof, wrappedKey: nil))
-    }
-
-    static func pairGrant(proof: String, wrappedKey: WrappedGroupKey) -> String? {
-        encode(type: .pairData, payload: PairDataPayload(t: "grant", salt: nil, proof: proof, wrappedKey: wrappedKey))
-    }
-
-    static func pairComplete() -> String? {
-        encode(type: .pairComplete, payload: PairCompletePayload(status: "ok"))
-    }
-
-    static func pairCancel(reason: String = "cancelled") -> String? {
-        encode(type: .pairCancel, payload: PairCancelPayload(reason: reason))
-    }
-
-    static func challenge() -> String? {
-        encode(type: .challenge, payload: EmptyObject())
-    }
-
-    static func register(groupId: String, attestation: String, challenge: String) -> String? {
-        encode(type: .register, payload: RegisterPayload(groupId: groupId, attestation: attestation, challenge: challenge))
-    }
-
-    static func hello(
-        groupId: String,
-        deviceToken: String? = nil,
-        appId: String? = AppRegistrationIdentity.currentAppId,
-        deviceId: String = DeviceIdentity.currentDeviceId,
-        lastAckedSeq: UInt64? = nil
-    ) -> String? {
-        encode(
-            type: .hello,
-            payload: HelloPayload(
-                role: "app",
-                groupId: groupId,
-                deviceId: deviceId,
-                deviceToken: deviceToken,
-                appId: appId,
-                appVersion: AppRegistrationIdentity.currentAppVersion,
-                releaseChannel: AppRegistrationIdentity.currentReleaseChannel,
-                lastAckedSeq: lastAckedSeq
-            )
-        )
-    }
-
-    static func msg(nonce: String, ciphertext: String, msgId: String, notifyIfOffline: Bool = true) -> String? {
-        // Senders never assign `seq`; the relay rewrites it on the outbound copy.
-        encode(
-            type: .msg,
-            payload: MsgPayload(
-                nonce: nonce,
-                ciphertext: ciphertext,
-                msgId: msgId,
-                notifyIfOffline: notifyIfOffline,
-                seq: nil
-            )
-        )
-    }
-
-    static func recvAck(upToSeq: UInt64, ranges: [[UInt64]]? = nil) -> String? {
-        encode(
-            type: .recvAck,
-            payload: RecvAckPayload(upToSeq: upToSeq, ranges: ranges)
-        )
-    }
-
-    static func ping() -> String? {
-        encodeNullPayload(type: .ping)
-    }
-
-    // MARK: - Private
-
-    private struct OutEnvelope<P: Encodable>: Encodable {
-        let version: Int
-        let type: RelayMessageType
-        let payload: P
-    }
-
-    private struct EmptyObject: Encodable {}
-
-    private static func encode<P: Encodable>(type: RelayMessageType, payload: P) -> String? {
-        let env = OutEnvelope(version: RelayProtocol.version, type: type, payload: payload)
-        guard let data = try? JSONEncoder().encode(env) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    /// For messages where payload is JSON `null` (ping/pong).
-    private static func encodeNullPayload(type: RelayMessageType) -> String? {
-        let json: [String: Any] = [
-            "version": RelayProtocol.version,
-            "type": type.rawValue,
-            "payload": NSNull(),
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-}
-
-enum AppRegistrationIdentity {
-    static var currentAppId: String? {
-        guard let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty else { return nil }
-        return bundleId
-    }
-
-    static var currentAppVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-    }
-
-    static var currentReleaseChannel: String {
-        let bundleId = Bundle.main.bundleIdentifier ?? ""
-        if bundleId.hasSuffix(".dev") { return "dev" }
-        if bundleId.hasSuffix(".stage") { return "stage" }
-        if Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt" {
-            return "testflight"
-        }
-
-        let distributionChannel = Bundle.main.object(forInfoDictionaryKey: "TelemetryDistributionChannel") as? String ?? "dev"
-        switch distributionChannel {
-        case "app_store":
-            return "appstore"
-        case "development":
-            return "dev"
-        default:
-            return distributionChannel
-        }
-    }
-}
-
 // MARK: - Inner Message Types (plaintext inside encrypted msg)
 
 /// Type discriminator for inner messages (inside the encrypted blob).
@@ -534,14 +16,14 @@ enum InnerMessageType: String, Codable {
     case textDelta = "text_delta"
     case textEnd = "text_end"
     case status
-    /// End-to-end "I received and decoded your message" ack (per §6.6.5).
+    /// End-to-end "I received and decoded your message" ack (per section 6.6.5).
     /// Drives the "✓✓ delivered" tick. Travels inside the encrypted envelope
     /// so the relay cannot forge it.
     case ack
     /// Tool-call streaming (Hermes-specific, additive on protocol v1).
     /// `tool_id` is the stable correlator across start/delta/end. Each
-    /// wire frame gets a fresh inner.id per §6.4.2. Receivers dedupe by
-    /// inner.id (§6.6.9) and merge by tool_id.
+    /// wire frame gets a fresh inner.id per section 6.4.2. Receivers dedupe by
+    /// inner.id (section 6.6.9) and merge by tool_id.
     case toolStart = "tool_start"
     case toolDelta = "tool_delta"
     case toolEnd = "tool_end"
@@ -554,7 +36,7 @@ enum InnerToolStatus: String, Codable {
     case failed
 }
 
-/// Acknowledgement stage values per §6.6.5. `received` is the only required
+/// Acknowledgement stage values per section 6.6.5. `received` is the only required
 /// stage for v1; `processing` and `displayed` are optional/reserved.
 enum InnerAckStage: String, Codable {
     case received
@@ -621,8 +103,8 @@ enum DeviceIdentity {
             role: .app,
             deviceId: currentDeviceId,
             deviceName: currentDeviceName,
-            appVersion: AppRegistrationIdentity.currentAppVersion,
-            bundleId: AppRegistrationIdentity.currentAppId
+            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+            bundleId: Bundle.main.bundleIdentifier
         )
     }
 
@@ -701,7 +183,7 @@ struct InnerMessage: Codable {
         )
     }
 
-    /// Per protocol §6.6.5 — emit an end-to-end "I received and decoded your
+    /// Per protocol section 6.6.5 — emit an end-to-end "I received and decoded your
     /// message" ack. The `refs` field is the inner `id` of the message being
     /// acknowledged. `stage` defaults to `.received`.
     static func ack(refs: String, stage: InnerAckStage = .received) -> InnerMessage {
@@ -714,7 +196,7 @@ struct InnerMessage: Codable {
         )
     }
 
-    /// Per protocol §6.4.2 — streaming text increment. Each frame gets a
+    /// Per protocol section 6.4.2 — streaming text increment. Each frame gets a
     /// fresh `inner.id` (UUID v4); the stable stream correlator lives in
     /// `body.stream_id`.
     static func textDelta(streamId: String, delta: String) -> InnerMessage {
@@ -727,7 +209,7 @@ struct InnerMessage: Codable {
         )
     }
 
-    /// Per protocol §6.4.2 — streaming text finalizer. Each frame gets a
+    /// Per protocol section 6.4.2 — streaming text finalizer. Each frame gets a
     /// fresh `inner.id` (UUID v4); the stable stream correlator lives in
     /// `body.stream_id`. `reset == true` abandons the stream instead of
     /// finalising it.
@@ -808,7 +290,7 @@ enum InnerBody: Codable {
     struct TextBody: Codable {
         let text: String
         let reset: Bool?
-        /// Per §6.4.2: stream correlator on `text_end`. nil for plain `text`
+        /// Per section 6.4.2: stream correlator on `text_end`. nil for plain `text`
         /// frames. Optional on decode for transitional compat with senders
         /// that still reuse `inner.id == stream_id`.
         let streamId: String?
@@ -826,6 +308,7 @@ enum InnerBody: Codable {
             streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
         }
 
+        // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(text, forKey: .text)
@@ -841,7 +324,7 @@ enum InnerBody: Codable {
 
     struct TextDeltaBody: Codable {
         let delta: String
-        /// Per §6.4.2: stream correlator. Optional on decode for transitional
+        /// Per section 6.4.2: stream correlator. Optional on decode for transitional
         /// compat with senders that still reuse `inner.id == stream_id`.
         let streamId: String?
 
@@ -856,6 +339,7 @@ enum InnerBody: Codable {
             streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
         }
 
+        // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(delta, forKey: .delta)
@@ -926,6 +410,7 @@ enum InnerBody: Codable {
         }
     }
 
+    // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
@@ -981,6 +466,7 @@ extension InnerMessage {
         }
     }
 
+    // EXEMPT: Codable `encode(to:)` is a protocol requirement that mandates untyped `throws`.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(t, forKey: .t)

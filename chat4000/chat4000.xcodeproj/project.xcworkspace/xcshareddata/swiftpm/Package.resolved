@@ -1,5 +1,4 @@
 {
-  "originHash" : "01ba363182b0de8647527aa782fed679a168a3e93746fce1c152246f8e0497c1",
   "pins" : [
     {
       "identity" : "intercom-ios",
@@ -36,16 +35,7 @@
         "revision" : "a49e7c2148ac9e38bd35ef4f13bc9d6ea3ff0b81",
         "version" : "9.11.0"
       }
-    },
-    {
-      "identity" : "swift-sodium",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jedisct1/swift-sodium.git",
-      "state" : {
-        "revision" : "e7e799cd1eaa4d0f6d3eab56832e7f4b377f4a4f",
-        "version" : "0.10.0"
-      }
     }
   ],
-  "version" : 3
+  "version" : 2
 }
