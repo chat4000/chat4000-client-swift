@@ -147,20 +147,11 @@ Dead ends for app logs (always redacted/empty): `idevicesyslog`, `log show`,
 `log stream`, `log collect`. They read Apple's system-wide unified log, where the
 app's text is `<private>`. The app's own file is the readable one.
 
-## Always MILLISECOND timestamps in logs
+## Millisecond timestamps in logs
 
-Every log line MUST carry a millisecond-precision timestamp. `AppLog` already does
-this — it stamps `Date().ISO8601Format(.init(includingFractionalSeconds: true))` →
-`2026-06-25T06:29:56.480Z` (NOT whole-seconds `…:56Z`). When you add a new log
-line, a new logger, or any other timestamped output, keep ms precision and the
-same ISO-8601 format.
-
-Why: client lines are constantly correlated against SERVER logs — the ws-gateway
-(`chat4000-ms-proxy`, microsecond `tracing` timestamps) and the registrar — to
-reconstruct pairing/sync/reconnect timelines. Whole-second client stamps make it
-impossible to order events that happen inside the same second (auth, sync_ack,
-key share all cluster in <1s), which is exactly when the interesting races live.
-Seconds-only = a debugging dead end; ms is mandatory, not optional.
+Logs must use ms-precision ISO-8601 (`…:56.480Z`, not whole-second `…:56Z`) — so
+client lines can be ordered against server (ws-gateway/registrar) logs. `AppLog`
+already does this; keep it for any new logger/timestamped output.
 
 ## No memory files, ever
 
