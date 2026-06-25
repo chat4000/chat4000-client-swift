@@ -16,15 +16,20 @@ enum AppLog {
     //   - persistent flag (Mac):   defaults write com.neonnode.chat94app CHAT4000_VERBOSE -bool true
     //                              (disable: defaults delete com.neonnode.chat94app CHAT4000_VERBOSE)
     static var isVerbose: Bool {
-        // Debug builds and `.dev`-suffixed installs are verbose by default (you
-        // can't easily set an env var on a device install). Prod stays quiet
-        // unless explicitly opted in via env or the persistent flag.
+        // VERBOSE-BY-DEFAULT, all builds — including the prod DMG (chat4000macprod)
+        // and the iOS App Store build (chat4000iphoneappstore). The crypto/key-share
+        // path is entirely DEBUG-level, and field bugs (device rotation / room-key
+        // sharing to a stale device → silent UTD) are undiagnosable without it on
+        // real installs. The DEBUG firehose is tamed where it would flood: the rust
+        // crypto trace drops the giant session-state dumps (see CryptoTracingLogger),
+        // and the file rotates at 10 MB. Kill switch (no rebuild needed): set the
+        // env var CHAT4000_VERBOSE=0 (the UserDefaults flag proved unreliable through
+        // cfprefsd, so the env var is the supported off-switch).
         #if DEBUG
         return true
         #else
-        if Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true { return true }
-        if ProcessInfo.processInfo.environment["CHAT4000_VERBOSE"] == "1" { return true }
-        return UserDefaults.standard.bool(forKey: "CHAT4000_VERBOSE")
+        if ProcessInfo.processInfo.environment["CHAT4000_VERBOSE"] == "0" { return false }
+        return true
         #endif
     }
 
@@ -55,13 +60,8 @@ enum AppLog {
         return logsDir.appendingPathComponent("chat4000.log")
     }
 
-    /// ISO-8601 with millisecond precision (`2026-06-25T06:29:56.480Z`). The bare
-    /// `ISO8601Format()` is whole-seconds only; sub-second timing matters when
-    /// correlating client lines against server (ws-gateway/registrar) logs.
-    private static let timestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-
     private static func write(_ level: Level, _ message: String) {
-        let line = "\(Date().ISO8601Format(timestampStyle)) [\(level.rawValue)] \(message)"
+        let line = "\(Date().ISO8601Format()) [\(level.rawValue)] \(message)"
         Foundation.NSLog("%@", line)
         appendToFile(line)
     }

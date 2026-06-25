@@ -215,6 +215,18 @@ final class CryptoEngine {
         // swiftlint:disable:next empty_count - `count` is a wire field (event count), not collection emptiness.
         if sync.toDevice.count > 0 { logToDeviceBatch("⬇️ raw", sync.toDevice.eventsJSON) }
 
+        // DIAG (device rotation): the actual users whose device list changed/left,
+        // not just the count. THIS is the line that proves whether a peer's device
+        // rotation (e.g. a plugin restart minting a new device) reaches us — if the
+        // peer appears here, the machine re-queries + re-keys it on the next pump;
+        // if it NEVER appears while a peer can't decrypt, the change is being dropped
+        // upstream (homeserver/gateway) and we keep encrypting to a stale device.
+        if !sync.deviceLists.changed.isEmpty || !sync.deviceLists.left.isEmpty {
+            AppLog.debug("🔑 device-list change: changed=[%@] left=[%@] → will re-query keys + re-key these users",
+                         sync.deviceLists.changed.joined(separator: ","),
+                         sync.deviceLists.left.joined(separator: ","))
+        }
+
         let deviceChanges = DeviceLists(changed: sync.deviceLists.changed, left: sync.deviceLists.left)
         let result: SyncChangesResult
         do {
@@ -428,7 +440,18 @@ final class CryptoEngine {
         }
 
         let shareRequests = try shareRoomKey(roomId: roomId, recipients: recipients)
-        AppLog.debug("🔐 shareRoomKey → %d to-device request(s)", shareRequests.count)
+        if shareRequests.isEmpty {
+            // DIAG (silent-undeliverable signature): 0 requests means the machine
+            // believes the room key is ALREADY shared to every device it knows for
+            // these recipients. If a recipient still can't decrypt, OUR device list
+            // for it is STALE (it rotated and we missed `device_lists.changed`) — the
+            // key never reaches its live device. Cross-check the 🔑 reachability line
+            // just above (the device id we keyed) against the peer's live device.
+            AppLog.debug("🔐 shareRoomKey → 0 to-device request(s) — key already shared to all KNOWN devices for %@ (stale-device suspect if a peer can't decrypt)",
+                         recipients.joined(separator: ","))
+        } else {
+            AppLog.debug("🔐 shareRoomKey → %d to-device request(s)", shareRequests.count)
+        }
         for request in shareRequests { try await send(request) }
 
         let plaintext = try jsonString(content)
@@ -466,10 +489,19 @@ final class CryptoEngine {
         // a concurrent NSE decrypt on the shared store (no bump — read only).
         return (try? withStore(isWrite: false) { () throws(AppError) -> Bool in
             do {
-                for user in peers where try machine.getUserDevices(userId: user, timeout: 0).isEmpty {
-                    return false
+                var reachable = true
+                for user in peers {
+                    let devices = try machine.getUserDevices(userId: user, timeout: 0)
+                    // DIAG (stale device): the EXACT devices we'd encrypt+share to for
+                    // this peer. Cross-check against the peer's LIVE device id — if
+                    // they differ (or this is empty) while the peer can't decrypt, we
+                    // are sharing the room key to a stale/dead device. Empty ⇒ the
+                    // room reads "not reachable" and the send is correctly held.
+                    AppLog.debug("🔑 reachability %@ devices=[%@]", user,
+                                 devices.map(\.deviceId).joined(separator: ","))
+                    if devices.isEmpty { reachable = false }
                 }
-                return true
+                return reachable
             } catch {
                 return false
             }
@@ -763,10 +795,20 @@ final class CryptoEngine {
 private final class CryptoTracingLogger: Logger {
     func log(logLine: String) {
         let l = logLine.lowercased()
+        // Drop the giant per-message ratchet/session-STATE dumps. They match the
+        // "session" keyword below but are pure noise (full receiving-chain arrays)
+        // that flood the rotating log — especially now that prod ships verbose. We
+        // want the crypto EVENTS, not the serialized session state.
+        if l.contains("receiving_chains") || l.contains("receiverchain") || l.contains("ratchet_key") {
+            return
+        }
         guard l.contains("olm") || l.contains("megolm") || l.contains("session")
             || l.contains("room_key") || l.contains("room key") || l.contains("decrypt")
             || l.contains("prekey") || l.contains("pre-key") || l.contains("one-time")
             || l.contains("wedg") || l.contains("withheld")
+            // Device-rotation diagnosis: the share-strategy recipient/device decisions
+            // (e.g. "Considering recipient devices", "should_rotate", missing sessions).
+            || l.contains("recipient") || l.contains("should_rotate") || l.contains("missing")
         else { return }
         AppLog.debug("🦀 %@", logLine)
     }
