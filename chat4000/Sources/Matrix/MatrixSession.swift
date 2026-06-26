@@ -28,6 +28,7 @@ final class MatrixSession {
     private(set) var connectionState: ConnectionState = .disconnected {
         didSet {
             guard oldValue != connectionState else { return }
+            AppLog.log("🔌 connection: %@ → %@", String(describing: oldValue), String(describing: connectionState))
             onConnectionStateChange?(connectionState)
             // Just came up → flush anything composed while we were offline.
             if connectionState == .connected { drainOutbox() }
@@ -56,7 +57,23 @@ final class MatrixSession {
         /// 0…1 for a progress bar.
         var progress: Double { Double(rawValue) / Double(SetupPhase.ready.rawValue) }
     }
-    private(set) var setupPhase: SetupPhase = .connecting
+    private(set) var setupPhase: SetupPhase = .connecting {
+        didSet {
+            guard oldValue != setupPhase else { return }
+            let now = Date()
+            let dwell = setupPhaseChangedAt.map { now.timeIntervalSince($0) } ?? 0
+            // Every "Setting up" step transition, with how long the PREVIOUS step
+            // took and the inputs that gate the next one. Lets a pulled log show
+            // exactly where pairing spends its time / gets stuck.
+            AppLog.log("🪜 setup step: %@ → %@ (%.1fs in prev) progress=%.0f%% conn=%@ wsReady=%@ control=%@ rooms=%d invites=%d",
+                       oldValue.label, setupPhase.label, dwell,
+                       setupPhase.progress * 100, String(describing: connectionState),
+                       String(isWorkspaceReady), controlRoomId ?? "nil", rooms.count, joinedInviteAttempts.count)
+            setupPhaseChangedAt = now
+        }
+    }
+    /// Wall-clock of the last `setupPhase` change — drives per-step dwell logging.
+    @ObservationIgnored private var setupPhaseChangedAt: Date?
     /// True once we've been stuck in a plugin-dependent setup phase
     /// (`waitingForPlugin` / `joiningWorkspace`) past `setupStallTimeout`. The
     /// plugin must invite us and key the control room; if it crashed mid-pairing,
@@ -646,10 +663,13 @@ final class MatrixSession {
         mediaBaseURL = MatrixEnvironment.mediaBaseURL(fromGatewayURL: stored.gatewayURL)
         // Reuse the transport built offline by `restoreFromDisk` (launch fast-path);
         // otherwise build it now (fresh pair / reconnect, where both were cleared).
+        let reused = self.gateway != nil
         let gateway = self.gateway ?? makeGateway(stored, url: url)
         self.gateway = gateway
 
+        AppLog.log("🪜 connecting: opening gateway socket → %@ (reused_transport=%@)", stored.gatewayURL, String(reused))
         let auth = try await gateway.connect()
+        AppLog.log("🪜 connecting: auth OK — user=%@ device=%@", auth.userId, auth.deviceId)
         // Connected as a DIFFERENT account than the one currently in memory → the
         // previous session's rooms/active chat/cached events are stale. Clear them
         // so a reconnect to a new session doesn't surface the old chat. (A plain
@@ -663,8 +683,10 @@ final class MatrixSession {
         // build it now for the authed identity (fresh pair, or an identity change).
         let crypto: CryptoEngine
         if let existing = self.crypto, auth.userId == stored.userId, auth.deviceId == stored.deviceId {
+            AppLog.log("🪜 connecting: reusing offline-built crypto (device=%@)", auth.deviceId)
             crypto = existing
         } else {
+            AppLog.log("🪜 connecting: building fresh crypto store (user=%@ device=%@)", auth.userId, auth.deviceId)
             crypto = try CryptoEngine(
                 userId: auth.userId,
                 deviceId: auth.deviceId,
@@ -1126,7 +1148,13 @@ final class MatrixSession {
         }
         // I2: the workspace is "ready" only when the plugin is keyed in the control
         // room — until then a control command would share the key to 0 devices.
+        let prevReady = isWorkspaceReady
         isWorkspaceReady = controlRoomId.map { isRoomReady($0) } ?? false
+        if isWorkspaceReady != prevReady {
+            AppLog.log("🪜 workspace-ready: %@ → %@ (control=%@ members=%d) — this is the gate for 'Joining your workspace'",
+                       String(prevReady), String(isWorkspaceReady), controlRoomId ?? "nil",
+                       controlRoomId.flatMap { roomMembers[$0]?.count } ?? 0)
+        }
         // Sidebar = every joined room except the plugin's space and the control
         // room (protocol E). A room with no `chat4000.room_kind` is a session — but
         // we surface it ONLY once it's keyed (I2), so the user never opens a room
@@ -1155,8 +1183,16 @@ final class MatrixSession {
     /// send will claim + establish + share to it (rather than to 0 devices)? A
     /// read-only crypto-store check (no network); gates UI readiness/visibility.
     private func isRoomReady(_ roomId: String) -> Bool {
-        guard let crypto, let userId else { return false }
-        return crypto.isRoomReachable(recipients: roomMembers[roomId] ?? [], selfUserId: userId)
+        guard let crypto, let userId else {
+            AppLog.debug("🔑 room-ready? %@ → false (no crypto/userId yet)", roomId)
+            return false
+        }
+        let recipients = roomMembers[roomId] ?? []
+        let reachable = crypto.isRoomReachable(recipients: recipients, selfUserId: userId)
+        // The decisive check during "Joining your workspace": is the PLUGIN's device
+        // known + has an Olm session? false here = we're waiting on the plugin's keys.
+        AppLog.debug("🔑 room-ready? %@ reachable=%@ recipients=%d", roomId, String(reachable), recipients.count)
+        return reachable
     }
 
     /// Recompute the first-run progress phase from current room state.
@@ -1168,6 +1204,9 @@ final class MatrixSession {
 
     private func updateSetupPhase() {
         let previous = setupPhase
+        AppLog.debug("🪜 setup-eval: wsReady=%@ rooms=%d control=%@ invites=%d (current=%@)",
+                     String(isWorkspaceReady), rooms.count, controlRoomId ?? "nil",
+                     joinedInviteAttempts.count, previous.label)
         // I2: "ready" requires the plugin to be KEYED (control room keyed, or a
         // keyed session already visible) — not merely that a control room exists.
         // Until then we hold on "Joining your workspace…" so the user can't fire a
