@@ -1616,6 +1616,28 @@ struct SetupProgressView: View {
     /// haptic exactly once across phase changes (and a backward phase can re-arm).
     @State private var buzzedCheckCount = 0
 
+    /// Anchor for the live countdown — set when we enter a plugin-dependent phase
+    /// (mirrors `MatrixSession.armSetupStallTimer`, which re-arms on each entry),
+    /// nil otherwise.
+    @State private var waitStart: Date?
+    /// Total stall window, sourced from the session so the countdown can NEVER drift
+    /// from the real timeout (change `setupStallTimeout` → this follows).
+    static let stallSeconds = Double(MatrixSession.setupStallTimeout.components.seconds)
+    /// "m:ss" for the countdown.
+    static func timeString(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded())
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+    /// (Re)start the countdown on entry to a plugin-dependent phase, mirroring the
+    /// session re-arming its stall timer on forward progress.
+    private func resetWaitClock() {
+        if phase == .waitingForPlugin || phase == .joiningWorkspace {
+            waitStart = .now
+        } else {
+            waitStart = nil
+        }
+    }
+
     // Order MUST match SetupPhase's rawValue order so the checkmarks fill
     // top-to-bottom (done = a lower-rawValue phase). You wait for the plugin's
     // invite first, THEN join the workspace.
@@ -1646,11 +1668,24 @@ struct SetupProgressView: View {
                 stalledFooter
             } else {
                 VStack(spacing: 8) {
-                    Text("This may take 1–2 minutes — please don't close the app or switch screens 🙏🏻")
+                    Text("This can take up to 6 minutes — please don't close the app or switch screens 🙏🏻")
                         .font(AppFonts.caption)
                         .foregroundStyle(AppColors.textSecondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    // Live countdown so the long wait never looks frozen: ticks every
+                    // second down from the stall timeout (6 min). It reaches 0:00 exactly
+                    // when `stalled` flips and this footer is replaced by the recovery view.
+                    if phase == .waitingForPlugin || phase == .joiningWorkspace, let waitStart {
+                        TimelineView(.periodic(from: waitStart, by: 1)) { ctx in
+                            let remaining = max(0, Self.stallSeconds - ctx.date.timeIntervalSince(waitStart))
+                            Text("Still working… \(Self.timeString(remaining)) left")
+                                .font(AppFonts.caption)
+                                .foregroundStyle(AppColors.textTimestamp)
+                                .monospacedDigit()
+                        }
+                    }
 
                     if phase == .waitingForPlugin {
                         Text("Your plugin is setting things up. Make sure it's running on your computer.")
@@ -1670,8 +1705,8 @@ struct SetupProgressView: View {
         .animation(.easeInOut(duration: 0.2), value: stalled)
         // One vibration per checkbox that ticks — on appear for any already-done at
         // first paint, then one per box as the phase advances.
-        .onAppear { buzzNewlyCheckedBoxes() }
-        .onChange(of: phase.rawValue) { _, _ in buzzNewlyCheckedBoxes() }
+        .onAppear { buzzNewlyCheckedBoxes(); resetWaitClock() }
+        .onChange(of: phase.rawValue) { _, _ in buzzNewlyCheckedBoxes(); resetWaitClock() }
     }
 
     @ViewBuilder
