@@ -813,23 +813,36 @@ final class MatrixSession {
                        r.id, r.roomKind ?? "nil", String(r.isSpace), String(r.isInvite),
                        String(r.isEncrypted), r.members.count, r.timeline.count)
         }
-        // Feed e2ee state (to-device room keys, device lists, OTK counts) and
-        // drain outgoing crypto requests BEFORE decrypting room events.
+        // STEP 1 — FEED ONLY (no network drain). Persist this frame's e2ee state
+        // (to-device room keys, device lists, OTK counts) into the crypto store.
         // `cryptoPersisted` gates the to-device cursor (D.1, "Sync cursor & key
-        // delivery"): we may advance `to_device_pos` ONLY when this frame's keys
-        // are confirmed durably on disk. `processSync` returning without throwing
-        // is that confirmation (the crypto store committed the batch before
-        // returning). A throw means we CANNOT confirm the keys are saved, so we
-        // conservatively hold the cursor and let the homeserver re-deliver this
-        // frame's to-device next sync (idempotent re-import) — never ack it lost.
+        // delivery"): we may advance `to_device_pos` ONLY when this frame's keys are
+        // confirmed durably on disk — `receiveSyncChangesIntoStore` returning without
+        // throwing is that confirmation. A throw means we CANNOT confirm the keys are
+        // saved, so we hold the cursor and let the homeserver re-deliver next sync
+        // (idempotent re-import) — never ack it lost.
+        //
+        // The network DRAIN (keys/query, keys/claim, room-key shares) is deliberately
+        // SPLIT OUT to STEP 3 — AFTER processRoom has tracked any newly-seen members.
+        // Draining here (the old `processSync`) sent a freshly-seen plugin's
+        // keys/query a full sync cycle late (~30s), because we drained BEFORE we
+        // knew the plugin existed.
         var cryptoPersisted = true
-        do { try await crypto?.processSync(sync) } catch {
+        do { try crypto?.receiveSyncChangesIntoStore(sync) } catch {
             cryptoPersisted = false
-            ErrorReporter.capture(error, context: "MatrixSession.processSync")
-            AppLog.log("⚙️ crypto.processSync failed: \(error)")
+            ErrorReporter.capture(error, context: "MatrixSession.receiveSyncChanges")
+            AppLog.log("⚙️ crypto.receiveSyncChanges failed: \(error)")
         }
 
+        // STEP 2 — discover rooms + track new members (updateTrackedUsers), decrypt
+        // and dispatch events.
         for room in sync.rooms { await processRoom(room) }
+
+        // STEP 3 — RECONCILE: drive crypto to a fixpoint now that new members are
+        // tracked, so a freshly-seen plugin's keys/query goes out THIS cycle instead
+        // of waiting for the next sync frame (the ~30s "Joining your workspace" fix).
+        // Idempotent + coalesced inside CryptoEngine.
+        await reconcileCrypto(reason: "post-sync")
 
         // Peer receipts drive the outgoing "read" tick. Our own private receipts
         // are the cross-device read marker for this Matrix user, so they clear the
@@ -889,6 +902,26 @@ final class MatrixSession {
             gateway?.syncAck(pos: pos, toDevicePos: ackToDevicePos)
         }
         resumeSyncWaiters()
+    }
+
+    /// THE crypto-reconcile entry point. Drives the OlmMachine's outgoing requests
+    /// (keys/query for newly-tracked users, keys/claim, room-key shares) to a
+    /// fixpoint. Call this from EVERY site that dirties the machine — the post-sync
+    /// step, `updateTrackedUsers`, gossip — so crypto progress is event-driven and
+    /// never gated on the next sync frame (the root cause of the ~30s pairing wait).
+    /// `runOutgoingRequests` is coalesced + bounded, so calling this freely is safe.
+    private func reconcileCrypto(reason: String) async {
+        guard let crypto else { return }
+        do {
+            try await crypto.runOutgoingRequests()
+        } catch AppError.cancelled {
+            // Session tore down / reconnected mid-reconcile — fine; the next sync
+            // (or reconnect) re-reconciles. Not an error.
+            AppLog.debug("🔑 reconcile (%@) cancelled", reason)
+        } catch {
+            ErrorReporter.capture(error, context: "MatrixSession.reconcileCrypto")
+            AppLog.log("🔑 reconcile (%@) failed: %@", reason, error.localizedDescription)
+        }
     }
 
     /// Handle a `sync_reset` frame (protocol D.1/D.2 cursor-expiry recovery). The

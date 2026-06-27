@@ -274,10 +274,37 @@ final class CryptoEngine {
 
     // MARK: - Outgoing-request pump
 
-    /// Drain `machine.outgoingRequests()` to the homeserver until empty (acking
-    /// each), bounded by `maxPumpPasses`. `markRequestAsSent` can enqueue new
-    /// requests (e.g. a key query surfacing identity changes), hence the loop.
+    /// Reconciler in-flight guard + re-trigger flag. The machine is a state machine
+    /// that must be driven to a fixpoint whenever its inputs change (sync feed,
+    /// newly-tracked users, gossip). Many sites call `runOutgoingRequests`; these
+    /// two coalesce concurrent calls so overlapping pumps never race on
+    /// `markRequestAsSent`.
+    private var pumpInFlight = false
+    private var pumpDirty = false
+
+    /// Drive `machine.outgoingRequests()` to a FIXPOINT (keys upload/query/claim,
+    /// to-device key shares, …). Idempotent + coalesced: if a pump is already
+    /// running, mark the machine dirty and return — the in-flight pump re-runs once
+    /// it finishes, so two callers can't double-pump. THIS is the reconciler: call
+    /// it from any site that dirties the machine (sync feed, `updateTrackedUsers`,
+    /// `requestRoomKey`), not just once per sync frame.
     func runOutgoingRequests() async throws(AppError) {
+        if pumpInFlight {
+            pumpDirty = true
+            return
+        }
+        pumpInFlight = true
+        defer { pumpInFlight = false }
+        repeat {
+            pumpDirty = false
+            try await drainOutgoingOnce()
+        } while pumpDirty
+    }
+
+    /// One drain pass-loop to empty, bounded by `maxPumpPasses`. `markRequestAsSent`
+    /// can enqueue new requests (e.g. a key query surfacing identity changes), hence
+    /// the inner loop.
+    private func drainOutgoingOnce() async throws(AppError) {
         for pass in 0..<maxPumpPasses {
             // READ from the store (drains the pending-request queue). Locked so it
             // can't race a concurrent NSE decrypt; no bump (no key mutation).
