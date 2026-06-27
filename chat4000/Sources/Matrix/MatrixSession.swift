@@ -83,12 +83,15 @@ final class MatrixSession {
     private(set) var setupStalled = false
     @ObservationIgnored private var setupStallTask: Task<Void, Never>?
     /// How long to wait in a plugin-dependent setup phase before surfacing the
-    /// stall. Generous on purpose — the gateway can batch sliding-sync delivery
-    /// in bursts up to ~60s, so a healthy-but-slow plugin's invite may arrive
-    /// late; this window stays clear of typical batching and only catches the
-    /// genuinely-no-show (crashed) case. The stall is non-destructive: we keep
-    /// waiting and still auto-advance if the invite lands afterward.
-    static let setupStallTimeout: Duration = .seconds(45)
+    /// stall. Deliberately LONG (6 min): on a fresh pair / re-install the plugin's
+    /// Hermes gateway can take several minutes to become usable — a clean gateway
+    /// boot includes a ~10–15s old-process-takeover wait plus slow MCP-tool
+    /// discovery on the critical path (hermes-agent `gateway/run.py`), so the
+    /// control-room invite + plugin keys legitimately arrive minutes late. 45s
+    /// declared "plugin isn't responding" while the gateway was still booting; 6 min
+    /// only catches the genuinely-no-show (crashed) case. Non-destructive: we keep
+    /// waiting and still auto-advance the instant the invite/keys land.
+    static let setupStallTimeout: Duration = .seconds(360)
     /// I2: true once the plugin is KEYED in the control room (its device is known
     /// and has an Olm session), so a control command actually reaches it instead of
     /// sharing the key to 0 devices. Gates the "connected"/ready UI and the
