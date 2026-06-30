@@ -79,6 +79,11 @@ enum AnalyticsEvent: String {
     case macosUpdateInstalled = "macos_update_installed"
     case macosUpdateFailed = "macos_update_failed"
 
+    /// CL27 — an html_card rendered past its bounds (content wider than the card,
+    /// taller than the 560px cap, or both). The "card rendered badly" signal;
+    /// fires at most once per card. {axis: horizontal|vertical|both, height_bucket}
+    case htmlCardOverflow = "html_card_overflow"  // CL27
+
     // APNS / push
     case apnsTokenRegistered = "apns_token_registered"
     /// Liveness ping: the backend sends a silent "alive check" push to confirm
@@ -105,6 +110,16 @@ enum AnalyticsBuckets {
         case ..<31: return "16_30s"
         case ..<61: return "31_60s"
         default: return "60s_plus"
+        }
+    }
+
+    /// CL27 html_card rendered content height (px) at overflow detection.
+    static func cardHeightBucket(for height: CGFloat) -> String {
+        switch height {
+        case ..<200: return "0_199"
+        case ..<400: return "200_399"
+        case ..<560: return "400_559"
+        default: return "560_plus"
         }
     }
 

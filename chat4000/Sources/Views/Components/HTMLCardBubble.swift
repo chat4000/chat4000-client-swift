@@ -27,7 +27,8 @@ private final class PassThroughScrollWebView: WKWebView {
 struct HTMLCardBubble: View {
     /// Hard cap so a malformed / full-page (`100vh`) card can never take infinite
     /// vertical space and black-out the chat; taller cards scroll inside this.
-    private static let maxHeight: CGFloat = 560
+    /// `fileprivate` so the WebView coordinator can flag over-cap cards (CL27).
+    fileprivate static let maxHeight: CGFloat = 560
 
     let message: ChatMessage
     @State private var height: CGFloat = 60
@@ -59,7 +60,12 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
     (function () {
       function report() {
         try {
-          window.webkit.messageHandlers.cardHeight.postMessage(Math.ceil(document.body.scrollHeight));
+          var b = document.body;
+          window.webkit.messageHandlers.cardHeight.postMessage({
+            h: Math.ceil(b.scrollHeight),
+            sw: Math.ceil(b.scrollWidth),
+            cw: Math.ceil(b.clientWidth)
+          });
         } catch (e) {}
       }
       report();
@@ -142,17 +148,40 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         private let height: Binding<CGFloat>
         private var didLoadInitial = false
+        /// CL27: emit html_card_overflow at most once per card.
+        private var didReportOverflow = false
         nonisolated init(height: Binding<CGFloat>) { self.height = height }
 
-        // The page posts its content height here (on load + every resize). WebKit
+        // The page posts its content size here (on load + every resize). WebKit
         // delivers script messages on the main thread.
         nonisolated func userContentController(_ ucc: WKUserContentController,
                                                didReceive message: WKScriptMessage) {
             MainActor.assumeIsolated {
                 guard message.name == "cardHeight" else { return }
-                let h: CGFloat
-                if let n = message.body as? NSNumber { h = CGFloat(truncating: n) } else { return }
+                let h: CGFloat, sw: CGFloat, cw: CGFloat
+                if let dict = message.body as? [String: Any] {
+                    h = CGFloat((dict["h"] as? NSNumber)?.doubleValue ?? 0)
+                    sw = CGFloat((dict["sw"] as? NSNumber)?.doubleValue ?? 0)
+                    cw = CGFloat((dict["cw"] as? NSNumber)?.doubleValue ?? 0)
+                } else if let n = message.body as? NSNumber {
+                    h = CGFloat(truncating: n); sw = 0; cw = 0
+                } else { return }
                 AppLog.log("🃏 html card reported height=%d", Int(h))
+                // P3 (CL27): content that spills past the card width or exceeds the
+                // height cap rendered badly — log once and emit html_card_overflow.
+                let overflowsWidth = cw > 0 && sw > cw + 1
+                let overflowsHeight = h > HTMLCardBubble.maxHeight
+                if (overflowsWidth || overflowsHeight) && !didReportOverflow {
+                    didReportOverflow = true
+                    let axis = overflowsWidth && overflowsHeight ? "both"
+                        : (overflowsWidth ? "horizontal" : "vertical")
+                    AppLog.log("🃏 html card OVERFLOW axis=%@ h=%d sw=%d cw=%d",
+                               axis, Int(h), Int(sw), Int(cw))
+                    TelemetryManager.shared.track(.htmlCardOverflow, properties: [
+                        "axis": axis,
+                        "height_bucket": AnalyticsBuckets.cardHeightBucket(for: h)
+                    ])
+                }
                 if h > 0, abs(h - height.wrappedValue) > 0.5 { height.wrappedValue = h }
             }
         }

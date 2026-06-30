@@ -478,6 +478,19 @@ final class RoomViewModel {
             return
         }
 
+        // A2: text→card fallback. If the agent delivered a full HTML document as
+        // plain text (it skipped the final_card tool), render it as a card instead
+        // of dumping raw markup into the timeline. Gated to finalized (non-streamed)
+        // agent text to avoid racing a live stream; live raw-HTML is prevented
+        // upstream by the final_card prompt (A1).
+        if !isOwn, !streamLive, let docHTML = Self.htmlDocumentBody(body) {
+            AppLog.log("🃏 text→card fallback room=%@ event_id=%@ len=%d",
+                       roomId, outer.eventId ?? "nil", docHTML.count)
+            receiveHTMLCard(docHTML, id: outer.eventId ?? UUID().uuidString,
+                            sender: .agent, ts: ts)
+            return
+        }
+
         let streamKey = (isEdit ? relation?.eventId : outer.eventId) ?? outer.eventId ?? UUID().uuidString
         if !streamLive, let active = mapper.activeStreamId, active != streamKey,
            let emit = mapper.finalize(streamId: active, senderId: outer.sender ?? "") {
@@ -495,6 +508,25 @@ final class RoomViewModel {
            let emit = mapper.finalize(streamId: streamKey, senderId: outer.sender ?? "") {
             applyEmit(emit, ts: ts)
         }
+    }
+
+    /// A2: detect a full HTML document delivered as plain text (the agent skipped
+    /// final_card). Strips an optional ```html … ``` markdown fence, then requires
+    /// the body to be an actual document (`<!doctype html>` or `<html>…</html>`).
+    /// Returns the de-fenced HTML to render as a card, or nil for ordinary text.
+    static func htmlDocumentBody(_ raw: String) -> String? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("```") {
+            if let nl = s.firstIndex(of: "\n") { s = String(s[s.index(after: nl)...]) }
+            if let fence = s.range(of: "```", options: .backwards) {
+                s = String(s[..<fence.lowerBound])
+            }
+            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let lower = s.lowercased()
+        guard lower.hasPrefix("<!doctype html") || lower.hasPrefix("<html") else { return nil }
+        guard lower.contains("</html>") else { return nil }
+        return s
     }
 
     /// chat4000.tool (protocol E, START-ONLY): one static chip per tool_id.
