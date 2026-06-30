@@ -616,6 +616,17 @@ final class RoomViewModel {
             updateCurrentStreamingMessage(text: currentStreamText, sender: sender)
         case .textEnd(let b):
             let streamId = b.streamId ?? inner.id
+            // F2 (A2 for LIVE turns): if the agent streamed a full HTML document as
+            // text (it skipped final_card — e.g. an HTML-emitting skill), drop the
+            // partial raw-markup bubble and render the finished card instead. Mirrors
+            // the replay-time fallback in handleText, but at the stream-finalize point.
+            if sender == .agent, b.reset != true, let docHTML = Self.htmlDocumentBody(b.text) {
+                cancelCurrentStreamingMessage(streamId: streamId)
+                AppLog.log("🃏 text→card fallback (live stream end) room=%@ stream=%@ len=%d",
+                           roomId, streamId, docHTML.count)
+                receiveHTMLCard(docHTML, id: streamId, sender: sender, ts: inner.ts)
+                return
+            }
             if b.reset == true {
                 cancelCurrentStreamingMessage(streamId: streamId)
             } else if currentStreamId == streamId {
