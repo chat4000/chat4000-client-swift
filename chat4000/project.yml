@@ -35,8 +35,8 @@ settings:
     # vendored xcframework's link notes are emitted by other toolchains, not
     # the Swift compiler, so they are unaffected.)
     SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
-    MARKETING_VERSION: "1.1.2"
-    CURRENT_PROJECT_VERSION: "10"
+    MARKETING_VERSION: "1.1.3"
+    CURRENT_PROJECT_VERSION: "13"
     DEVELOPMENT_TEAM: H45JD827CU
     CODE_SIGN_STYLE: Automatic
     APP_DISPLAY_NAME: chat4000
