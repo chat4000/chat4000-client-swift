@@ -224,7 +224,12 @@ final class TelemetryManager {
         PostHogSDK.shared.identify(clientId)
         // INF6: crashes join product analytics.
         if sentryStarted {
-            SentrySDK.configureScope { $0.setTag(value: clientId, key: "client_id") }
+            SentrySDK.configureScope {
+                $0.setTag(value: clientId, key: "client_id")
+                // Stamp the exact build's git commit on every event so a crash maps
+                // straight to its source — and its dSYM — without guessing the build.
+                $0.setTag(value: Self.gitCommit, key: "git_commit")
+            }
         }
         // CL3/CL4/CL5 — at most one, never on an ordinary launch.
         switch classification {
@@ -327,6 +332,13 @@ final class TelemetryManager {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         let bundleId = Bundle.main.bundleIdentifier ?? "chat4000"
         return "\(bundleId)@\(version)+\(build)"
+    }
+
+    /// Short git SHA of the commit this build was made from, stamped into Info.plist
+    /// at build time by the "Stamp git commit" phase. Lets a Sentry event pin the exact
+    /// source (and dSYM) — `unknown` for source builds without git.
+    static var gitCommit: String {
+        Bundle.main.object(forInfoDictionaryKey: "GitCommit") as? String ?? "unknown"
     }
 
     private static var distributionChannel: String {

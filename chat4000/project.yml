@@ -101,6 +101,21 @@ targetTemplates:
         basedOnDependencyAnalysis: false
         script: |
           "$SRCROOT/scripts/upload-dsym-to-sentry.sh"
+      # Stamp the build's git commit into the bundle Info.plist so every Sentry
+      # event maps straight to its source + dSYM. Runs before the implicit
+      # CodeSign step, so the signature is computed over the stamped plist.
+      - name: Stamp git commit
+        basedOnDependencyAnalysis: false
+        script: |
+          plist="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          [ -f "$plist" ] || exit 0
+          commit=$(git -C "$SRCROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+          if [ "$commit" != "unknown" ] && ! git -C "$SRCROOT" diff --quiet HEAD 2>/dev/null; then
+            commit="${commit}-dirty"
+          fi
+          /usr/libexec/PlistBuddy -c "Set :GitCommit ${commit}" "$plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :GitCommit string ${commit}" "$plist"
+          echo "note: stamped GitCommit=${commit}"
 
   # F2 (protocol F.2): the iOS Notification Service Extension. It decrypts a
   # pushed event on-device and rewrites the banner (decrypt-only). One target per
@@ -193,6 +208,22 @@ targetTemplates:
           else
             echo "warning: swiftlint not installed — skipping (brew install swiftlint)"
           fi
+    postBuildScripts:
+      # Stamp the build's git commit into the bundle Info.plist so every Sentry
+      # event maps straight to its source + dSYM. Runs before the implicit
+      # CodeSign step, so the signature is computed over the stamped plist.
+      - name: Stamp git commit
+        basedOnDependencyAnalysis: false
+        script: |
+          plist="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          [ -f "$plist" ] || exit 0
+          commit=$(git -C "$SRCROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+          if [ "$commit" != "unknown" ] && ! git -C "$SRCROOT" diff --quiet HEAD 2>/dev/null; then
+            commit="${commit}-dirty"
+          fi
+          /usr/libexec/PlistBuddy -c "Set :GitCommit ${commit}" "$plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :GitCommit string ${commit}" "$plist"
+          echo "note: stamped GitCommit=${commit}"
 
 targets:
   chat4000iphoneappstore:

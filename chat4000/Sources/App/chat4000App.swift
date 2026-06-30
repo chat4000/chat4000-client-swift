@@ -378,7 +378,9 @@ struct chat4000App: App {
             }
         }
         #endif
-        .modelContainer(for: [ChatMessage.self, MatrixRoomSnapshot.self])
+        // Self-healing container (R29): a corrupt/unopenable store is wiped + recreated
+        // (it's a re-syncable cache) instead of crashing. See ResilientModelContainer.
+        .modelContainer(ResilientModelContainer.shared)
     }
 
     private func presentPendingFounderPromptIfPossible() {

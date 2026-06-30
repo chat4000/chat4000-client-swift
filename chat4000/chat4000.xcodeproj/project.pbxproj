@@ -33,6 +33,7 @@
 		0789597AA54F0756E9ECFE8F /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		08AFAE880670454A5A93767D /* IntercomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9DF1240787264D8401784C /* IntercomService.swift */; };
 		094D2F19F06AC273386D774D /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376137AA7D1D7398FA8A2D97 /* TelemetryPreferences.swift */; };
+		095DDDAEFE11266F384168F5 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		09AA482F6DB9E7B5D485B601 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1210B8CE0CC1FAAC69FA2434 /* PushNotificationService.swift */; };
 		0A40AF46C0C59CE57EB2A4DC /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 5B2C0C9F33FBB3FEDFFC9276 /* PostHog */; };
 		0A48E54CEA09DD98B3F5D443 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C493069A887B17836FE6E50 /* ClientIdentity.swift */; };
@@ -106,10 +107,12 @@
 		268EC9F34E6871284342D07B /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		26CB79EC9996DF917C3DC9EF /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 891EE3C3BBC8005ABB77BE86 /* Sentry */; };
 		26E5BD943DB72F49DB808184 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E62C9B7F93B5FD69B564FAA /* TelemetryManager.swift */; };
+		26E88BEC815778B426175956 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		26EFAA43C99EC1F777157E19 /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E279BECEC1DDA3BABCBFD605 /* MatrixSession.swift */; };
 		2720FC65EA9DDAC856774B90 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = 0F2511B4D08991E82A7177B4 /* Intercom */; };
 		27BC67E0911F38FF5F40EBA7 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
 		28785BD00DF2DC97896003FB /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5AC52C4AD26F008EF36616 /* AppLog.swift */; };
+		2887D4D0E047D93D56F76B69 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		29FE56A6418437AA38F77030 /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0F7BF48F790433EC31076 /* MatrixEnvironment.swift */; };
 		2A246997F7520C31017726A8 /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
 		2A3E9F6C6A17BBAD151A1052 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C493069A887B17836FE6E50 /* ClientIdentity.swift */; };
@@ -132,6 +135,7 @@
 		32CD32F44DB29E4CB4307BDE /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
 		334CC41E9134C885B5D9469E /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
 		3378610D43DD7BA1C50A9E57 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
+		33790303489AD5FF375B1EB3 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		33FD6A449FB9A6BF80D53642 /* MacUpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77E664F74634136F1A9F20FB /* MacUpdateInstaller.swift */; };
 		34019915E9830849EA565A98 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF384D3E7D467BD2AD433354 /* Haptics.swift */; };
 		3525AFF969A28CC479E64846 /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E279BECEC1DDA3BABCBFD605 /* MatrixSession.swift */; };
@@ -187,6 +191,7 @@
 		477DEBBE76182C752121B43A /* NotificationContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA8AEBEDE13F9A2C379D2C6 /* NotificationContentBuilder.swift */; };
 		47E44AE46A616BA5D6FAD177 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC091E5444DA21F658F41CE /* RoomViewModel.swift */; };
 		485782B9FF876545310FBFCD /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
+		48ABDBB100DCA0F9096A35E8 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		49709019F266CAE6B9FD8768 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		4A8D50AD9934E59651795615 /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
 		4AB9B19264A31177D9703EA2 /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2DE19AE020BA69583B75BB /* MessageTransport.swift */; };
@@ -243,6 +248,7 @@
 		627439971CB98ED0DB22A6AB /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
 		6282AD3B476E6F13846327BA /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376137AA7D1D7398FA8A2D97 /* TelemetryPreferences.swift */; };
 		629E8F71453798B2170C1651 /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
+		62B5464CF9C031EBC9655098 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		63F4F7B523A9DBE3461B5EB3 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A396B2DAEFF7B4E0F82BC2B2 /* AppEnvironment.swift */; };
 		6436D0A9C839A0BD3F25C354 /* MatrixMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6267C167CD38DDCBAE9FB2 /* MatrixMedia.swift */; };
 		64852227841CE850D01E9156 /* MatrixMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6267C167CD38DDCBAE9FB2 /* MatrixMedia.swift */; };
@@ -368,6 +374,7 @@
 		96A3A5384BAFE9FEF2460695 /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E279BECEC1DDA3BABCBFD605 /* MatrixSession.swift */; };
 		979D92DD6257ACE54B9C4F4F /* MacUpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77E664F74634136F1A9F20FB /* MacUpdateInstaller.swift */; };
 		985AC02CBE9B202BE9AF45B4 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
+		98C52F8D6C4AE2EEB02B1D81 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		99313BBD959521B6FCE6078E /* SharedCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031DD9689D03BA51921ABF1E /* SharedCredentials.swift */; };
 		9954533134C58AF26673F3D7 /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536E1D7D281BC133A9722AE3 /* CryptoEngine.swift */; };
 		997854A0C89A79772F1A6529 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
@@ -467,6 +474,7 @@
 		BDC1E5449815A46A5CE7EE75 /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		BE0B440F26A65F5B02EDEB8D /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		BE43FD413C2AE78ACD3BD8CE /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
+		BF638E5CB830F0FE8DA50791 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		BFF4F7113772110C380F65C7 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAB6C3931C50F92E3354E52 /* ProtocolModels.swift */; };
 		C01AF5342055D42957FE40B0 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC091E5444DA21F658F41CE /* RoomViewModel.swift */; };
 		C04306D4AEB3E052301C01A5 /* NotificationContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA8AEBEDE13F9A2C379D2C6 /* NotificationContentBuilder.swift */; };
@@ -769,6 +777,7 @@
 		7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallBubble.swift; sourceTree = "<group>"; };
 		8424EB00ED7D201481A6BCF9 /* SlidingSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlidingSync.swift; sourceTree = "<group>"; };
 		8AA8FB2373B6454B9B67D090 /* chat4000macprod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = chat4000macprod.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResilientModelContainer.swift; sourceTree = "<group>"; };
 		9775EA221E8E2069202C8EEB /* NotificationContentBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationContentBuilderTests.swift; sourceTree = "<group>"; };
 		97C15B692F729175C38D5BE8 /* MatrixCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixCredentialStore.swift; sourceTree = "<group>"; };
 		987E633C3AE8037A73BDD2D2 /* dev-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dev-config.json"; sourceTree = "<group>"; };
@@ -1092,6 +1101,7 @@
 				5A8BF1914A6E192A09704942 /* chat4000App.swift */,
 				BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */,
 				461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */,
+				8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -1214,6 +1224,7 @@
 				0551BD7ECA00A6F6C1991AC7 /* Frameworks */,
 				A3EFAC7B442316189379261F /* Embed Foundation Extensions */,
 				7EE16190A85B3FC505D7141F /* Upload dSYM to Sentry */,
+				D36FB56BD74AF6B1FFADDC68 /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1239,6 +1250,7 @@
 				280C3D3F049F0CF3C8FFB721 /* Sources */,
 				0236565D5C4696C75A884372 /* Resources */,
 				8F323910364E66F262C8F37D /* Frameworks */,
+				038E4777CC56EBA798BF0EEE /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1264,6 +1276,7 @@
 				1CD7D09A3B09068E9AA7C326 /* Frameworks */,
 				73BAB9B285107728416FCC7C /* Embed Foundation Extensions */,
 				82F60BA00285B6A0CBE96797 /* Upload dSYM to Sentry */,
+				4172FA67A6F165372D9D9AD0 /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1289,6 +1302,7 @@
 				96556FE307971DF86642FC7A /* Sources */,
 				921BDC39E721A99BB1545E29 /* Resources */,
 				A72F29BF743BB250B70B0CD3 /* Frameworks */,
+				F7F551935C3040BF230307DD /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1332,6 +1346,7 @@
 				14E1BDA054D4272DFDBBDCA7 /* Sources */,
 				0F7EA36C04D7B9FF73EC4900 /* Resources */,
 				E1474E6BE5EF973B2660B707 /* Frameworks */,
+				0906B8E3400A73FC45945F52 /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1378,6 +1393,7 @@
 				E398FBE87301131D1F467EA0 /* Frameworks */,
 				11F2B6FD6A193D7093B8DFEC /* Embed Foundation Extensions */,
 				458B368EBD02A2C718AC5A99 /* Upload dSYM to Sentry */,
+				C08DE34C4F8374029890910F /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1426,6 +1442,7 @@
 				765DFF621903E29985F8DF5F /* Frameworks */,
 				0F9DAA6E75267072522743DB /* Embed Foundation Extensions */,
 				52754A409DE7431FB4772D2D /* Upload dSYM to Sentry */,
+				0A5C8D10087231FA41CFDC65 /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1451,6 +1468,7 @@
 				AFE6C1AE7F8870BFF450B808 /* Sources */,
 				47C6963BC32C8C741C49FDE2 /* Resources */,
 				659EE69E273FC6FB0B152CDD /* Frameworks */,
+				F0260691D7275608E043ACA1 /* Stamp git commit */,
 			);
 			buildRules = (
 			);
@@ -1661,6 +1679,25 @@
 			shellPath = /bin/sh;
 			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
 		};
+		038E4777CC56EBA798BF0EEE /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
+		};
 		06A8830D39413FFCFB8E91A2 /* SwiftLint */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -1679,6 +1716,44 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
+		};
+		0906B8E3400A73FC45945F52 /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
+		};
+		0A5C8D10087231FA41CFDC65 /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
 		};
 		1603A990E727DCFE7A983D99 /* SwiftLint */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1736,6 +1811,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
+		};
+		4172FA67A6F165372D9D9AD0 /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
 		};
 		458B368EBD02A2C718AC5A99 /* Upload dSYM to Sentry */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1889,6 +1983,44 @@
 			shellPath = /bin/sh;
 			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
 		};
+		C08DE34C4F8374029890910F /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
+		};
+		D36FB56BD74AF6B1FFADDC68 /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
+		};
 		E1A07598E3AD33E36A7FFD79 /* SwiftLint */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -1945,6 +2077,44 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if command -v swiftlint >/dev/null 2>&1; then\n  swiftlint lint --strict --config \"$SRCROOT/.swiftlint.yml\"\nelse\n  echo \"warning: swiftlint not installed — skipping (brew install swiftlint)\"\nfi\n";
+		};
+		F0260691D7275608E043ACA1 /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
+		};
+		F7F551935C3040BF230307DD /* Stamp git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n[ -f \"$plist\" ] || exit 0\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\nif [ \"$commit\" != \"unknown\" ] && ! git -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null; then\n  commit=\"${commit}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Set :GitCommit ${commit}\" \"$plist\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :GitCommit string ${commit}\" \"$plist\"\necho \"note: stamped GitCommit=${commit}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -2016,6 +2186,7 @@
 				B15D1432D4D9A5AD7EF9027F /* ProtocolModels.swift in Sources */,
 				CEC6CA15B610778EA0E32E5E /* PushNotificationService.swift in Sources */,
 				FD28BD8A3ABAC23DA3158881 /* QRScannerView.swift in Sources */,
+				26E88BEC815778B426175956 /* ResilientModelContainer.swift in Sources */,
 				C01AF5342055D42957FE40B0 /* RoomViewModel.swift in Sources */,
 				4A8D50AD9934E59651795615 /* SessionsSidebar.swift in Sources */,
 				C2208642E7DF3B07217C72C7 /* SettingsSheet.swift in Sources */,
@@ -2085,6 +2256,7 @@
 				D23F02EEFFF3F01B3BBF22C8 /* ProtocolModels.swift in Sources */,
 				3F27F03D4291279200A516EB /* PushNotificationService.swift in Sources */,
 				1D1A63B60A2A7AE3A473C17F /* QRScannerView.swift in Sources */,
+				095DDDAEFE11266F384168F5 /* ResilientModelContainer.swift in Sources */,
 				87B2EC9F900CA1BA9B76C99B /* RoomViewModel.swift in Sources */,
 				81C4D86A18C2D7868987B5CA /* SessionsSidebar.swift in Sources */,
 				B0BE4C42C5F53E1A1B1AE53C /* SettingsSheet.swift in Sources */,
@@ -2154,6 +2326,7 @@
 				BAD4200248CF1BEB68997DBF /* ProtocolModels.swift in Sources */,
 				C3C1CA22CFEF532C8037E092 /* PushNotificationService.swift in Sources */,
 				B55C49C0B3F26AC2FEE42622 /* QRScannerView.swift in Sources */,
+				62B5464CF9C031EBC9655098 /* ResilientModelContainer.swift in Sources */,
 				9E085A26BA12E88E82C44642 /* RoomViewModel.swift in Sources */,
 				856F91B2747DF909ACD57FB2 /* SessionsSidebar.swift in Sources */,
 				853846072F04EBDBA4993745 /* SettingsSheet.swift in Sources */,
@@ -2241,6 +2414,7 @@
 				C467040C32029A9494948239 /* ProtocolModels.swift in Sources */,
 				787DD5554E461B50E5097A5E /* PushNotificationService.swift in Sources */,
 				BE0B440F26A65F5B02EDEB8D /* QRScannerView.swift in Sources */,
+				98C52F8D6C4AE2EEB02B1D81 /* ResilientModelContainer.swift in Sources */,
 				6A70F8680F393191509DE3B6 /* RoomViewModel.swift in Sources */,
 				FA819FFE3610BC6B8306B793 /* SessionsSidebar.swift in Sources */,
 				8AAF492EAB3728F1B3A04CA0 /* SettingsSheet.swift in Sources */,
@@ -2331,6 +2505,7 @@
 				372149DB0E943B9AACEEFA9B /* ProtocolModels.swift in Sources */,
 				E3DF9EAF7437F5AC179112B7 /* PushNotificationService.swift in Sources */,
 				0789597AA54F0756E9ECFE8F /* QRScannerView.swift in Sources */,
+				48ABDBB100DCA0F9096A35E8 /* ResilientModelContainer.swift in Sources */,
 				030275900132E7B3DA3EB777 /* RoomViewModel.swift in Sources */,
 				0DD337EF564876C89A76CB0B /* SessionsSidebar.swift in Sources */,
 				665410287025FF7B05EA50C8 /* SettingsSheet.swift in Sources */,
@@ -2421,6 +2596,7 @@
 				6983D5815663067608D5178C /* ProtocolModels.swift in Sources */,
 				09AA482F6DB9E7B5D485B601 /* PushNotificationService.swift in Sources */,
 				E44D791198A9C236438740D9 /* QRScannerView.swift in Sources */,
+				2887D4D0E047D93D56F76B69 /* ResilientModelContainer.swift in Sources */,
 				47E44AE46A616BA5D6FAD177 /* RoomViewModel.swift in Sources */,
 				8DB4C72F35A5C09CD22EAB94 /* SessionsSidebar.swift in Sources */,
 				3E3012BFC9C23C39654545AF /* SettingsSheet.swift in Sources */,
@@ -2511,6 +2687,7 @@
 				BFF4F7113772110C380F65C7 /* ProtocolModels.swift in Sources */,
 				171080E34DECC8868B2E0988 /* PushNotificationService.swift in Sources */,
 				EB280DD9C95A879A7521CD97 /* QRScannerView.swift in Sources */,
+				33790303489AD5FF375B1EB3 /* ResilientModelContainer.swift in Sources */,
 				B0B7B081786A45F3422A7F82 /* RoomViewModel.swift in Sources */,
 				6E7808E33302858F9065CF05 /* SessionsSidebar.swift in Sources */,
 				DB600C132DA7FE5FFFFF3CB0 /* SettingsSheet.swift in Sources */,
@@ -2580,6 +2757,7 @@
 				860BFF322F2D76F057D4FF46 /* ProtocolModels.swift in Sources */,
 				8E3A074AECECFB9A0F214880 /* PushNotificationService.swift in Sources */,
 				268EC9F34E6871284342D07B /* QRScannerView.swift in Sources */,
+				BF638E5CB830F0FE8DA50791 /* ResilientModelContainer.swift in Sources */,
 				FD72BEE106E99D7B7CECB86B /* RoomViewModel.swift in Sources */,
 				92EA17C2009541568B06FB37 /* SessionsSidebar.swift in Sources */,
 				D69616569B69DA9605041B32 /* SettingsSheet.swift in Sources */,
