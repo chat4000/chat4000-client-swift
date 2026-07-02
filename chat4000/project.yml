@@ -428,6 +428,48 @@ targets:
         APP_KEYCHAIN_GROUP: com.neonnode.chat94app.localprod.shared
         APP_ENV: prod
 
+  # PERSONAL PROD flavor (iOS). A second dev-signed PROD-backend build with its OWN
+  # identity (`…personalprod`), so it installs side by side with BOTH the App Store
+  # app and the localprod TEST build — this is the personal daily-driver on prod.
+  chat4000iphonepersonalprod:
+    templates: [iOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.personalprod
+        APP_DISPLAY_NAME: chat4000 personalprod
+        APP_ENV: prod
+        APP_DISTRIBUTION_CHANNEL: dev
+        APP_APNS_ENV: development
+        APP_APPATTEST_ENV: development
+        APP_GROUP_ID: group.com.neonnode.chat94app.personalprod
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.personalprod.shared
+    dependencies:
+      - target: chat4000NSEPersonalProd
+        embed: true
+    scheme:
+      gatherCoverageData: false
+
+  # PERSONAL PROD flavor (macOS). Prod backend, own bundle id + product name so it
+  # coexists with chat4000.app (real prod) and chat4000-localprod.
+  chat4000macpersonalprod:
+    templates: [macOSApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.personalprod
+        PRODUCT_NAME: chat4000-personalprod
+        APP_DISPLAY_NAME: chat4000 personalprod
+        APP_ENV: prod
+
+  # F2: the personal-prod flavor's NSE (own bundle + App Group + keychain group).
+  chat4000NSEPersonalProd:
+    templates: [nseExtension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neonnode.chat94app.personalprod.nse
+        APP_GROUP_ID: group.com.neonnode.chat94app.personalprod
+        APP_KEYCHAIN_GROUP: com.neonnode.chat94app.personalprod.shared
+        APP_ENV: prod
+
   chat4000Tests:
     type: bundle.unit-test
     platform: iOS
