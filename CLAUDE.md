@@ -7,13 +7,17 @@ Whenever you push a change, you ALSO deploy it — don't stop at the commit. Dep
 is part of "done", not a separate step the user has to ask for. "Deploy" means
 EVERY user-runnable flavor the change touches, across BOTH platforms:
 
-1. **The THREE deployable iOS flavors** → install to the connected iPhone:
-   `chat4000iphonedevhermes`, `chat4000iphonedevopenclaw`, and
+1. **The FOUR deployable iOS flavors** → install to the connected iPhone:
+   `chat4000iphonedevhermes`, `chat4000iphonedevopenclaw`,
    `chat4000iphonelocalprod` (prod backend, dev-signed, bundle
-   `com.neonnode.chat94app.localprod`, display "chat4000 localprod").
-2. **The THREE deployable macOS flavors** → build each and copy into its
+   `com.neonnode.chat94app.localprod`, display "chat4000 localprod"), and
+   `chat4000iphonepersonalprod` (prod backend, dev-signed, bundle
+   `com.neonnode.chat94app.personalprod`, display "chat4000 personalprod" —
+   the personal daily-driver on prod, coexists with localprod + the store app).
+2. **The FOUR deployable macOS flavors** → build each and copy into its
    `/Applications` path, then relaunch (see the macOS section below):
-   `chat4000macdevhermes`, `chat4000macdevopenclaw`, `chat4000maclocalprod`.
+   `chat4000macdevhermes`, `chat4000macdevopenclaw`, `chat4000maclocalprod`,
+   `chat4000macpersonalprod` (→ `/Applications/chat4000-personalprod.app`).
 
 Because the Sources tree is shared, almost any change compiles into the macOS app
 too — so redeploying macOS is the DEFAULT, not an afterthought. The only time you
@@ -48,12 +52,12 @@ How (build for the device, then `devicectl install` each `.app`):
 ```
 UDID="$(xcrun devicectl list devices 2>/dev/null | awk '/connected/{print $3; exit}')"
 cd /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000
-for S in chat4000iphonedevhermes chat4000iphonedevopenclaw chat4000iphonelocalprod; do
+for S in chat4000iphonedevhermes chat4000iphonedevopenclaw chat4000iphonelocalprod chat4000iphonepersonalprod; do
   xcodebuild -project chat4000.xcodeproj -scheme "$S" \
     -destination "id=$UDID" -allowProvisioningUpdates -derivedDataPath build/dd-deploy build
 done
 D=build/dd-deploy/Build/Products/Debug-iphoneos
-for APP in chat4000iphonedevhermes.app chat4000iphonedevopenclaw.app chat4000iphonelocalprod.app; do
+for APP in chat4000iphonedevhermes.app chat4000iphonedevopenclaw.app chat4000iphonelocalprod.app chat4000iphonepersonalprod.app; do
   xcrun devicectl device install app --device "$UDID" "$D/$APP"
 done
 ```
@@ -68,13 +72,14 @@ Notes:
 
 ## Deploying the macOS app — ALWAYS copy the builds into /Applications
 
-macOS has FOUR flavors, each a distinct bundle id + PRODUCT_NAME so they coexist
-in `/Applications`. THREE are deployable (auto-copied on every push); the fourth
+macOS has FIVE flavors, each a distinct bundle id + PRODUCT_NAME so they coexist
+in `/Applications`. FOUR are deployable (auto-copied on every push); the fifth
 (`chat4000macprod`) is the real DMG distribution and is NEVER auto-deployed:
 
   • `chat4000macdevhermes`   → `/Applications/chat4000-hermes.app`     (stage — the DAILY driver) — DEPLOY
   • `chat4000macdevopenclaw` → `/Applications/chat4000-openclaw.app`   (stage) — DEPLOY
   • `chat4000maclocalprod`   → `/Applications/chat4000-localprod.app`  (PROD backend, dev-signed, bundle `…localprod`) — DEPLOY
+  • `chat4000macpersonalprod`→ `/Applications/chat4000-personalprod.app` (PROD backend, dev-signed, bundle `…personalprod` — personal daily-driver) — DEPLOY
   • `chat4000macprod`        → `/Applications/chat4000.app`            (REAL prod; bundle `com.neonnode.chat94app`) — DMG-ONLY, do NOT auto-deploy
 
 `chat4000macprod` is built only for the notarized DMG release
@@ -97,7 +102,7 @@ account signed in. `chat4000macprod` already has a cached profile.
 
 ```
 # Deployable flavors only (NOT chat4000macprod — that's DMG-only):
-S=chat4000macdevhermes; APPNAME=chat4000-hermes   # or macdevopenclaw/chat4000-openclaw, or maclocalprod/chat4000-localprod
+S=chat4000macdevhermes; APPNAME=chat4000-hermes   # or macdevopenclaw/chat4000-openclaw, maclocalprod/chat4000-localprod, or macpersonalprod/chat4000-personalprod
 xcodebuild -project /Users/haimbender/dev/me/clawconnect/clawconnect-client-swift/chat4000/chat4000.xcodeproj \
   -scheme "$S" -destination 'platform=macOS' -allowProvisioningUpdates \
   -derivedDataPath "/tmp/c4k-mac-$APPNAME" build
