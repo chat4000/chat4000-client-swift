@@ -349,7 +349,8 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                     modalBody: modalBody,
                     contactMessage: contactMessage,
                     disableWhatsApp: disableWhatsApp,
-                    disableTelegram: disableTelegram
+                    disableTelegram: disableTelegram,
+                    pushId: pushId
                 )
             }
         }
@@ -402,7 +403,8 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                     modalBody: modalBody,
                     contactMessage: contactMessage,
                     disableWhatsApp: disableWhatsApp,
-                    disableTelegram: disableTelegram
+                    disableTelegram: disableTelegram,
+                    pushId: tapPushId
                 )
             }
         }
@@ -420,8 +422,17 @@ extension PushNotificationManager {
         modalBody: String? = nil,
         contactMessage: String? = nil,
         disableWhatsApp: Bool = false,
-        disableTelegram: Bool = false
+        disableTelegram: Bool = false,
+        pushId: String? = nil
     ) {
+        // CL28: device-delivery confirmation — like `alive`, but for the founder
+        // push. The device received the founder-chat prompt push and is about to
+        // surface the dialog. Fire BEFORE the snooze check: the device got the push
+        // regardless of whether we end up showing the modal.
+        var receiptProps: [String: Any] = ["platform": Self.platformName, "source": source]
+        if let pushId { receiptProps["push_id"] = pushId }
+        TelemetryManager.shared.track(.founderPushReceived, properties: receiptProps)
+
         guard !FounderChatPromptStore.shared.isSnoozed else {
             AppLog.log("🔔 [push] founder_chat_prompt suppressed (snoozed) source=%@", source)
             TelemetryManager.shared.track(

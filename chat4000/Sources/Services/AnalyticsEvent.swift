@@ -26,6 +26,10 @@ enum AnalyticsEvent: String {
     case telegramCommunityOpened = "telegram_community_opened"
     case founderChatPromptShown = "founder_chat_prompt_shown"
     case founderChatPromptAction = "founder_chat_prompt_action"
+    /// CL28 — device-delivery confirmation for a founder-chat prompt push (like
+    /// `alive`, but for the founder push). Fires when the push reaches the app and
+    /// starts to surface the dialog. {platform, source, push_id?}
+    case founderPushReceived = "founder_push_received"
 
     /// The user opened the canonical web install page from in-app help, with an
     /// attribution `ref` on the URL so the website can match this app-originated
