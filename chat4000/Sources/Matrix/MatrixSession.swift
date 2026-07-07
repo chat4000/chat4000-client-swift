@@ -2040,6 +2040,21 @@ final class MatrixSession {
     /// / `.background` (and macOS resign-active) → `false`. Combined with the lock
     /// state to compute `foreground`, then reported to the gateway on any flip.
     func setAppActive(_ active: Bool) {
+        #if canImport(UIKit)
+        // iOS: an app can only be foregrounded while the device is unlocked, so
+        // protected data is available. Re-sync `deviceUnlocked` from the live signal
+        // on every foreground. `protectedDataDidBecomeAvailableNotification` fires
+        // ONLY on the lock→unlock transition — never when the app foregrounds into
+        // an already-unlocked device (nor while the app was suspended) — so a
+        // `deviceUnlocked` stuck at false (session inited while suspended/locked, or
+        // an unlock notification missed while suspended) would otherwise never
+        // recover and pin `foreground=false` forever, making the gateway treat the
+        // phone as backgrounded and stop live-syncing (the mac uses a different
+        // path, so only iOS hit this). Re-reading here self-heals that on resume.
+        if active {
+            updateDeviceUnlocked(UIApplication.shared.isProtectedDataAvailable)
+        }
+        #endif
         guard appActive != active else { return }
         appActive = active
         reportForegroundStateIfChanged()
