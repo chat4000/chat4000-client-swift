@@ -132,6 +132,14 @@ final class GatewayClient: GatewayRequesting {
             upgradeRequest.setValue(clientId, forHTTPHeaderField: "X-Client-Id")
         }
         let socket = session.webSocketTask(with: upgradeRequest)
+        // Raise the WS max message size well above URLSession's 1 MB default. A big
+        // initial sync / catch-up frame (many rooms × long backlog, encrypted) can
+        // exceed 1 MB, and a message over the cap makes URLSessionWebSocketTask close
+        // the socket with POSIXError 40 "Message too long" — which, since the frame
+        // is re-sent on every reconnect, becomes an endless reconnect loop that never
+        // syncs (observed on a device with a large backlog). 64 MB fits any realistic
+        // sync frame; the gateway is trusted, so the larger buffer is safe.
+        socket.maximumMessageSize = 64 * 1024 * 1024
         self.session = session
         self.socket = socket
         socket.resume()
