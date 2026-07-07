@@ -7,18 +7,10 @@ Whenever you push a change, you ALSO deploy it — don't stop at the commit. Dep
 is part of "done", not a separate step the user has to ask for. "Deploy" means
 EVERY user-runnable flavor the change touches, across BOTH platforms:
 
-### EXCEPTION — verifying a bug FIX: prove it on the affected flavor FIRST
+### EXCEPTION — verifying a bug fix: prove it on the affected flavor FIRST
 
-When a deploy is to VERIFY a fix for a reported bug (not a routine feature push),
-do NOT deploy all flavors up front. Deploy ONLY the one flavor the user is actually
-hitting, CONFIRM the bug is gone (pull the log / observe the behavior), and deploy
-the rest ONLY after it's confirmed fixed. Deploying all flavors before the fix is
-proven wastes builds, muddies which build is where, and — the real trap — an
-unverified "fix" gets spread everywhere before anyone knows it works. Verify on one,
-then fan out. (Also: on iOS, a running app keeps the OLD code until it's FORCE-QUIT
-+ relaunched — a reinstall + foreground does NOT load the new build. Confirm the
-user force-quit before trusting a "still broken" report. And confirm WHICH flavor
-they're on — localprod vs personalprod vs dev — before pulling logs / deploying.)
+When deploying to VERIFY a bug fix, deploy ONLY the flavor the user is hitting,
+confirm the bug is gone, THEN deploy the rest. Never fan out an unverified fix.
 
 1. **The FOUR deployable iOS flavors** → install to the connected iPhone:
    `chat4000iphonedevhermes`, `chat4000iphonedevopenclaw`,
