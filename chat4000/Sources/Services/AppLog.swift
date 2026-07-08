@@ -89,7 +89,7 @@ enum AppLog {
 
                 let size = (try? handle.offset()) ?? 0
                 if size > maxBytes {
-                    try rotate(handle: handle, fileURL: logFileURL)
+                    rotate(fileURL: logFileURL)
                 }
             } catch {
                 Foundation.NSLog("chat4000 AppLog append failed: %@", error.localizedDescription)
@@ -97,22 +97,16 @@ enum AppLog {
         }
     }
 
-    private static func rotate(handle: FileHandle, fileURL: URL) throws(AppError) {
-        do {
-            try handle.seek(toOffset: 0)
-            let total = try handle.readToEnd() ?? Data()
-            let keepFrom = max(0, total.count - trimToBytes)
-            var trimmed = total.subdata(in: keepFrom..<total.count)
-
-            if let firstNewline = trimmed.firstIndex(of: 0x0A), firstNewline + 1 < trimmed.count {
-                trimmed = trimmed.subdata(in: (firstNewline + 1)..<trimmed.count)
-            }
-
-            try trimmed.write(to: fileURL, options: .atomic)
-        } catch is CancellationError {
-            throw AppError.cancelled
-        } catch {
-            throw AppError.storage("log rotate: \(error.localizedDescription)")
-        }
+    /// Rename-based rotation: move the full log aside to `chat4000.log.1` (replacing
+    /// any prior `.1`) so the next append starts a fresh file. This is atomic and
+    /// reader-safe — a concurrent `devicectl copy` always sees a COMPLETE
+    /// `chat4000.log` (or the prior `.1`), never the empty / half-written window the
+    /// old read-whole-file-then-`write(.atomic)` rotation left, which made pulled logs
+    /// come back 0 bytes under heavy logging. (Pull BOTH files for full history.)
+    private static func rotate(fileURL: URL) {
+        let rotated = fileURL.appendingPathExtension("1")
+        let fm = FileManager.default
+        try? fm.removeItem(at: rotated)
+        try? fm.moveItem(at: fileURL, to: rotated)
     }
 }
