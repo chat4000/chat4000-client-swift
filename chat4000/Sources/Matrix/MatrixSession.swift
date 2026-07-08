@@ -1209,7 +1209,13 @@ final class MatrixSession {
                 isMuted: muted.contains(id)
             )
         }
-        rooms = Self.sortedRooms(nextRooms, pinnedRoomIds: pinnedRoomIds)
+        // Only touch the @Observable `rooms` when the sidebar actually changed —
+        // rebuildRoomList runs on EVERY sync frame, and reassigning an @Observable
+        // array (even to an equal value) invalidates every SwiftUI view that reads
+        // it. RoomSummary is Equatable, so an unchanged list is a no-op now.
+        let next = Self.sortedRooms(nextRooms, pinnedRoomIds: pinnedRoomIds)
+        guard next != rooms else { return }
+        rooms = next
         AppLog.log("📋 rebuilt: ordered=%d sessions=%d spaces=%d control=%@ wsReady=%@",
                    roomOrder.count, rooms.count, spaceRooms.count, controlRoomId ?? "nil", String(isWorkspaceReady))
         saveRoomSnapshot()
