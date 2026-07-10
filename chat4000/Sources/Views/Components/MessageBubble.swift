@@ -1,7 +1,13 @@
 import SwiftUI
 
 struct MessageBubble: View {
+    private static let imageBoundingSize = CGSize(width: 220, height: 280)
+
     let message: ChatMessage
+    var initialCardHeight: CGFloat?
+    var onCardHeight: ((String, CGFloat) -> Void)?
+    @State private var cachedImage: PlatformImage?
+    @State private var imageLoadKey: String?
 
     private var isUser: Bool { message.sender == .user }
     private var isUnavailable: Bool { message.kind == .unavailable }
@@ -12,7 +18,11 @@ struct MessageBubble: View {
         if message.kind == .toolCall {
             ToolCallBubble(message: message)
         } else if message.kind == .htmlCard {
-            HTMLCardBubble(message: message)
+            HTMLCardBubble(
+                message: message,
+                initialHeight: initialCardHeight,
+                onHeight: onCardHeight
+            )
         } else {
             HStack(alignment: .top, spacing: 8) {
                 bubbleContent
@@ -58,13 +68,8 @@ struct MessageBubble: View {
 
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: contentSpacing) {
-            if let imageData = message.imageData,
-               let image = BubblePlatformImage(data: imageData) {
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: 220, maxHeight: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
+            if message.imageData != nil {
+                imageContent
             }
 
             if let audioData = message.audioData {
@@ -90,7 +95,7 @@ struct MessageBubble: View {
                 .font(AppFonts.body)
                 .foregroundStyle(AppColors.textTimestamp)
             } else if !message.text.isEmpty {
-                Text(attributedText)
+                Text(MarkdownCache.shared.attributed(msgId: message.msgId, text: message.text))
                     .font(AppFonts.body)
                     .foregroundStyle(isUser ? Color(hex: 0xF3F4F6) : AppColors.agentBubbleText)
                     // Text stays selectable (inherits the message list's
@@ -130,23 +135,49 @@ struct MessageBubble: View {
         return isUser ? AppColors.background : AppColors.agentBubble
     }
 
-    /// Render the body as Markdown (bold/italic/`code`/~~strike~~/links), falling
-    /// back to plain text if parsing fails. We use `.inlineOnlyPreservingWhitespace`
-    /// so newlines/blank lines in a chat message are kept verbatim (the `.full`
-    /// syntax would collapse them and try to lay out block elements, which `Text`
-    /// can't render). Inline `code` spans get a monospaced font here because the
-    /// parser only tags the intent — `Text` won't change the font on its own.
-    private var attributedText: AttributedString {
-        var options = AttributedString.MarkdownParsingOptions()
-        options.interpretedSyntax = .inlineOnlyPreservingWhitespace
-        options.failurePolicy = .returnPartiallyParsedIfPossible
-        guard var attributed = try? AttributedString(markdown: message.text, options: options) else {
-            return AttributedString(message.text)
+    @ViewBuilder
+    private var imageContent: some View {
+        let size = imageDisplaySize
+        Group {
+            if let cachedImage {
+                #if os(iOS)
+                Image(uiImage: cachedImage)
+                    .resizable()
+                    .scaledToFill()
+                #else
+                Image(nsImage: cachedImage)
+                    .resizable()
+                    .scaledToFill()
+                #endif
+            } else {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(AppColors.agentBubble.opacity(0.7))
+            }
         }
-        for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true {
-            attributed[run.range].font = .system(.body, design: .monospaced)
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .task(id: imageTaskKey) {
+            await loadImageIfNeeded()
         }
-        return attributed
+    }
+
+    private var imageDisplaySize: CGSize {
+        guard let imageData = message.imageData else {
+            return Self.imageBoundingSize
+        }
+        let key = message.msgId ?? message.id.uuidString
+        guard let dimensions = ImageCache.shared.dimensions(id: key, data: imageData) else {
+            return Self.imageBoundingSize
+        }
+        let scale = min(
+            1,
+            Self.imageBoundingSize.width / dimensions.width,
+            Self.imageBoundingSize.height / dimensions.height
+        )
+        return CGSize(
+            width: max(1, dimensions.width * scale),
+            height: max(1, dimensions.height * scale)
+        )
     }
 
     private var contentSpacing: CGFloat {
@@ -156,6 +187,22 @@ struct MessageBubble: View {
             !message.text.isEmpty
         ].filter { $0 }.count
         return contentCount > 1 ? 8 : 0
+    }
+
+    private var imageTaskKey: String {
+        "\(message.id.uuidString)|\(message.imageData?.count ?? 0)"
+    }
+
+    private func loadImageIfNeeded() async {
+        guard let imageData = message.imageData else {
+            cachedImage = nil
+            imageLoadKey = nil
+            return
+        }
+        let key = message.msgId ?? message.id.uuidString
+        guard imageLoadKey != imageTaskKey else { return }
+        imageLoadKey = imageTaskKey
+        cachedImage = await ImageCache.shared.image(id: key, data: imageData, maxPixelSize: 840)
     }
 }
 
@@ -184,25 +231,11 @@ struct BubbleShape: Shape {
 
 #if os(iOS)
 import UIKit
-private typealias BubblePlatformImage = Image
-private extension BubblePlatformImage {
-    init?(data: Data) {
-        guard let image = UIImage(data: data) else { return nil }
-        self = Image(uiImage: image)
-    }
-}
 private func copyText(_ text: String) {
     UIPasteboard.general.string = text
 }
 #elseif os(macOS)
 import AppKit
-private typealias BubblePlatformImage = Image
-private extension BubblePlatformImage {
-    init?(data: Data) {
-        guard let image = NSImage(data: data) else { return nil }
-        self = Image(nsImage: image)
-    }
-}
 private func copyText(_ text: String) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(text, forType: .string)

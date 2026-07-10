@@ -131,33 +131,21 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Message area (always-mounted per-room views)
+    // MARK: - Message area
 
-    /// Every session room gets its OWN view, all kept alive in this ZStack; only
-    /// the front room is visible + interactive. Switching rooms just changes which
-    /// one is on top — nothing is torn down, re-cooked, or replayed, and each
-    /// view keeps its scroll position and already-rendered rows. A background
-    /// room's view is already correct because its `RoomViewModel` cooked + saved
-    /// its rows live (the active-room delivery gate is gone in `MatrixSession`).
+    /// Only the front room's view is mounted. The per-room view models stay alive,
+    /// so background rooms still ingest and persist while their views are absent.
     @ViewBuilder
     private var messageArea: some View {
-        ZStack {
-            ForEach(viewModel.matrixSession.rooms) { room in
-                let isFront = viewModel.activeRoomId == room.id
-                RoomMessagesView(
-                    room: viewModel.room(for: room.id),
-                    isFront: isFront,
-                    onDismissKeyboard: { dismissKeyboard() }
-                )
-                .opacity(isFront ? 1 : 0)
-                .allowsHitTesting(isFront)
-            }
-
-            // No room selected yet → the global setup/empty overlay (not a room).
-            if viewModel.activeRoomId == nil {
-                ScrollView {
-                    noSessionPlaceholder
-                }
+        if let id = viewModel.activeRoomId {
+            RoomMessagesView(
+                room: viewModel.room(for: id),
+                onDismissKeyboard: { dismissKeyboard() }
+            )
+            .id(id)
+        } else {
+            ScrollView {
+                noSessionPlaceholder
             }
         }
     }
@@ -739,7 +727,6 @@ struct ChatView: View {
 /// front room sends read receipts.
 struct RoomMessagesView: View {
     @Bindable var room: RoomViewModel
-    var isFront: Bool
     var onDismissKeyboard: (() -> Void)?
 
     @State private var pendingScrollTask: Task<Void, Never>?
@@ -757,6 +744,8 @@ struct RoomMessagesView: View {
     /// it can never unpin us mid-arrival regardless of onChange firing order.
     @State private var lastContentSignature = ""
     @State private var signatureSyncTask: Task<Void, Never>?
+    @State private var visibleMessageIds: Set<UUID> = []
+    @State private var hasCompletedInitialScroll = false
 
     /// Named coordinate space the content's bottom edge is measured against.
     private static let scrollSpace = "roomScroll"
@@ -771,7 +760,7 @@ struct RoomMessagesView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                messageListContent
+                messageListContent(proxy: proxy)
                     .padding(.vertical, AppSpacing.chatListVerticalInset)
                     .contentShape(Rectangle())
                     .textSelection(.enabled)
@@ -806,20 +795,26 @@ struct RoomMessagesView: View {
                 scrollToBottomButton(proxy)
             }
             .onAppear {
-                // Opening / first showing a room always lands at the bottom.
+                hasCompletedInitialScroll = false
                 lastContentSignature = contentSignature
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(150))
-                    scrollToBottom(using: proxy)
+                    restoreInitialScroll(using: proxy)
                 }
-                if isFront { room.markRead() }
+                room.markRead()
+            }
+            .onDisappear {
+                persistScrollAnchor()
+                if room.savedWasPinned {
+                    room.resetToNewestWindowIfExpanded()
+                }
             }
             .onChange(of: room.messages.count) {
                 // Follow ONLY if we were at the bottom. The signature guard in
                 // updatePinned keeps isPinnedToBottom honest across this arrival, so
                 // a tall incoming row can't unpin us before we read it here.
                 if isPinnedToBottom { scrollToBottom(using: proxy) }
-                if isFront { room.markRead() }
+                room.markRead()
                 syncContentSignatureAfterSettle()
             }
             .onChange(of: room.scrollRevision) {
@@ -836,11 +831,6 @@ struct RoomMessagesView: View {
                 if isPinnedToBottom { scrollToBottom(using: proxy) }
                 syncContentSignatureAfterSettle()
             }
-            .onChange(of: isFront) { _, front in
-                guard front else { return }
-                scrollToBottom(using: proxy)
-                room.markRead()
-            }
         }
     }
 
@@ -855,7 +845,10 @@ struct RoomMessagesView: View {
         guard viewportHeight > 0 else { return }
         let nearBottom = (contentMaxY - viewportHeight) < Self.bottomThreshold
         if nearBottom {
-            if !isPinnedToBottom { isPinnedToBottom = true }
+            if !isPinnedToBottom {
+                isPinnedToBottom = true
+                room.resetToNewestWindowIfExpanded()
+            }
         } else if contentSignature == lastContentSignature {
             if isPinnedToBottom { isPinnedToBottom = false }
         }
@@ -907,28 +900,39 @@ struct RoomMessagesView: View {
     }
 
     @ViewBuilder
-    private var messageListContent: some View {
-        #if os(iOS)
-        VStack(spacing: AppSpacing.messageGap) {
-            messageListRows
-        }
-        #else
+    private func messageListContent(proxy: ScrollViewProxy) -> some View {
         LazyVStack(spacing: AppSpacing.messageGap) {
-            messageListRows
+            messageListRows(proxy: proxy)
         }
-        #endif
     }
 
     @ViewBuilder
-    private var messageListRows: some View {
+    private func messageListRows(proxy: ScrollViewProxy) -> some View {
         if room.messages.isEmpty && !room.isAgentBusy {
             noMessagesPlaceholder
                 .id("emptyChatPlaceholder")
         }
 
+        if shouldShowOlderSentinel {
+            Color.clear
+                .frame(height: 1)
+                .onAppear {
+                    loadOlderPreservingAnchor(using: proxy)
+                }
+        }
+
         ForEach(room.messages, id: \.id) { message in
-            MessageBubble(message: message)
-                .id(message.id)
+            MessageBubble(
+                message: message,
+                initialCardHeight: room.cachedCardHeight(for: message),
+                onCardHeight: { key, height in room.updateCardHeight(key: key, height: height) }
+            )
+            .onAppear {
+                visibleMessageIds.insert(message.id)
+            }
+            .onDisappear {
+                visibleMessageIds.remove(message.id)
+            }
         }
 
         if room.isAgentBusy {
@@ -939,6 +943,12 @@ struct RoomMessagesView: View {
         Color.clear
             .frame(height: 1)
             .id("chatBottomAnchor")
+    }
+
+    private var shouldShowOlderSentinel: Bool {
+        hasCompletedInitialScroll
+            && room.messages.count >= RoomViewModel.historyWindowLimit
+            && !room.didLoadAllOlder
     }
 
     private var noMessagesPlaceholder: some View {
@@ -1005,6 +1015,47 @@ struct RoomMessagesView: View {
             return cliTypingHints
         default:
             return cliThinkingHints
+        }
+    }
+
+    private func restoreInitialScroll(using proxy: ScrollViewProxy) {
+        if room.savedWasPinned {
+            scrollToBottom(using: proxy)
+            hasCompletedInitialScroll = true
+            return
+        }
+        guard let rowId = room.rowId(forSavedAnchor: room.savedAnchorMsgId) else {
+            scrollToBottom(using: proxy)
+            hasCompletedInitialScroll = true
+            return
+        }
+        proxy.scrollTo(rowId, anchor: .top)
+        hasCompletedInitialScroll = true
+    }
+
+    private func persistScrollAnchor() {
+        room.savedWasPinned = isPinnedToBottom
+        guard !isPinnedToBottom, let top = topVisibleMessage() else {
+            room.savedAnchorMsgId = nil
+            return
+        }
+        room.savedAnchorMsgId = top.msgId ?? top.id.uuidString
+    }
+
+    private func topVisibleMessage() -> ChatMessage? {
+        room.messages.first { visibleMessageIds.contains($0.id) }
+    }
+
+    private func loadOlderPreservingAnchor(using proxy: ScrollViewProxy) {
+        guard let anchorId = topVisibleMessage()?.id ?? room.messages.first?.id else { return }
+        var loaded = false
+        withTransaction(Transaction(animation: nil)) {
+            loaded = room.loadOlderPageIfNeeded()
+        }
+        guard loaded else { return }
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo(anchorId, anchor: .top)
         }
     }
 
@@ -1254,6 +1305,7 @@ final class ChatViewModel {
     @ObservationIgnored private var modelContext: ModelContext?
     /// One view model per room, created lazily and KEPT ALIVE across switches.
     @ObservationIgnored private var roomVMs: [String: RoomViewModel] = [:]
+    @ObservationIgnored private var isSyncBatchOpen = false
 
     var onTermsVersionUpdate: ((Int) -> Void)?
 
@@ -1278,6 +1330,17 @@ final class ChatViewModel {
         matrixSession.onReadReceipt = { [weak self] eventId in
             self?.roomVMs.values.forEach { $0.handleRead(eventId: eventId) }
         }
+        matrixSession.onSyncFrameBoundary = { [weak self] isOpen in
+            guard let self else { return }
+            self.isSyncBatchOpen = isOpen
+            for vm in self.roomVMs.values {
+                if isOpen {
+                    vm.beginSyncBatch()
+                } else {
+                    vm.endSyncBatch()
+                }
+            }
+        }
         matrixSession.onRoomDeleted = { [weak self] roomId in
             guard let self else { return }
             self.roomVMs[roomId]?.clearHistory()
@@ -1291,6 +1354,7 @@ final class ChatViewModel {
         if let existing = roomVMs[roomId] { return existing }
         let vm = RoomViewModel(roomId: roomId, session: matrixSession)
         if let modelContext { vm.attach(modelContext: modelContext) }
+        if isSyncBatchOpen { vm.beginSyncBatch() }
         roomVMs[roomId] = vm
         return vm
     }
@@ -1363,6 +1427,11 @@ final class ChatViewModel {
     func refreshMessages() {
         guard modelContext != nil else { return }
         roomVMs.values.forEach { $0.reloadHistory() }
+    }
+
+    func refreshExternallyChangedRooms() {
+        guard modelContext != nil else { return }
+        roomVMs.values.forEach { $0.reloadIfExternallyChanged() }
     }
 
     func markRead() { frontRoom?.markRead() }

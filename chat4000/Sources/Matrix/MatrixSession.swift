@@ -15,6 +15,22 @@ struct DecryptedRoomEvent: Sendable {
     let outer: SyncEvent
     let clear: String?
     let isOwn: Bool
+    let preparedClear: PreparedJSON?
+    let preparedOuter: PreparedJSON?
+
+    init(
+        outer: SyncEvent,
+        clear: String?,
+        isOwn: Bool,
+        preparedClear: PreparedJSON? = nil,
+        preparedOuter: PreparedJSON? = nil
+    ) {
+        self.outer = outer
+        self.clear = clear
+        self.isOwn = isOwn
+        self.preparedClear = preparedClear
+        self.preparedOuter = preparedOuter
+    }
 }
 
 /// v2 transport hub. Owns the native `GatewayClient` (WS frame protocol, D.1)
@@ -203,6 +219,7 @@ final class MatrixSession {
     /// Per-event delivery to the timeline mapper (active room only, plus replay
     /// on room switch). `live` is false for backfilled/replayed history.
     @ObservationIgnored var onRoomEvent: ((_ roomId: String, _ event: DecryptedRoomEvent, _ live: Bool) -> Void)?
+    @ObservationIgnored var onSyncFrameBoundary: ((Bool) -> Void)?
     /// An outbound message's send completed → its homeserver event_id (for
     /// correlating later read receipts). `localId` is what `sendText`'s caller used.
     @ObservationIgnored var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
@@ -214,6 +231,7 @@ final class MatrixSession {
 
     @ObservationIgnored private var gateway: GatewayClient?
     @ObservationIgnored private var crypto: CryptoEngine?
+    @ObservationIgnored private var roomSnapshotSaveTask: Task<Void, Never>?
     @ObservationIgnored private var creds: MatrixCredentialStore.Stored?
     /// F2 (protocol F.2.3): the cross-process crypto-store lock, wired to the
     /// App-Group sidecar lockfile + generation file. nil when there is no App
@@ -807,6 +825,11 @@ final class MatrixSession {
         if let muted = sync.mutedRoomIds {
             mutedRoomIds = Set(muted)
         }
+        let frameTouchesRooms = !sync.rooms.isEmpty
+            || !sync.toDevice.isEmpty
+            || !sync.receipts.isEmpty
+            || sync.pinnedRoomIds != nil
+            || sync.mutedRoomIds != nil
         AppLog.log("🔄 sync pos=%@ rooms=%d to_device=%d", sync.pos ?? "nil", sync.rooms.count, sync.toDevice.count)
         // Stamp the live-sync heartbeat (F.2.1b): while the app is syncing, the NSE
         // must NOT also drain to-device (single-writer on the shared cursor).
@@ -839,6 +862,7 @@ final class MatrixSession {
 
         // STEP 2 — discover rooms + track new members (updateTrackedUsers), decrypt
         // and dispatch events.
+        onSyncFrameBoundary?(true)
         for room in sync.rooms { await processRoom(room) }
 
         // STEP 3 — RECONCILE: drive crypto to a fixpoint now that new members are
@@ -859,8 +883,13 @@ final class MatrixSession {
                 onReadReceipt?(receipt.eventId)
             }
         }
-        retryUndecrypted()
-        rebuildRoomList()
+        await retryUndecrypted()
+        onSyncFrameBoundary?(false)
+        if setupPhase != .ready || controlRoomId == nil || frameTouchesRooms {
+            rebuildRoomList()
+        } else {
+            AppLog.debug("📋 rebuild skipped (heartbeat frame)")
+        }
         applyAutoOpen()
         updateSetupPhase()
         // A sync may have just keyed a room (made it reachable) — flush any sends
@@ -1047,6 +1076,8 @@ final class MatrixSession {
             let clear: String?
             if outer.type == "m.room.encrypted" {
                 do {
+                    // SPEC-DEVIATION(D6-decrypt): CryptoEngine is @MainActor and
+                    // owns gateway-coupled mutable state, so decrypt stays on main.
                     clear = try crypto?.decrypt(eventJSON: outer.rawJSON, roomId: room.id)
                     if clear != nil { AppLog.debug("🔓 decrypted %@ in %@", eid, room.id) }
                 } catch {
@@ -1070,7 +1101,14 @@ final class MatrixSession {
                 continue
             }
 
-            let event = DecryptedRoomEvent(outer: outer, clear: clear, isOwn: outer.sender == userId)
+            let prepared = await Self.prepareEventJSON(clear: clear, outer: outer.rawJSON)
+            let event = DecryptedRoomEvent(
+                outer: outer,
+                clear: clear,
+                isOwn: outer.sender == userId,
+                preparedClear: prepared.clear,
+                preparedOuter: prepared.outer
+            )
             // Deliver to the room's view model regardless of which room is front
             // (NO active gate): every room cooks + persists its own rows live, so a
             // background room's always-mounted view is already correct when brought
@@ -1162,7 +1200,7 @@ final class MatrixSession {
     /// (via gossip response or a fresh share). On success, deliver them like any
     /// freshly-synced event (control-room results are parsed; session events go
     /// to the active room's mapper).
-    private func retryUndecrypted() {
+    private func retryUndecrypted() async {
         guard !undecrypted.isEmpty, let crypto else { return }
         for (eid, entry) in undecrypted {
             guard let clear = try? crypto.decrypt(eventJSON: entry.outer.rawJSON, roomId: entry.roomId) else { continue }
@@ -1172,10 +1210,33 @@ final class MatrixSession {
                 handleControlEvent(clear: clear)
                 continue
             }
-            let event = DecryptedRoomEvent(outer: entry.outer, clear: clear, isOwn: entry.outer.sender == userId)
+            let prepared = await Self.prepareEventJSON(clear: clear, outer: entry.outer.rawJSON)
+            let event = DecryptedRoomEvent(
+                outer: entry.outer,
+                clear: clear,
+                isOwn: entry.outer.sender == userId,
+                preparedClear: prepared.clear,
+                preparedOuter: prepared.outer
+            )
             // No active gate — deliver to the room's view model whichever room is front.
             onRoomEvent?(entry.roomId, event, false)
         }
+    }
+
+    private nonisolated static func prepareEventJSON(
+        clear: String?,
+        outer: String
+    ) async -> (clear: PreparedJSON?, outer: PreparedJSON?) {
+        await Task.detached(priority: .utility) {
+            prepareEventJSONSync(clear: clear, outer: outer)
+        }.value
+    }
+
+    private nonisolated static func prepareEventJSONSync(
+        clear: String?,
+        outer: String
+    ) -> (clear: PreparedJSON?, outer: PreparedJSON?) {
+        (PreparedJSON.parse(clear), PreparedJSON.parse(outer))
     }
 
     private func rebuildRoomList() {
@@ -2441,12 +2502,18 @@ final class MatrixSession {
     }
 
     private func saveRoomSnapshot() {
-        guard let userId else { return }
-        guard !roomOrder.isEmpty else {
-            removeRoomSnapshot(userId: userId)
-            return
+        guard roomSnapshotSaveTask == nil else { return }
+        roomSnapshotSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self else { return }
+            self.roomSnapshotSaveTask = nil
+            guard let userId = self.userId else { return }
+            guard !self.roomOrder.isEmpty else {
+                self.removeRoomSnapshot(userId: userId)
+                return
+            }
+            self.saveRoomSnapshot(self.currentRoomSnapshot(), userId: userId)
         }
-        saveRoomSnapshot(currentRoomSnapshot(), userId: userId)
     }
 
     @discardableResult

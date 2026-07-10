@@ -15,6 +15,11 @@ import SwiftUI
 @MainActor
 @Observable
 final class RoomViewModel {
+    static let historyWindowLimit = 150
+    static let historyWindowSlack = 30
+    static let olderPageSize = 60
+    static let historyPagingHardCap = 600
+
     let roomId: String
 
     // Rendered state (observed by the room's view).
@@ -28,10 +33,18 @@ final class RoomViewModel {
     /// an unconditional animated scroll to the bottom — same effect as tapping the
     /// scroll-to-bottom button — because sending always means "take me to my message".
     var sendScrollRevision = 0
+    var savedAnchorMsgId: String?
+    var savedWasPinned = true
+    var isLoadingOlder = false
 
     @ObservationIgnored private let session: MatrixSession
     @ObservationIgnored private var modelContext: ModelContext?
     @ObservationIgnored private var didLoadHistory = false
+    @ObservationIgnored private(set) var didLoadAllOlder = false
+    @ObservationIgnored var cardHeights: [String: CGFloat] = [:]
+    @ObservationIgnored private var batchDepth = 0
+    @ObservationIgnored private var batchNeedsSave = false
+    @ObservationIgnored private var lastOlderLoadAt: Date?
 
     // Streaming assembly (one in-flight agent stream at a time).
     @ObservationIgnored private var currentStreamId: String?
@@ -79,15 +92,25 @@ final class RoomViewModel {
     private func loadHistory() {
         guard let modelContext else { return }
         let rid = roomId
-        let descriptor = FetchDescriptor<ChatMessage>(
+        var descriptor = FetchDescriptor<ChatMessage>(
             predicate: #Predicate { $0.roomId == rid },
-            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
         )
-        let fetched = (try? modelContext.fetch(descriptor)) ?? []
-        let stored = deduplicatedStoredMessages(fetched, modelContext: modelContext)
+        descriptor.fetchLimit = Self.historyWindowLimit
+        let fetchedNewestFirst = (try? modelContext.fetch(descriptor)) ?? []
+        didLoadAllOlder = fetchedNewestFirst.count < Self.historyWindowLimit
+        let stored = deduplicatedStoredMessages(
+            Array(fetchedNewestFirst.reversed()),
+            modelContext: modelContext
+        )
         let storedIds = Set(stored.map(\.id))
+        let oldestFetchedTimestamp = stored.first?.timestamp ?? .distantPast
         var merged = stored
         for message in messages where !storedIds.contains(message.id) {
+            let isTransient = message.status == .sending || message.id == currentStreamMessageId
+            let isLocalOnly = message.msgId == nil
+            let isInsideFetchedWindow = message.timestamp >= oldestFetchedTimestamp
+            guard isTransient || isLocalOnly || isInsideFetchedWindow else { continue }
             guard isUniqueStoredMessage(message, against: merged) else {
                 AppLog.log(
                     "🧵 not re-inserting duplicate in-memory message room=%@ msg_id=%@",
@@ -101,9 +124,104 @@ final class RoomViewModel {
         }
         merged.sort { $0.timestamp < $1.timestamp }
         persistContext()
-        messages = merged
+        applyTimeline(merged)
+        pruneCardHeights(keptMessages: messages)
         reenqueuePendingSends()
         requestScrollToBottom()
+    }
+
+    @discardableResult
+    func loadOlderPageIfNeeded() -> Bool {
+        guard modelContext != nil else { return false }
+        guard !isLoadingOlder, !didLoadAllOlder, let oldest = messages.first else { return false }
+        if let lastOlderLoadAt, Date().timeIntervalSince(lastOlderLoadAt) < 0.5 {
+            return false
+        }
+        lastOlderLoadAt = Date()
+        return loadOlderPage(before: oldest.timestamp)
+    }
+
+    func resetToNewestWindowIfExpanded() {
+        guard messages.count > Self.historyWindowLimit else { return }
+        loadHistory()
+    }
+
+    func rowId(forSavedAnchor anchor: String?) -> UUID? {
+        guard let anchor else { return nil }
+        return messages.first { ($0.msgId ?? $0.id.uuidString) == anchor }?.id
+    }
+
+    private func loadOlderPage(before oldestTimestamp: Date) -> Bool {
+        guard let modelContext else { return false }
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+
+        let rid = roomId
+        var descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == rid && $0.timestamp < oldestTimestamp },
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = Self.olderPageSize
+        let fetchedNewestFirst = (try? modelContext.fetch(descriptor)) ?? []
+        if fetchedNewestFirst.count < Self.olderPageSize {
+            didLoadAllOlder = true
+        }
+        guard !fetchedNewestFirst.isEmpty else {
+            AppLog.log("📜 older page room=%@ fetched=0 total=%d", roomId, messages.count)
+            return false
+        }
+
+        let fetched = deduplicatedStoredMessages(
+            Array(fetchedNewestFirst.reversed()),
+            modelContext: modelContext
+        )
+        var seenKeys = Set(messages.compactMap { stableMessageKey($0) })
+        let older = fetched.filter { message in
+            guard let key = stableMessageKey(message) else { return true }
+            return seenKeys.insert(key).inserted
+        }
+        guard !older.isEmpty else {
+            AppLog.log("📜 older page room=%@ fetched=%d total=%d", roomId, fetchedNewestFirst.count, messages.count)
+            return false
+        }
+
+        applyTimeline(older + messages)
+        trimNewestForPagingHardCap()
+        pruneCardHeights(keptMessages: messages)
+        persistContext()
+        AppLog.log("📜 older page room=%@ fetched=%d total=%d", roomId, older.count, messages.count)
+        return true
+    }
+
+    private func trimNewestForPagingHardCap() {
+        let cap = Self.historyPagingHardCap
+        guard messages.count > cap else { return }
+        var targetDrop = messages.count - cap
+        var index = messages.count - 1
+        var dropped = 0
+        while targetDrop > 0, index >= 0 {
+            let message = messages[index]
+            if message.status == .sending || message.id == currentStreamMessageId {
+                index -= 1
+                continue
+            }
+            messages.remove(at: index)
+            dropped += 1
+            targetDrop -= 1
+            index -= 1
+        }
+        guard dropped > 0 else { return }
+        AppLog.log("📜 older page cap room=%@ dropped_newest=%d kept=%d", roomId, dropped, messages.count)
+    }
+
+    private func stableMessageKey(_ message: ChatMessage) -> String? {
+        if let msgId = message.msgId, !msgId.isEmpty {
+            return "msg:\(msgId)"
+        }
+        if let eventId = message.matrixEventId, !eventId.isEmpty {
+            return "event:\(eventId)"
+        }
+        return nil
     }
 
     /// Re-queue any `.sending` user rows — a send that never completed (offline, or
@@ -199,10 +317,60 @@ final class RoomViewModel {
 
     private func persistContext() {
         guard let modelContext else { return }
+        guard batchDepth == 0 else {
+            batchNeedsSave = true
+            return
+        }
         do {
             try modelContext.save()
         } catch {
             ErrorReporter.capture(error, context: "RoomViewModel.persistContext")
+        }
+    }
+
+    func beginSyncBatch() {
+        batchDepth += 1
+    }
+
+    func endSyncBatch() {
+        guard batchDepth > 0 else { return }
+        batchDepth -= 1
+        guard batchDepth == 0, batchNeedsSave, let modelContext else { return }
+        batchNeedsSave = false
+        withTransaction(Transaction(animation: nil)) {
+            do {
+                try modelContext.save()
+                AppLog.log("💾 frame save room=%@", roomId)
+            } catch {
+                ErrorReporter.capture(error, context: "RoomViewModel.endSyncBatch")
+            }
+        }
+    }
+
+    private func applyTimeline(_ target: [ChatMessage]) {
+        let currentIds = messages.map(\.id)
+        let targetIds = target.map(\.id)
+        guard currentIds != targetIds else { return }
+
+        let targetIdSet = Set(targetIds)
+        var index = messages.count - 1
+        while index >= 0 {
+            if !targetIdSet.contains(messages[index].id) {
+                messages.remove(at: index)
+            }
+            index -= 1
+        }
+
+        for (targetIndex, targetMessage) in target.enumerated() {
+            if targetIndex < messages.count, messages[targetIndex].id == targetMessage.id {
+                continue
+            }
+            if let existingIndex = messages.firstIndex(where: { $0.id == targetMessage.id }) {
+                let moved = messages.remove(at: existingIndex)
+                messages.insert(moved, at: min(targetIndex, messages.count))
+            } else {
+                messages.insert(targetMessage, at: min(targetIndex, messages.count))
+            }
         }
     }
 
@@ -233,6 +401,7 @@ final class RoomViewModel {
         guard let msgId = message.msgId, !msgId.isEmpty else {
             insertInTimestampOrder(message)
             modelContext?.insert(message)
+            trimToWindow()
             return true
         }
         if messages.contains(where: { $0.id != message.id && $0.msgId == msgId }) {
@@ -255,7 +424,55 @@ final class RoomViewModel {
         }
         insertInTimestampOrder(message)
         modelContext?.insert(message)
+        trimToWindow()
         return true
+    }
+
+    func cardHeightKey(for message: ChatMessage) -> String {
+        message.msgId ?? message.id.uuidString
+    }
+
+    func cachedCardHeight(for message: ChatMessage) -> CGFloat? {
+        cardHeights[cardHeightKey(for: message)]
+    }
+
+    func updateCardHeight(key: String, height: CGFloat) {
+        guard height > 0 else { return }
+        if let existing = cardHeights[key], abs(existing - height) <= 0.5 { return }
+        cardHeights[key] = height
+    }
+
+    private func trimToWindow() {
+        let limit = Self.historyWindowLimit
+        let slack = Self.historyWindowSlack
+        guard messages.count > limit + slack else { return }
+
+        let protectedTimestamps = messages.compactMap { message -> Date? in
+            if message.status == .sending || message.id == currentStreamMessageId {
+                return message.timestamp
+            }
+            return nil
+        }
+        let oldestProtectedTimestamp = protectedTimestamps.min()
+        var targetDrop = messages.count - limit
+        var dropped = 0
+
+        while targetDrop > 0, let first = messages.first {
+            if first.status == .sending || first.id == currentStreamMessageId { break }
+            if let oldestProtectedTimestamp, first.timestamp >= oldestProtectedTimestamp { break }
+            messages.removeFirst()
+            dropped += 1
+            targetDrop -= 1
+        }
+
+        guard dropped > 0 else { return }
+        pruneCardHeights(keptMessages: messages)
+        AppLog.log("🪟 trimmed room=%@ dropped=%d kept=%d", roomId, dropped, messages.count)
+    }
+
+    private func pruneCardHeights(keptMessages: [ChatMessage]) {
+        let keptKeys = Set(keptMessages.map { cardHeightKey(for: $0) })
+        cardHeights = cardHeights.filter { keptKeys.contains($0.key) }
     }
 
     private func isUniqueStoredMessage(_ message: ChatMessage, against existing: [ChatMessage]) -> Bool {
@@ -322,13 +539,14 @@ final class RoomViewModel {
     /// row it persists is stamped with the fixed `roomId`.
     func ingest(_ event: DecryptedRoomEvent, live: Bool) {
         if let eid = event.outer.eventId { lastEventId = eid }
-        guard let clear = event.clear, let clearObj = json(clear) else {
+        guard let clear = event.clear,
+              let clearObj = event.preparedClear?.objectValue ?? json(clear) else {
             handleUndecryptableEvent(event, live: live)
             return
         }
         let content = clearObj["content"] as? [String: Any] ?? [:]
         let ts = event.outer.originServerTs ?? 0
-        let relation = relatesTo(event.outer)
+        let relation = relatesTo(event.outer, prepared: event.preparedOuter)
         AppLog.debug("📥 ingest room=%@ type=%@ msgtype=%@ own=%@ live=%@",
                      roomId, clearObj["type"] as? String ?? "nil",
                      content["msgtype"] as? String ?? "nil", String(event.isOwn), String(live))
@@ -351,7 +569,15 @@ final class RoomViewModel {
 
         switch content["msgtype"] as? String {
         case "m.text", "m.notice", "m.emote":
-            handleText(content: content, relation: relation, outer: event.outer, isOwn: event.isOwn, live: live, ts: ts)
+            handleText(
+                content: content,
+                relation: relation,
+                outer: event.outer,
+                preparedOuter: event.preparedOuter,
+                isOwn: event.isOwn,
+                live: live,
+                ts: ts
+            )
         case "chat4000.tool":
             handleTool(content: content, sender: event.outer.sender, ts: ts)
         case "m.image":
@@ -380,7 +606,7 @@ final class RoomViewModel {
                          roomId, event.outer.type, event.outer.eventId ?? "nil")
             return
         }
-        guard cleartextPushFlag(event.outer) != false else {
+        guard cleartextPushFlag(event.outer, prepared: event.preparedOuter) != false else {
             AppLog.debug("📥 ingest skip (no key, non-push) room=%@ eid=%@",
                          roomId, event.outer.eventId ?? "nil")
             return
@@ -433,6 +659,7 @@ final class RoomViewModel {
         content: [String: Any],
         relation: (relType: String, eventId: String)?,
         outer: SyncEvent,
+        preparedOuter: PreparedJSON?,
         isOwn: Bool,
         live: Bool,
         ts: Int64
@@ -454,7 +681,7 @@ final class RoomViewModel {
         }
 
         let isEdit = relation?.relType == "m.replace"
-        let pushFlag = cleartextPushFlag(outer)
+        let pushFlag = cleartextPushFlag(outer, prepared: preparedOuter)
         let streamLive = MatrixTimelineMapper.shouldStream(
             live: live,
             isOwn: isOwn,
@@ -914,6 +1141,38 @@ final class RoomViewModel {
         return messages.first(where: { $0.id == currentStreamMessageId })
     }
 
+    func reloadIfExternallyChanged() {
+        guard let modelContext else { return }
+        let newestInMemory = messages
+            .filter { $0.status != .sending && $0.id != currentStreamMessageId }
+            .max { $0.timestamp < $1.timestamp }
+        let rid = roomId
+        var descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.roomId == rid },
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        do {
+            let newestStored = try modelContext.fetch(descriptor).first
+            let storedKey = newestStored.map { externalChangeKey(for: $0) }
+            let memoryKey = newestInMemory.map { externalChangeKey(for: $0) }
+            guard storedKey != memoryKey else {
+                AppLog.debug("🔎 external refresh unchanged room=%@", roomId)
+                return
+            }
+            AppLog.debug("🔎 external refresh reload room=%@ stored=%@ memory=%@",
+                         roomId, storedKey ?? "nil", memoryKey ?? "nil")
+            loadHistory()
+        } catch {
+            ErrorReporter.capture(error, context: "RoomViewModel.reloadIfExternallyChanged")
+            AppLog.debug("🔎 external refresh failed room=%@: %@", roomId, String(describing: error))
+        }
+    }
+
+    private func externalChangeKey(for message: ChatMessage) -> String {
+        "\(message.persistentModelID)|\(message.msgId ?? "nil")|\(message.timestamp.timeIntervalSince1970)"
+    }
+
     private func beginToolCallBubble(toolId: String, toolName: String, icon: String?, sender: MessageSender, ts: Int64) {
         AppLog.log("🔧 toolCall chip room=%@ id=%@ name=%@", roomId, toolId, toolName)
         guard !messages.contains(where: { $0.kind == .toolCall && $0.toolId == toolId }) else { return }
@@ -999,8 +1258,11 @@ final class RoomViewModel {
     }
 
     /// Read `m.relates_to` from the cleartext envelope (the outer event).
-    private func relatesTo(_ outer: SyncEvent) -> (relType: String, eventId: String)? {
-        guard let obj = json(outer.rawJSON),
+    private func relatesTo(
+        _ outer: SyncEvent,
+        prepared: PreparedJSON?
+    ) -> (relType: String, eventId: String)? {
+        guard let obj = prepared?.objectValue ?? json(outer.rawJSON),
               let content = obj["content"] as? [String: Any],
               let relates = content["m.relates_to"] as? [String: Any],
               let relType = relates["rel_type"] as? String,
@@ -1009,8 +1271,8 @@ final class RoomViewModel {
         return (relType, eventId)
     }
 
-    private func cleartextPushFlag(_ outer: SyncEvent) -> Bool? {
-        guard let obj = json(outer.rawJSON),
+    private func cleartextPushFlag(_ outer: SyncEvent, prepared: PreparedJSON? = nil) -> Bool? {
+        guard let obj = prepared?.objectValue ?? json(outer.rawJSON),
               let content = obj["content"] as? [String: Any] else {
             return nil
         }
@@ -1136,6 +1398,10 @@ final class RoomViewModel {
         for message in messages { modelContext?.delete(message) }
         persistContext()
         messages.removeAll()
+        cardHeights.removeAll()
+        didLoadAllOlder = false
+        savedAnchorMsgId = nil
+        savedWasPinned = true
         requestScrollToBottom()
     }
 }

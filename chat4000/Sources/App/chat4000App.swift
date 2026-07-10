@@ -183,7 +183,6 @@ struct chat4000App: App {
                 switch newState {
                 case .connected:
                     errorMessage = nil
-                    chatViewModel.refreshMessages()
                     routeAfterConnectionProgress()
                 case .reconnecting:
                     // Reconnect silently (product decision): a transient socket drop
@@ -255,7 +254,7 @@ struct chat4000App: App {
                                MatrixEnvironment.isStage ? "stage" : "prod")
                     Haptics.prime()
                     activeSessionStartedAt = .now
-                    chatViewModel.refreshMessages()
+                    chatViewModel.refreshExternallyChangedRooms()
                     chatViewModel.matrixSession.clearNotificationsForActiveRoom()
                     if currentScreen == .chat, chatViewModel.isPaired {
                         Task { await chatViewModel.matrixSession.connect() }

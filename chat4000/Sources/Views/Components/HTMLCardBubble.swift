@@ -31,10 +31,29 @@ struct HTMLCardBubble: View {
     fileprivate static let maxHeight: CGFloat = 560
 
     let message: ChatMessage
-    @State private var height: CGFloat = 60
+    let initialHeight: CGFloat?
+    var onHeight: ((String, CGFloat) -> Void)?
+    @State private var height: CGFloat
+
+    init(
+        message: ChatMessage,
+        initialHeight: CGFloat? = nil,
+        onHeight: ((String, CGFloat) -> Void)? = nil
+    ) {
+        self.message = message
+        self.initialHeight = initialHeight
+        self.onHeight = onHeight
+        self._height = State(initialValue: initialHeight ?? 60)
+    }
 
     var body: some View {
-        HTMLCardWebView(html: message.htmlCardHTML ?? "", height: $height)
+        let key = message.msgId ?? message.id.uuidString
+        HTMLCardWebView(
+            html: message.htmlCardHTML ?? "",
+            height: $height,
+            cacheKey: key,
+            onHeight: onHeight
+        )
             .frame(height: min(max(height, 1), Self.maxHeight))
             .frame(maxWidth: .infinity, alignment: .leading)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -45,13 +64,32 @@ struct HTMLCardBubble: View {
 private struct HTMLCardWebView: PlatformViewRepresentable {
     let html: String
     @Binding var height: CGFloat
+    let cacheKey: String
+    var onHeight: ((String, CGFloat) -> Void)?
 
     /// Block every networked load (anything with a `scheme://`). Inline `data:` and
     /// the in-memory document have no `://` and still load.
     private static let blockAllNetwork =
         #"[{"trigger":{"url-filter":"://"},"action":{"type":"block"}}]"#
 
-    func makeCoordinator() -> Coordinator { Coordinator(height: $height) }
+    private static let sharedRuleList: Task<WKContentRuleList?, Never> = Task { @MainActor in
+        await withCheckedContinuation { continuation in
+            guard let store = WKContentRuleListStore.default() else {
+                continuation.resume(returning: nil)
+                return
+            }
+            store.compileContentRuleList(
+                forIdentifier: "chat4000-html-card-block-network",
+                encodedContentRuleList: blockAllNetwork
+            ) { list, _ in
+                continuation.resume(returning: list)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(height: $height, cacheKey: cacheKey, onHeight: onHeight)
+    }
 
     /// Reports the rendered content height REACTIVELY (on load + on every resize),
     /// so the SwiftUI frame matches the card after its real width lands — measuring
@@ -78,6 +116,8 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true   // JS ON (opt-in)
         config.websiteDataStore = .nonPersistent()                        // no cookies/cache
+        // SPEC-DEVIATION(D2-process-pool): Apple deprecates WKProcessPool on the
+        // supported SDKs as having no effect, and warnings are treated as errors.
         config.userContentController.add(coordinator, name: "cardHeight")
         config.userContentController.addUserScript(WKUserScript(
             source: Self.heightReporterJS,
@@ -106,10 +146,8 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
 
         let pageHTML = Self.withDeviceWidthViewport(html)
         // Compile + attach the network block, THEN load (so no load escapes it).
-        WKContentRuleListStore.default()?.compileContentRuleList(
-            forIdentifier: "chat4000-html-card-block-network",
-            encodedContentRuleList: Self.blockAllNetwork
-        ) { list, _ in
+        Task { @MainActor in
+            let list = await Self.sharedRuleList.value
             if let list { webView.configuration.userContentController.add(list) }
             webView.loadHTMLString(pageHTML, baseURL: nil)
         }
@@ -139,18 +177,40 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
     #if os(iOS)
     func makeUIView(context: Context) -> WKWebView { makeWebView(context.coordinator) }
     func updateUIView(_ webView: WKWebView, context: Context) {}
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        dismantle(webView)
+    }
     #else
     func makeNSView(context: Context) -> WKWebView { makeWebView(context.coordinator) }
     func updateNSView(_ webView: WKWebView, context: Context) {}
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        dismantle(webView)
+    }
     #endif
+
+    private static func dismantle(_ webView: WKWebView) {
+        webView.stopLoading()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cardHeight")
+        webView.navigationDelegate = nil
+    }
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         private let height: Binding<CGFloat>
+        private let cacheKey: String
+        private let onHeight: ((String, CGFloat) -> Void)?
         private var didLoadInitial = false
         /// CL27: emit html_card_overflow at most once per card.
         private var didReportOverflow = false
-        nonisolated init(height: Binding<CGFloat>) { self.height = height }
+        init(
+            height: Binding<CGFloat>,
+            cacheKey: String,
+            onHeight: ((String, CGFloat) -> Void)?
+        ) {
+            self.height = height
+            self.cacheKey = cacheKey
+            self.onHeight = onHeight
+        }
 
         // The page posts its content size here (on load + every resize). WebKit
         // delivers script messages on the main thread.
@@ -182,7 +242,10 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
                         "height_bucket": AnalyticsBuckets.cardHeightBucket(for: h)
                     ])
                 }
-                if h > 0, abs(h - height.wrappedValue) > 0.5 { height.wrappedValue = h }
+                if h > 0, abs(h - height.wrappedValue) > 0.5 {
+                    height.wrappedValue = h
+                    onHeight?(cacheKey, h)
+                }
             }
         }
 
