@@ -809,11 +809,21 @@ struct RoomMessagesView: View {
                     room.resetToNewestWindowIfExpanded()
                 }
             }
-            .onChange(of: room.messages.count) {
+            .onChange(of: room.messages.count) { oldCount, newCount in
                 // Follow ONLY if we were at the bottom. The signature guard in
                 // updatePinned keeps isPinnedToBottom honest across this arrival, so
                 // a tall incoming row can't unpin us before we read it here.
-                if isPinnedToBottom { scrollToBottom(using: proxy) }
+                if isPinnedToBottom {
+                    // R42: a net SHRINK while pinned (window trim on a live append,
+                    // diffed reload) slides content up under a stationary offset and
+                    // SwiftUI won't clamp — the viewport rests past the end (blank
+                    // page). Re-anchor synchronously IN THIS UPDATE; the deferred
+                    // multi-pass scrollToBottom below stays as belt-and-braces.
+                    if newCount < oldCount {
+                        proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+                    }
+                    scrollToBottom(using: proxy)
+                }
                 room.markRead()
                 syncContentSignatureAfterSettle()
             }
@@ -847,7 +857,12 @@ struct RoomMessagesView: View {
         if nearBottom {
             if !isPinnedToBottom {
                 isPinnedToBottom = true
-                room.resetToNewestWindowIfExpanded()
+                // R42: do NOT reset the window here. Snapping an expanded window
+                // back to newest-150 mid-scroll removes hundreds of rows under a
+                // stationary scroll offset; SwiftUI won't clamp, so the viewport
+                // rests BELOW the shrunken content — the "empty page". The reset
+                // still happens on room switch (onDisappear), where no live
+                // viewport exists, and RAM stays bounded by the 600-row hard cap.
             }
         } else if contentSignature == lastContentSignature {
             if isPinnedToBottom { isPinnedToBottom = false }
