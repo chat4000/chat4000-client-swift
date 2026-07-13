@@ -28,15 +28,15 @@ struct HTMLCardBubble: View {
     /// Hard cap so a malformed / full-page (`100vh`) card can never take infinite
     /// vertical space and black-out the chat; taller cards clip at this.
     /// `fileprivate` so the WebView coordinator can flag over-cap cards (CL27).
-    /// CHANGED 2026-07-13 ("make the cards way bigger"): was a fixed 560pt; now
-    /// screen-relative on iOS (~90% of the screen) and 1000pt on macOS — still
+    /// CHANGED 2026-07-13 (twice, owner request): 560pt → 0.9× screen → now
+    /// 2.0× screen height on both platforms — tall cards render fully; still
     /// bounded, so a mis-measured card (R39's cw=0 → 4600px reports) can never
-    /// black out the chat.
+    /// take unbounded space.
     fileprivate static var maxHeight: CGFloat {
         #if os(iOS)
-        return UIScreen.main.bounds.height * 0.9
+        return UIScreen.main.bounds.height * 2.0
         #else
-        return 1000
+        return (NSScreen.main?.frame.height ?? 1000) * 2.0
         #endif
     }
 
