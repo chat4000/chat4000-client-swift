@@ -930,7 +930,33 @@ final class MatrixSession {
         // STEP 2 — discover rooms + track new members (updateTrackedUsers), decrypt
         // and dispatch events. Persistence now happens per chunk, not per frame.
         var statusStatsByRoom: [String: StatusCollapseStats] = [:]
-        for room in sync.rooms {
+        // Receipts run via this local pass so it can fire TWICE: once the moment
+        // the ACTIVE room's events are in (ticks/read-state must not wait behind a
+        // storm room's grind), and again at frame end for every other room.
+        // Idempotent: unread-clearing repeats harmlessly and the delivered-flips
+        // in handleRead are status-guarded.
+        var receiptsApplied = false
+        func applyReceipts() {
+            for receipt in sync.receipts {
+                if receipt.userId == userId {
+                    markRoomReadLocally(roomId: receipt.roomId, rebuild: false)
+                    AppLog.debug("👁️ own read receipt in %@ up to %@ → unread=0", receipt.roomId, receipt.eventId)
+                } else {
+                    AppLog.debug("👁️ read receipt from %@ up to %@", receipt.userId, receipt.eventId)
+                    onReadReceipt?(receipt.eventId)
+                }
+            }
+        }
+        // UX-priority room order (R41): the ACTIVE room first — its reply, its
+        // status label and (via the early receipt pass) its ticks land within
+        // seconds of the frame starting — then the rest smallest-first so one
+        // storm room can't starve every other room for the whole frame.
+        let orderedRooms = sync.rooms.sorted { a, b in
+            if a.id == activeRoomId { return true }
+            if b.id == activeRoomId { return false }
+            return a.timeline.count < b.timeline.count
+        }
+        for room in orderedRooms {
             let completed = await processRoom(
                 room,
                 checkpointIds: &checkpointIds,
@@ -940,6 +966,10 @@ final class MatrixSession {
             guard completed else {
                 AppLog.log("🛑 frame aborted (stale generation) pos=%@", sync.pos ?? "nil")
                 return
+            }
+            if !receiptsApplied, room.id == activeRoomId {
+                receiptsApplied = true
+                applyReceipts()
             }
         }
         for (roomId, stats) in statusStatsByRoom where stats.delivered + stats.dropped > 0 {
@@ -957,18 +987,10 @@ final class MatrixSession {
         // Idempotent + coalesced inside CryptoEngine.
         await reconcileCrypto(reason: "post-sync")
 
-        // Peer receipts drive the outgoing "read" tick. Our own private receipts
-        // are the cross-device read marker for this Matrix user, so they clear the
-        // per-room unread count without clearing local notifications on this device.
-        for receipt in sync.receipts {
-            if receipt.userId == userId {
-                markRoomReadLocally(roomId: receipt.roomId, rebuild: false)
-                AppLog.debug("👁️ own read receipt in %@ up to %@ → unread=0", receipt.roomId, receipt.eventId)
-            } else {
-                AppLog.debug("👁️ read receipt from %@ up to %@", receipt.userId, receipt.eventId)
-                onReadReceipt?(receipt.eventId)
-            }
-        }
+        // Peer receipts drive the outgoing "read" tick; own private receipts are
+        // the cross-device read marker. Frame-end pass covers every room (the
+        // active room already got an early pass inside the loop above).
+        applyReceipts()
         await retryUndecrypted()
         let reachabilityChanged = await refreshReachability(reason: "post-sync")
         if reachabilityChanged || setupPhase != .ready || controlRoomId == nil || frameTouchesRooms {

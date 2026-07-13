@@ -855,6 +855,13 @@ private final class CryptoTracingLogger: Logger {
         if l.contains("receiving_chains") || l.contains("receiverchain") || l.contains("ratchet_key") {
             return
         }
+        // Drop the two per-decrypt spam lines (a trust check + a µs timer) that
+        // fire for EVERY event. During a storm catch-up (tens of thousands of
+        // decrypts) they were ~70% of all log volume, forcing a 10MB rotation
+        // every few seconds and throttling the whole grind on log IO (R41).
+        if l.contains("check_sender_trust_requirement") || l.contains("timer __method_") {
+            return
+        }
         guard l.contains("olm") || l.contains("megolm") || l.contains("session")
             || l.contains("room_key") || l.contains("room key") || l.contains("decrypt")
             || l.contains("prekey") || l.contains("pre-key") || l.contains("one-time")
