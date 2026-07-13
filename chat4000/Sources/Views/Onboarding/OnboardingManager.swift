@@ -45,7 +45,11 @@ final class OnboardingManager {
 
     private(set) var step: Step = .notifExplainer
     private(set) var attempts = 0
-    private(set) var pollConfig: PollConfig = OnboardingManager.defaultPollConfig
+    /// nil until the registrar answers — the app ships NO bundled options (RG10).
+    private(set) var pollConfig: PollConfig?
+    /// Set after the fetch retries are exhausted; poll steps are then skipped.
+    private(set) var pollUnavailable = false
+    private var pollSkipped = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -56,12 +60,12 @@ final class OnboardingManager {
         return !defaults.bool(forKey: completionDefaultsKey)
     }
 
-    var sourceQuestion: PollQuestion {
-        pollConfig.questions["heard_from"] ?? Self.defaultPollConfig.questions["heard_from"] ?? Self.fallbackSourceQuestion
+    var sourceQuestion: PollQuestion? {
+        pollConfig?.questions["heard_from"]
     }
 
-    var expectedQuestion: PollQuestion {
-        pollConfig.questions["expected_app"] ?? Self.defaultPollConfig.questions["expected_app"] ?? Self.fallbackExpectedQuestion
+    var expectedQuestion: PollQuestion? {
+        pollConfig?.questions["expected_app"]
     }
 
     func start() {
@@ -69,7 +73,7 @@ final class OnboardingManager {
         started = true
         startedAt = Date()
         trackStep(.notifExplainer)
-        Task { await fetchPollConfig() }
+        Task { await fetchPollConfigWithRetries() }
     }
 
     func enableNotifications() {
@@ -78,7 +82,7 @@ final class OnboardingManager {
             let granted = await PushNotificationManager.shared.requestAuthorizationForOnboarding()
             trackNotificationResult(granted: granted)
             if granted {
-                move(to: .pollSource)
+                advanceToSourcePoll()
             } else {
                 move(to: .notifBlocked, forceTrack: true)
             }
@@ -99,7 +103,7 @@ final class OnboardingManager {
             let granted = await PushNotificationManager.shared.hasNotificationAuthorization()
             trackNotificationResult(granted: granted)
             if granted {
-                move(to: .pollSource)
+                advanceToSourcePoll()
             } else {
                 trackStep(.notifBlocked, force: true)
             }
@@ -116,9 +120,38 @@ final class OnboardingManager {
         hasAgentAnswerId = answerId
         postAnswer(questionId: "has_agent", answerId: answerId, answerText: nil)
         if answerId == "neither" {
-            move(to: .pollExpected)
+            if pollUnavailable, expectedQuestion == nil {
+                pollSkipped = true
+                move(to: .interviewOffer)
+            } else {
+                move(to: .pollExpected)
+            }
         } else {
             complete()
+        }
+    }
+
+    /// RG10: options only ever come from the registrar. Config present → show the
+    /// poll; retries exhausted → skip it (CL31 poll_skipped); still fetching →
+    /// show the step's loading state and let the fetch resolution advance/skip.
+    private func advanceToSourcePoll() {
+        if pollUnavailable, sourceQuestion == nil {
+            pollSkipped = true
+            move(to: .pollAgent)
+        } else {
+            move(to: .pollSource)
+        }
+    }
+
+    /// Called when the fetch retries are exhausted while a poll step is showing
+    /// its loading state — skip forward instead of stranding the user.
+    private func skipPollStepIfWaiting() {
+        if step == .pollSource, sourceQuestion == nil {
+            pollSkipped = true
+            move(to: .pollAgent)
+        } else if step == .pollExpected, expectedQuestion == nil {
+            pollSkipped = true
+            move(to: .interviewOffer)
         }
     }
 
@@ -130,14 +163,13 @@ final class OnboardingManager {
     func complete() {
         defaults.set(true, forKey: Self.completionDefaultsKey)
         let duration = Date().timeIntervalSince(startedAt)
-        TelemetryManager.shared.track(
-            .onboardingCompleted,
-            properties: [
-                "has_agent": hasAgentAnswerId,
-                "heard_from": heardFromAnswerId,
-                "duration_bucket": AnalyticsBuckets.onboardingDurationBucket(for: duration)
-            ]
-        )
+        var properties: [String: Any] = [
+            "has_agent": hasAgentAnswerId,
+            "heard_from": heardFromAnswerId,
+            "duration_bucket": AnalyticsBuckets.onboardingDurationBucket(for: duration)
+        ]
+        if pollSkipped { properties["poll_skipped"] = true }   // CL31
+        TelemetryManager.shared.track(.onboardingCompleted, properties: properties)
     }
 
     private func move(to nextStep: Step, forceTrack: Bool = false) {
@@ -163,9 +195,24 @@ final class OnboardingManager {
         )
     }
 
-    private func fetchPollConfig() async {
+    /// The options' ONLY source (RG10): retry the registrar up to 10× (5s apart);
+    /// success fills the poll screens live, exhaustion skips them (poll_skipped).
+    private func fetchPollConfigWithRetries() async {
+        for attempt in 0..<10 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(5)) }
+            guard pollConfig == nil else { return }
+            if let fetched = await fetchPollConfigOnce() {
+                pollConfig = fetched
+                return
+            }
+        }
+        pollUnavailable = true
+        skipPollStepIfWaiting()
+    }
+
+    private func fetchPollConfigOnce() async -> PollConfig? {
         let env = MatrixEnvironment.current
-        guard let url = URL(string: env.registrarBaseURL.trimmedTrailingSlash + "/onboarding/poll") else { return }
+        guard let url = URL(string: env.registrarBaseURL.trimmedTrailingSlash + "/onboarding/poll") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 3
@@ -175,10 +222,11 @@ final class OnboardingManager {
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
-              let fetched = try? JSONDecoder().decode(PollConfig.self, from: data) else {
-            return
+              let fetched = try? JSONDecoder().decode(PollConfig.self, from: data),
+              fetched.questions["heard_from"]?.options.isEmpty == false else {
+            return nil
         }
-        pollConfig = Self.defaultPollConfig.overlaying(fetched)
+        return fetched
     }
 
     private func postAnswer(questionId: String, answerId: String, answerText: String?) {
@@ -233,51 +281,6 @@ final class OnboardingManager {
         }
     }
 
-    private static let fallbackSourceQuestion = PollQuestion(
-        title: "Where did you hear about us?",
-        options: []
-    )
-    private static let fallbackExpectedQuestion = PollQuestion(
-        title: "What did you expect this app to be?",
-        options: []
-    )
-
-    static let defaultPollConfig = PollConfig(
-        version: 2,
-        questions: [
-            "heard_from": PollQuestion(
-                title: "Where did you hear about us?",
-                options: [
-                    PollOption(id: "friend", label: "A friend told me", kind: "choice"),
-                    PollOption(id: "twitter_x", label: "Twitter / X", kind: "choice"),
-                    PollOption(id: "discord", label: "Discord", kind: "choice"),
-                    PollOption(id: "whatsapp_group", label: "A WhatsApp group", kind: "choice"),
-                    PollOption(id: "reddit", label: "Reddit", kind: "choice"),
-                    PollOption(id: "other", label: "Other", kind: "text")
-                ]
-            ),
-            "expected_app": PollQuestion(
-                title: "What did you expect this app to be?",
-                options: [
-                    PollOption(id: "chatgpt", label: "ChatGPT", kind: "choice"),
-                    PollOption(id: "anthropic", label: "Anthropic / Claude", kind: "choice"),
-                    PollOption(id: "other", label: "Something else", kind: "text")
-                ]
-            )
-        ]
-    )
-}
-
-private extension OnboardingManager.PollConfig {
-    func overlaying(_ fetched: OnboardingManager.PollConfig) -> OnboardingManager.PollConfig {
-        var merged = questions
-        for (key, value) in fetched.questions {
-            if !value.title.isEmpty, !value.options.isEmpty {
-                merged[key] = value
-            }
-        }
-        return OnboardingManager.PollConfig(version: fetched.version, questions: merged)
-    }
 }
 
 private extension String {

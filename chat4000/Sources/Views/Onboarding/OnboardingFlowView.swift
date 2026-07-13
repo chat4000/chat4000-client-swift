@@ -151,24 +151,41 @@ struct OnboardingFlowView: View {
 
     private func pollStep(
         icon: String,
-        question: OnboardingManager.PollQuestion,
+        question: OnboardingManager.PollQuestion?,
         submit: @escaping (OnboardingManager.PollOption, String?) -> Void
     ) -> some View {
         VStack(spacing: 18) {
             stepIcon(icon)
-            stepText(title: question.title, body: nil)
-            ForEach(question.options) { option in
-                if selectedTextOption?.id == option.id {
-                    textEntry(option: option, submit: submit)
-                } else {
-                    optionButton(option.label) {
-                        if option.isText {
-                            selectedTextOption = option
-                            textAnswer = ""
-                        } else {
-                            submit(option, nil)
-                            selectedTextOption = nil
-                        }
+            if let question {
+                pollOptions(question: question, submit: submit)
+            } else {
+                // Options are ALWAYS registrar-served (RG10) — the app ships no
+                // bundled list. The manager keeps retrying the fetch and auto-skips
+                // this step if the config never loads.
+                stepText(title: "One second…", body: "Loading questions")
+                ProgressView()
+                    .tint(AppColors.accent)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pollOptions(
+        question: OnboardingManager.PollQuestion,
+        submit: @escaping (OnboardingManager.PollOption, String?) -> Void
+    ) -> some View {
+        stepText(title: question.title, body: nil)
+        ForEach(question.options) { option in
+            if selectedTextOption?.id == option.id {
+                textEntry(option: option, submit: submit)
+            } else {
+                optionButton(option.label) {
+                    if option.isText {
+                        selectedTextOption = option
+                        textAnswer = ""
+                    } else {
+                        submit(option, nil)
+                        selectedTextOption = nil
                     }
                 }
             }

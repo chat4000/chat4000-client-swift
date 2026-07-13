@@ -26,9 +26,19 @@ private final class PassThroughScrollWebView: WKWebView {
 
 struct HTMLCardBubble: View {
     /// Hard cap so a malformed / full-page (`100vh`) card can never take infinite
-    /// vertical space and black-out the chat; taller cards scroll inside this.
+    /// vertical space and black-out the chat; taller cards clip at this.
     /// `fileprivate` so the WebView coordinator can flag over-cap cards (CL27).
-    fileprivate static let maxHeight: CGFloat = 560
+    /// CHANGED 2026-07-13 ("make the cards way bigger"): was a fixed 560pt; now
+    /// screen-relative on iOS (~90% of the screen) and 1000pt on macOS — still
+    /// bounded, so a mis-measured card (R39's cw=0 → 4600px reports) can never
+    /// black out the chat.
+    fileprivate static var maxHeight: CGFloat {
+        #if os(iOS)
+        return UIScreen.main.bounds.height * 0.9
+        #else
+        return 1000
+        #endif
+    }
 
     let message: ChatMessage
     let initialHeight: CGFloat?
