@@ -18,13 +18,22 @@ import MatrixSDKCrypto
 /// Keeping CryptoEngine behind a protocol (not the concrete client) keeps it
 /// unit-testable with a mock transport.
 @MainActor
-protocol GatewayRequesting: AnyObject {
+protocol GatewayRequesting: AnyObject, Sendable {
     @discardableResult
     func request(method: String, path: String, body: [String: Any]?) async throws(AppError) -> (status: Int, body: Data)
 }
 
-@MainActor
-final class CryptoEngine {
+struct MatrixJSONDictionary: @unchecked Sendable {
+    static let empty = MatrixJSONDictionary([:])
+
+    let value: [String: Any]
+
+    init(_ value: [String: Any]) {
+        self.value = value
+    }
+}
+
+actor CryptoEngine {
     private var machine: OlmMachine
     private let gateway: GatewayRequesting
 
@@ -60,7 +69,7 @@ final class CryptoEngine {
     /// failures are visible (the detail needed to diagnose an Olm session
     /// race/wedge). `setLogger` is a module-global, so guard against re-install
     /// on reconnect (which constructs a fresh CryptoEngine).
-    private static var tracingInstalled = false
+    nonisolated(unsafe) private static var tracingInstalled = false
 
     init(
         userId: String,
@@ -455,8 +464,8 @@ final class CryptoEngine {
         roomId: String,
         recipients: [String],
         eventType: String = "m.room.message",
-        content: [String: Any],
-        cleartextEnvelope: [String: Any] = [:],
+        content: MatrixJSONDictionary,
+        cleartextEnvelope: MatrixJSONDictionary = .empty,
         transactionId: String? = nil
     ) async throws(AppError) -> String? {
         AppLog.debug("🔐 encryptAndSend room=%@ type=%@ recipients=%d", roomId, eventType, recipients.count)
@@ -481,7 +490,7 @@ final class CryptoEngine {
         }
         for request in shareRequests { try await send(request) }
 
-        let plaintext = try jsonString(content)
+        let plaintext = try jsonString(content.value)
         let encrypted = try encryptEvent(roomId: roomId, eventType: eventType, plaintext: plaintext)
 
         // `encrypt` returns the `m.room.encrypted` content (algorithm,
@@ -489,7 +498,7 @@ final class CryptoEngine {
         // that object so the homeserver can read `chat4000.push` / aggregate
         // `m.relates_to` without seeing plaintext.
         var outer = (try? dict(fromJSON: encrypted)) ?? [:]
-        for (key, value) in cleartextEnvelope { outer[key] = value }
+        for (key, value) in cleartextEnvelope.value { outer[key] = value }
 
         let txnId = transactionId ?? UUID().uuidString
         let path = "/_matrix/client/v3/rooms/\(encode(roomId))/send/m.room.encrypted/\(encode(txnId))"
@@ -535,6 +544,14 @@ final class CryptoEngine {
         }) ?? false
     }
 
+    func reachableRooms(_ recipients: [String: [String]], selfUserId: String) -> Set<String> {
+        var reachable: Set<String> = []
+        for (roomId, users) in recipients where isRoomReachable(recipients: users, selfUserId: selfUserId) {
+            reachable.insert(roomId)
+        }
+        return reachable
+    }
+
     /// Decrypt an inbound `m.room.encrypted` event (the full event JSON) to its
     /// cleartext event JSON. Throws if the session is missing/undecryptable —
     /// callers should tolerate that (the key may arrive on a later sync).
@@ -562,6 +579,14 @@ final class CryptoEngine {
                 // unexpected.
                 throw AppError.crypto("decrypt: \(error.localizedDescription)")
             }
+        }
+    }
+
+    func decryptBatch(events: [(json: String, roomId: String)]) -> [String?] {
+        // PARALLEL-SEAM: a future TaskGroup can fan this out after pinning one
+        // machine instance for the batch so no reload can occur mid-batch.
+        events.map { event in
+            try? decrypt(eventJSON: event.json, roomId: event.roomId)
         }
     }
 
@@ -675,7 +700,8 @@ final class CryptoEngine {
     }
 
     private func call(_ method: String, _ path: String, body: [String: Any]?) async throws(AppError) -> String {
-        let (status, data) = try await gateway.request(method: method, path: path, body: body)
+        nonisolated(unsafe) let requestBody = body
+        let (status, data) = try await gateway.request(method: method, path: path, body: requestBody)
         let text = String(data: data, encoding: .utf8) ?? "{}"
         guard (200..<300).contains(status) else {
             // A non-2xx C-S response is an expected, classifiable failure. The

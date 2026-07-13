@@ -33,6 +33,37 @@ struct DecryptedRoomEvent: Sendable {
     }
 }
 
+private struct SyncFrameCheckpoint: Codable {
+    var pos: String
+    var processedEventIds: [String]
+}
+
+private struct StatusCollapseStats {
+    var newestDeliveredTs: Int64 = Int64.min
+    var delivered = 0
+    var dropped = 0
+}
+
+private struct PreparedEventJSON: Sendable {
+    var clear: PreparedJSON?
+    var outer: PreparedJSON?
+    var clearType: String?
+}
+
+private extension Array {
+    func chunked(size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        var chunks: [[Element]] = []
+        var index = startIndex
+        while index < endIndex {
+            let next = Swift.min(index + size, endIndex)
+            chunks.append(Array(self[index..<next]))
+            index = next
+        }
+        return chunks
+    }
+}
+
 /// v2 transport hub. Owns the native `GatewayClient` (WS frame protocol, D.1)
 /// and the standalone `CryptoEngine` (Olm/Megolm). Replaces the matrix-rust-sdk
 /// `Client`/`SyncService`/`Timeline` stack — the homeserver has no public
@@ -41,6 +72,8 @@ struct DecryptedRoomEvent: Sendable {
 @MainActor
 @Observable
 final class MatrixSession {
+    private static let syncChunkSize = 100
+
     private(set) var connectionState: ConnectionState = .disconnected {
         didSet {
             guard oldValue != connectionState else { return }
@@ -220,6 +253,7 @@ final class MatrixSession {
     /// on room switch). `live` is false for backfilled/replayed history.
     @ObservationIgnored var onRoomEvent: ((_ roomId: String, _ event: DecryptedRoomEvent, _ live: Bool) -> Void)?
     @ObservationIgnored var onSyncFrameBoundary: ((Bool) -> Void)?
+    @ObservationIgnored var onPrefetchDedup: ((_ roomId: String, _ msgIds: [String], _ eventIds: [String]) -> Void)?
     /// An outbound message's send completed → its homeserver event_id (for
     /// correlating later read receipts). `localId` is what `sendText`'s caller used.
     @ObservationIgnored var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
@@ -231,6 +265,8 @@ final class MatrixSession {
 
     @ObservationIgnored private var gateway: GatewayClient?
     @ObservationIgnored private var crypto: CryptoEngine?
+    @ObservationIgnored private var syncGeneration: UInt64 = 0
+    @ObservationIgnored private var reachableRoomsCache: Set<String> = []
     @ObservationIgnored private var roomSnapshotSaveTask: Task<Void, Never>?
     @ObservationIgnored private var creds: MatrixCredentialStore.Stored?
     /// F2 (protocol F.2.3): the cross-process crypto-store lock, wired to the
@@ -610,6 +646,7 @@ final class MatrixSession {
         gateway?.disconnect()
         gateway = nil
         crypto = nil
+        syncGeneration &+= 1
         resetSessionState()
         connectionState = .disconnected
     }
@@ -677,6 +714,7 @@ final class MatrixSession {
     }
 
     private func startClient(_ stored: MatrixCredentialStore.Stored) async throws(AppError) {
+        syncGeneration &+= 1
         guard let url = URL(string: stored.gatewayURL) else {
             throw AppError.invalidConfiguration("gateway URL")
         }
@@ -731,7 +769,7 @@ final class MatrixSession {
         reportForegroundStateIfChanged()
 
         let restoredRoomSnapshot = restoreRoomSnapshotIfNeeded(userId: auth.userId)
-        restoreCryptoStateForRoomSnapshot()
+        await restoreCryptoStateForRoomSnapshotAsync()
 
         // Publish our device keys / one-time keys before syncing.
         try await crypto.runOutgoingRequests()
@@ -778,6 +816,10 @@ final class MatrixSession {
         if let token = PushNotificationManager.shared.deviceToken {
             await registerPushToken(token)
         }
+        if await refreshReachability(reason: "start-client") {
+            rebuildRoomList()
+            updateSetupPhase()
+        }
     }
 
     /// The socket dropped. Start a reconnect cycle — but ONLY if we were connected
@@ -803,6 +845,7 @@ final class MatrixSession {
         guard connectionState == .reconnecting, let stored = creds else { return }
         gateway = nil
         crypto = nil
+        syncGeneration &+= 1
         do {
             try await startClient(stored)
         } catch .cancelled {
@@ -817,6 +860,7 @@ final class MatrixSession {
     // MARK: - Sync handling
 
     private func handleSync(_ frame: [String: Any]) async {
+        let capturedGeneration = syncGeneration
         backgroundNotifyCount = 0
         let sync = SyncModel.parse(frame)
         if let pinned = sync.pinnedRoomIds {
@@ -854,16 +898,51 @@ final class MatrixSession {
         // keys/query a full sync cycle late (~30s), because we drained BEFORE we
         // knew the plugin existed.
         var cryptoPersisted = true
-        do { try crypto?.receiveSyncChangesIntoStore(sync) } catch {
+        do { try await crypto?.receiveSyncChangesIntoStore(sync) } catch {
             cryptoPersisted = false
             ErrorReporter.capture(error, context: "MatrixSession.receiveSyncChanges")
             AppLog.log("⚙️ crypto.receiveSyncChanges failed: \(error)")
         }
 
+        var checkpointIds: Set<String> = []
+        if let pos = sync.pos {
+            if let checkpoint = Self.loadSyncFrameCheckpoint(userId: userId), checkpoint.pos == pos {
+                checkpointIds = Set(checkpoint.processedEventIds)
+                let skipped = sync.rooms.reduce(0) { total, room in
+                    total + room.timeline.filter { event in
+                        event.eventId.map { checkpointIds.contains($0) } ?? false
+                    }.count
+                }
+                AppLog.log("⏩ resume frame pos=%@ skipped=%d", pos, skipped)
+            } else {
+                Self.clearSyncFrameCheckpoint(userId: userId)
+            }
+        }
+
         // STEP 2 — discover rooms + track new members (updateTrackedUsers), decrypt
-        // and dispatch events.
-        onSyncFrameBoundary?(true)
-        for room in sync.rooms { await processRoom(room) }
+        // and dispatch events. Persistence now happens per chunk, not per frame.
+        var statusStatsByRoom: [String: StatusCollapseStats] = [:]
+        for room in sync.rooms {
+            let completed = await processRoom(
+                room,
+                framePos: sync.pos,
+                checkpointIds: &checkpointIds,
+                generation: capturedGeneration,
+                statusStats: &statusStatsByRoom
+            )
+            guard completed else {
+                AppLog.log("🛑 frame aborted (stale generation) pos=%@", sync.pos ?? "nil")
+                return
+            }
+        }
+        for (roomId, stats) in statusStatsByRoom where stats.delivered + stats.dropped > 0 {
+            AppLog.log(
+                "🌪️ status collapsed room=%@ delivered=%d dropped=%d",
+                roomId,
+                stats.delivered,
+                stats.dropped
+            )
+        }
 
         // STEP 3 — RECONCILE: drive crypto to a fixpoint now that new members are
         // tracked, so a freshly-seen plugin's keys/query goes out THIS cycle instead
@@ -884,8 +963,8 @@ final class MatrixSession {
             }
         }
         await retryUndecrypted()
-        onSyncFrameBoundary?(false)
-        if setupPhase != .ready || controlRoomId == nil || frameTouchesRooms {
+        let reachabilityChanged = await refreshReachability(reason: "post-sync")
+        if reachabilityChanged || setupPhase != .ready || controlRoomId == nil || frameTouchesRooms {
             rebuildRoomList()
         } else {
             AppLog.debug("📋 rebuild skipped (heartbeat frame)")
@@ -932,6 +1011,7 @@ final class MatrixSession {
             // re-deliver next sync.
             let ackToDevicePos = cryptoPersisted ? sync.toDevicePos : nil
             gateway?.syncAck(pos: pos, toDevicePos: ackToDevicePos)
+            Self.clearSyncFrameCheckpoint(userId: userId)
         }
         resumeSyncWaiters()
     }
@@ -992,7 +1072,13 @@ final class MatrixSession {
         // any cursor that was not named.
     }
 
-    private func processRoom(_ room: SyncRoom) async {
+    private func processRoom(
+        _ room: SyncRoom,
+        framePos: String?,
+        checkpointIds: inout Set<String>,
+        generation: UInt64,
+        statusStats: inout [String: StatusCollapseStats]
+    ) async -> Bool {
         // Auto-accept invites: a room we're invited to (the plugin's control
         // room / space / session) only appears in sliding sync as `invite`; the
         // list shows joined rooms, so we'd never see it with full state. Join it
@@ -1000,19 +1086,22 @@ final class MatrixSession {
         if isInvited(room), joinedInviteAttempts.insert(room.id).inserted {
             AppLog.log("📨 auto-joining invited room %@", room.id)
             await joinRoom(room.id)
-            return
+            return true
         }
 
         if !roomOrder.contains(room.id) { roomOrder.append(room.id) }
         if let kind = room.roomKind { roomKinds[room.id] = kind }
         if let name = room.name, !name.isEmpty { roomNames[room.id] = name }
-        if room.isSpace { spaceRooms.insert(room.id); return } // the plugin's space; never a chat
+        if room.isSpace {
+            spaceRooms.insert(room.id)
+            return true
+        } // the plugin's space; never a chat
 
         // Membership → crypto: mark encrypted + track + remember recipients.
         // These were silently `try?`'d; a failure here breaks key sharing
         // (no algorithm set / untracked users → no Olm session → UTD), so log it.
         if room.isEncrypted, !encryptedRooms.contains(room.id) {
-            do { try crypto?.markRoomEncrypted(room.id); encryptedRooms.insert(room.id) } catch {
+            do { try await crypto?.markRoomEncrypted(room.id); encryptedRooms.insert(room.id) } catch {
                 ErrorReporter.capture(error, context: "MatrixSession.markRoomEncrypted")
                 AppLog.log("⚙️ markRoomEncrypted failed for %@: %@", room.id, error.localizedDescription)
             }
@@ -1022,7 +1111,7 @@ final class MatrixSession {
             let newUsers = room.members.filter { !trackedUsers.contains($0) }
             if !newUsers.isEmpty {
                 do {
-                    try crypto?.updateTrackedUsers(newUsers)
+                    try await crypto?.updateTrackedUsers(newUsers)
                     trackedUsers.formUnion(newUsers)
                     AppLog.debug("🔑 tracking %d new user(s) for key queries: %@", newUsers.count, newUsers.joined(separator: ","))
                 } catch {
@@ -1065,59 +1154,131 @@ final class MatrixSession {
             AppLog.log("🕳️ prepending %d backfilled gap event(s) ahead of %@ window (tl=%d)",
                        backfilled.count, room.id, room.timeline.count)
         }
-        for outer in backfilled + room.timeline {
-            // Dedup ALL timeline events by event_id — INCLUDING chat4000.status
-            // (protocol E). The gateway re-delivers the recent window on state-change
-            // syncs, so without this we'd re-process stale status and re-arm the
-            // label's TTL. The label is driven by the LATEST status by ts (below), so
-            // we never need to re-process an old one.
-            guard let eid = outer.eventId, seenEventIds.insert(eid).inserted else { continue }
-
-            let clear: String?
-            if outer.type == "m.room.encrypted" {
-                do {
-                    // SPEC-DEVIATION(D6-decrypt): CryptoEngine is @MainActor and
-                    // owns gateway-coupled mutable state, so decrypt stays on main.
-                    clear = try crypto?.decrypt(eventJSON: outer.rawJSON, roomId: room.id)
-                    if clear != nil { AppLog.debug("🔓 decrypted %@ in %@", eid, room.id) }
-                } catch {
-                    clear = nil
-                    AppLog.log("🔒 decrypt failed %@ in %@: %@ — requesting key", eid, room.id, error.localizedDescription)
-                    // Buffer for retry once the key arrives (the event won't be
-                    // in a future sync timeline), and gossip-request it once.
-                    undecrypted[eid] = (room.id, outer)
-                    if requestedKeyFor.insert(eid).inserted {
-                        let raw = outer.rawJSON, rid = room.id
-                        Task { [weak self] in try? await self?.crypto?.requestRoomKey(forEvent: raw, roomId: rid) }
-                    }
-                }
-            } else {
-                clear = outer.rawJSON
-            }
-
-            if isControl {
-                AppLog.debug("🎛️ control event %@ → parse command_result", eid)
-                handleControlEvent(clear: clear)
-                continue
-            }
-
-            let prepared = await Self.prepareEventJSON(clear: clear, outer: outer.rawJSON)
-            let event = DecryptedRoomEvent(
-                outer: outer,
-                clear: clear,
-                isOwn: outer.sender == userId,
-                preparedClear: prepared.clear,
-                preparedOuter: prepared.outer
+        let timeline = backfilled + room.timeline
+        let chunks = timeline.chunked(size: Self.syncChunkSize)
+        for (chunkIndex, chunk) in chunks.enumerated() {
+            AppLog.debug(
+                "🧩 chunk room=%@ %d/%d events=%d",
+                room.id,
+                chunkIndex + 1,
+                chunks.count,
+                chunk.count
             )
-            // Deliver to the room's view model regardless of which room is front
-            // (NO active gate): every room cooks + persists its own rows live, so a
-            // background room's always-mounted view is already correct when brought
-            // to front — and the active-room race that bled one room's tool chips
-            // into another room's timeline is gone structurally.
-            onRoomEvent?(room.id, event, true)
-            if isBackgrounded, !event.isOwn {
-                maybePostBackgroundNotification(roomId: room.id, outer: outer, clear: clear)
+            let candidates = chunk.filter { event in
+                guard let eventId = event.eventId else { return true }
+                return !checkpointIds.contains(eventId)
             }
+            let encryptedInputs = candidates
+                .filter { $0.type == "m.room.encrypted" }
+                .map { (json: $0.rawJSON, roomId: room.id) }
+            let decryptedBatch = await crypto?.decryptBatch(events: encryptedInputs) ?? []
+            var encryptedIndex = 0
+            var processedIds: Set<String> = []
+            var decryptedEvents: [DecryptedRoomEvent] = []
+            for outer in candidates {
+                // Dedup ALL timeline events by event_id — INCLUDING chat4000.status
+                // (protocol E). The gateway re-delivers the recent window on state-change
+                // syncs, so without this we'd re-process stale status and re-arm the
+                // label's TTL. The label is driven by the LATEST status by ts (below), so
+                // we never need to re-process an old one.
+                guard let eid = outer.eventId else { continue }
+                guard !seenEventIds.contains(eid) else {
+                    processedIds.insert(eid)
+                    continue
+                }
+
+                let clear: String?
+                if outer.type == "m.room.encrypted" {
+                    clear = encryptedIndex < decryptedBatch.count ? decryptedBatch[encryptedIndex] : nil
+                    encryptedIndex += 1
+                    if clear != nil {
+                        AppLog.debug("🔓 decrypted %@ in %@", eid, room.id)
+                    } else {
+                        AppLog.log("🔒 decrypt failed %@ in %@ — requesting key", eid, room.id)
+                        // Buffer for retry once the key arrives (the event won't be
+                        // in a future sync timeline), and gossip-request it once. This
+                        // path is deliberately NOT marked seen or checkpointed: if the
+                        // app dies before the key arrives, the frame must re-deliver it.
+                        undecrypted[eid] = (room.id, outer)
+                        if requestedKeyFor.insert(eid).inserted {
+                            let raw = outer.rawJSON, rid = room.id
+                            Task { [weak self] in try? await self?.crypto?.requestRoomKey(forEvent: raw, roomId: rid) }
+                        }
+                        continue
+                    }
+                } else {
+                    clear = outer.rawJSON
+                }
+
+                decryptedEvents.append(DecryptedRoomEvent(
+                    outer: outer,
+                    clear: clear,
+                    isOwn: outer.sender == userId
+                ))
+            }
+            let preparedEvents = await Self.prepareEventJSONBatch(
+                decryptedEvents.map { event in (clear: event.clear, outer: event.outer.rawJSON) }
+            )
+            let newestStatusIndex = preparedEvents.indices
+                .filter { preparedEvents[$0].clearType == "chat4000.status" }
+                .max { lhs, rhs in
+                    (decryptedEvents[lhs].outer.originServerTs ?? 0) < (decryptedEvents[rhs].outer.originServerTs ?? 0)
+                }
+            onSyncFrameBoundary?(true)
+            onPrefetchDedup?(room.id, dedupIds(from: decryptedEvents), dedupIds(from: decryptedEvents))
+            for (index, event) in decryptedEvents.enumerated() {
+                let prepared = preparedEvents[index]
+                let event = DecryptedRoomEvent(
+                    outer: event.outer,
+                    clear: event.clear,
+                    isOwn: event.isOwn,
+                    preparedClear: prepared.clear,
+                    preparedOuter: prepared.outer
+                )
+                guard let eid = event.outer.eventId else { continue }
+                seenEventIds.insert(eid)
+                if isControl {
+                    AppLog.debug("🎛️ control event %@ → parse command_result", eid)
+                    handleControlEvent(clear: event.clear)
+                    processedIds.insert(eid)
+                    continue
+                }
+
+                if prepared.clearType == "chat4000.status" {
+                    var stats = statusStats[room.id] ?? StatusCollapseStats()
+                    if index == newestStatusIndex {
+                        stats.newestDeliveredTs = max(stats.newestDeliveredTs, event.outer.originServerTs ?? 0)
+                        stats.delivered += 1
+                    } else {
+                        stats.dropped += 1
+                        statusStats[room.id] = stats
+                        processedIds.insert(eid)
+                        continue
+                    }
+                    statusStats[room.id] = stats
+                }
+
+                // Deliver to the room's view model regardless of which room is front
+                // (NO active gate): every room cooks + persists its own rows live, so a
+                // background room's always-mounted view is already correct when brought
+                // to front — and the active-room race that bled one room's tool chips
+                // into another room's timeline is gone structurally.
+                onRoomEvent?(room.id, event, true)
+                processedIds.insert(eid)
+                if isBackgrounded, !event.isOwn {
+                    maybePostBackgroundNotification(roomId: room.id, outer: event.outer, clear: event.clear)
+                }
+            }
+            onSyncFrameBoundary?(false)
+            checkpointIds.formUnion(processedIds)
+            if let framePos {
+                Self.saveSyncFrameCheckpoint(
+                    SyncFrameCheckpoint(pos: framePos, processedEventIds: Array(checkpointIds)),
+                    userId: userId
+                )
+            }
+            await Task.yield()
+            guard generation == syncGeneration else { return false }
         }
 
         // chat4000.status is NO LONGER read here. It is delivered as an E2EE
@@ -1125,6 +1286,7 @@ final class MatrixSession {
         // rides the normal decrypt → onRoomEvent → RoomViewModel.ingest
         // path and drives the label there. The old required_state read was lossy
         // (the timeline is the source of truth) and is removed.
+        return true
     }
 
     /// Backfill the offline gap above a TRUNCATED (`limited`) catch-up timeline.
@@ -1203,14 +1365,14 @@ final class MatrixSession {
     private func retryUndecrypted() async {
         guard !undecrypted.isEmpty, let crypto else { return }
         for (eid, entry) in undecrypted {
-            guard let clear = try? crypto.decrypt(eventJSON: entry.outer.rawJSON, roomId: entry.roomId) else { continue }
+            guard let clear = try? await crypto.decrypt(eventJSON: entry.outer.rawJSON, roomId: entry.roomId) else { continue }
             undecrypted.removeValue(forKey: eid)
             AppLog.log("🔓 late-decrypted %@ in %@", eid, entry.roomId)
             if roomKinds[entry.roomId] == "control" {
                 handleControlEvent(clear: clear)
                 continue
             }
-            let prepared = await Self.prepareEventJSON(clear: clear, outer: entry.outer.rawJSON)
+            let prepared = Self.prepareEventJSONSync(clear: clear, outer: entry.outer.rawJSON)
             let event = DecryptedRoomEvent(
                 outer: entry.outer,
                 clear: clear,
@@ -1223,20 +1385,30 @@ final class MatrixSession {
         }
     }
 
-    private nonisolated static func prepareEventJSON(
-        clear: String?,
-        outer: String
-    ) async -> (clear: PreparedJSON?, outer: PreparedJSON?) {
+    private nonisolated static func prepareEventJSONBatch(
+        _ events: [(clear: String?, outer: String)]
+    ) async -> [PreparedEventJSON] {
         await Task.detached(priority: .utility) {
-            prepareEventJSONSync(clear: clear, outer: outer)
+            events.map { event in
+                prepareEventJSONSync(clear: event.clear, outer: event.outer)
+            }
         }.value
     }
 
     private nonisolated static func prepareEventJSONSync(
         clear: String?,
         outer: String
-    ) -> (clear: PreparedJSON?, outer: PreparedJSON?) {
-        (PreparedJSON.parse(clear), PreparedJSON.parse(outer))
+    ) -> PreparedEventJSON {
+        let preparedClear = PreparedJSON.parse(clear)
+        return PreparedEventJSON(
+            clear: preparedClear,
+            outer: PreparedJSON.parse(outer),
+            clearType: preparedClear?.objectValue?["type"] as? String
+        )
+    }
+
+    private func dedupIds(from events: [DecryptedRoomEvent]) -> [String] {
+        events.compactMap { $0.outer.eventId }
     }
 
     private func rebuildRoomList() {
@@ -1286,16 +1458,30 @@ final class MatrixSession {
     /// send will claim + establish + share to it (rather than to 0 devices)? A
     /// read-only crypto-store check (no network); gates UI readiness/visibility.
     private func isRoomReady(_ roomId: String) -> Bool {
-        guard let crypto, let userId else {
-            AppLog.debug("🔑 room-ready? %@ → false (no crypto/userId yet)", roomId)
+        guard userId != nil else {
+            AppLog.debug("🔑 room-ready? %@ → false (no userId yet)", roomId)
             return false
         }
         let recipients = roomMembers[roomId] ?? []
-        let reachable = crypto.isRoomReachable(recipients: recipients, selfUserId: userId)
+        let reachable = reachableRoomsCache.contains(roomId)
         // The decisive check during "Joining your workspace": is the PLUGIN's device
         // known + has an Olm session? false here = we're waiting on the plugin's keys.
         AppLog.debug("🔑 room-ready? %@ reachable=%@ recipients=%d", roomId, String(reachable), recipients.count)
         return reachable
+    }
+
+    private func refreshReachability(reason: String) async -> Bool {
+        guard let crypto, let userId else { return false }
+        let next = await crypto.reachableRooms(roomMembers, selfUserId: userId)
+        guard next != reachableRoomsCache else { return false }
+        AppLog.log(
+            "🔑 reachability changed reason=%@ old=%d new=%d",
+            reason,
+            reachableRoomsCache.count,
+            next.count
+        )
+        reachableRoomsCache = next
+        return true
     }
 
     /// Recompute the first-run progress phase from current room state.
@@ -1509,7 +1695,7 @@ final class MatrixSession {
             return try await crypto?.encryptAndSend(
                 roomId: roomId,
                 recipients: roomMembers[roomId] ?? [],
-                content: ["msgtype": "m.text", "body": text],
+                content: MatrixJSONDictionary(["msgtype": "m.text", "body": text]),
                 transactionId: txnId
             )
         } catch {
@@ -1546,7 +1732,7 @@ final class MatrixSession {
                 data, mediaBaseURL: mediaBase, accessToken: creds.accessToken, filename: filename)
             let content: [String: Any] = ["msgtype": msgtype, "body": filename, "file": file, "info": info]
             return try await crypto?.encryptAndSend(
-                roomId: roomId, recipients: roomMembers[roomId] ?? [], content: content,
+                roomId: roomId, recipients: roomMembers[roomId] ?? [], content: MatrixJSONDictionary(content),
                 transactionId: txnId)
         } catch {
             ErrorReporter.capture(error, context: "MatrixSession.deliverMedia")
@@ -1720,16 +1906,15 @@ final class MatrixSession {
             handleControlCommandSendFailure(command: command)
             return
         }
-        var content: [String: Any] = ["msgtype": "chat4000.command"]
-        content.merge(fields) { _, new in new }
+        let content: [String: Any] = ["msgtype": "chat4000.command"].merging(fields) { _, new in new }
         let recipients = roomMembers[controlRoomId] ?? []
-        Task {
+        Task { @MainActor in
             do {
                 _ = try await crypto.encryptAndSend(
                     roomId: controlRoomId,
                     recipients: recipients,
-                    content: content,
-                    cleartextEnvelope: ["chat4000.push": false]
+                    content: MatrixJSONDictionary(content),
+                    cleartextEnvelope: MatrixJSONDictionary(["chat4000.push": false])
                 )
             } catch {
                 ErrorReporter.capture(error, context: "MatrixSession.controlCommand")
@@ -2292,6 +2477,26 @@ final class MatrixSession {
         UserDefaults.standard.removeObject(forKey: syncPosKey(userId))
     }
 
+    private static func syncFrameCheckpointKey(_ userId: String?) -> String {
+        "chat4000.syncFrameCheckpoint.\(userId ?? "")"
+    }
+
+    private static func saveSyncFrameCheckpoint(_ checkpoint: SyncFrameCheckpoint, userId: String?) {
+        guard let data = try? JSONEncoder().encode(checkpoint) else { return }
+        UserDefaults.standard.set(data, forKey: syncFrameCheckpointKey(userId))
+    }
+
+    private static func loadSyncFrameCheckpoint(userId: String?) -> SyncFrameCheckpoint? {
+        guard let data = UserDefaults.standard.data(forKey: syncFrameCheckpointKey(userId)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(SyncFrameCheckpoint.self, from: data)
+    }
+
+    private static func clearSyncFrameCheckpoint(userId: String?) {
+        UserDefaults.standard.removeObject(forKey: syncFrameCheckpointKey(userId))
+    }
+
     /// Per-account durably-persisted TO-DEVICE cursor (protocol D.1). A SEPARATE
     /// key from `pos` — the two cursors are independent. The device is the source
     /// of truth: we resend it on reconnect so un-acked Olm-wrapped Megolm keys are
@@ -2545,10 +2750,16 @@ final class MatrixSession {
     }
 
     private func restoreCryptoStateForRoomSnapshot() {
+        Task { @MainActor in
+            await self.restoreCryptoStateForRoomSnapshotAsync()
+        }
+    }
+
+    private func restoreCryptoStateForRoomSnapshotAsync() async {
         guard let crypto, let userId, !roomOrder.isEmpty else { return }
         for roomId in encryptedRooms {
             do {
-                try crypto.markRoomEncrypted(roomId)
+                try await crypto.markRoomEncrypted(roomId)
             } catch {
                 ErrorReporter.capture(error, context: "MatrixSession.restoreRoomEncryption")
                 AppLog.log("⚙️ restore room encryption failed for %@: %@", roomId, error.localizedDescription)
@@ -2558,7 +2769,7 @@ final class MatrixSession {
         let newUsers = snapshotUsers.filter { !trackedUsers.contains($0) }
         guard !newUsers.isEmpty else { return }
         do {
-            try crypto.updateTrackedUsers(Array(newUsers))
+            try await crypto.updateTrackedUsers(Array(newUsers))
             trackedUsers.formUnion(newUsers)
             AppLog.debug("🔑 restored tracking for %d snapshot user(s)", newUsers.count)
         } catch {

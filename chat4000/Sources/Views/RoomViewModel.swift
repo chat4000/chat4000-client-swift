@@ -45,6 +45,8 @@ final class RoomViewModel {
     @ObservationIgnored private var batchDepth = 0
     @ObservationIgnored private var batchNeedsSave = false
     @ObservationIgnored private var lastOlderLoadAt: Date?
+    @ObservationIgnored private var prefetchedDupIndex: (msgIds: Set<String>, eventIds: Set<String>)?
+    @ObservationIgnored private var prefetchedDupCoverage: (msgIds: Set<String>, eventIds: Set<String>)?
 
     // Streaming assembly (one in-flight agent stream at a time).
     @ObservationIgnored private var currentStreamId: String?
@@ -335,7 +337,10 @@ final class RoomViewModel {
     func endSyncBatch() {
         guard batchDepth > 0 else { return }
         batchDepth -= 1
-        guard batchDepth == 0, batchNeedsSave, let modelContext else { return }
+        guard batchDepth == 0 else { return }
+        prefetchedDupIndex = nil
+        prefetchedDupCoverage = nil
+        guard batchNeedsSave, let modelContext else { return }
         batchNeedsSave = false
         withTransaction(Transaction(animation: nil)) {
             do {
@@ -345,6 +350,40 @@ final class RoomViewModel {
                 ErrorReporter.capture(error, context: "RoomViewModel.endSyncBatch")
             }
         }
+    }
+
+    func prefetchDupIndex(msgIds: [String], eventIds: [String]) {
+        let msgCoverage = Array(Set(msgIds.filter { !$0.isEmpty }))
+        let eventCoverage = Array(Set(eventIds.filter { !$0.isEmpty }))
+        prefetchedDupCoverage = (msgIds: Set(msgCoverage), eventIds: Set(eventCoverage))
+        guard let modelContext else {
+            prefetchedDupIndex = (msgIds: [], eventIds: [])
+            return
+        }
+        let rid = roomId
+        var foundMsgIds: Set<String> = []
+        var foundEventIds: Set<String> = []
+        if !msgCoverage.isEmpty {
+            // No fetchLimit: the predicate already bounds results to the asked ids,
+            // and a limit could truncate when legacy duplicate rows share a msgId
+            // (a missed id would false-negative into a duplicate insert).
+            let descriptor = FetchDescriptor<ChatMessage>(
+                predicate: #Predicate { $0.roomId == rid && msgCoverage.contains($0.msgId ?? "") }
+            )
+            if let existing = try? modelContext.fetch(descriptor) {
+                foundMsgIds = Set(existing.compactMap(\.msgId))
+            }
+        }
+        if !eventCoverage.isEmpty {
+            // Same rationale as above — the predicate is the bound, not a limit.
+            let descriptor = FetchDescriptor<ChatMessage>(
+                predicate: #Predicate { $0.roomId == rid && eventCoverage.contains($0.matrixEventId ?? "") }
+            )
+            if let existing = try? modelContext.fetch(descriptor) {
+                foundEventIds = Set(existing.compactMap(\.matrixEventId))
+            }
+        }
+        prefetchedDupIndex = (msgIds: foundMsgIds, eventIds: foundEventIds)
     }
 
     private func applyTimeline(_ target: [ChatMessage]) {
@@ -424,8 +463,19 @@ final class RoomViewModel {
         }
         insertInTimestampOrder(message)
         modelContext?.insert(message)
+        addToPrefetchedDupIndex(message)
         trimToWindow()
         return true
+    }
+
+    private func addToPrefetchedDupIndex(_ message: ChatMessage) {
+        guard prefetchedDupIndex != nil else { return }
+        if let msgId = message.msgId, !msgId.isEmpty {
+            prefetchedDupIndex?.msgIds.insert(msgId)
+        }
+        if let eventId = message.matrixEventId, !eventId.isEmpty {
+            prefetchedDupIndex?.eventIds.insert(eventId)
+        }
     }
 
     func cardHeightKey(for message: ChatMessage) -> String {
@@ -481,6 +531,10 @@ final class RoomViewModel {
     }
 
     private func storedMessageExists(msgId: String) -> Bool {
+        if let prefetchedDupIndex, let prefetchedDupCoverage,
+           prefetchedDupCoverage.msgIds.contains(msgId) {
+            return prefetchedDupIndex.msgIds.contains(msgId)
+        }
         guard let modelContext else { return false }
         let rid = roomId
         var descriptor = FetchDescriptor<ChatMessage>(
@@ -506,6 +560,10 @@ final class RoomViewModel {
     /// (survives relaunch). Used to suppress the synced echo of our own send once
     /// its local row has been reconciled to the homeserver event_id.
     private func storedMessageExists(matrixEventId eventId: String) -> Bool {
+        if let prefetchedDupIndex, let prefetchedDupCoverage,
+           prefetchedDupCoverage.eventIds.contains(eventId) {
+            return prefetchedDupIndex.eventIds.contains(eventId)
+        }
         guard let modelContext else { return false }
         let rid = roomId
         var descriptor = FetchDescriptor<ChatMessage>(

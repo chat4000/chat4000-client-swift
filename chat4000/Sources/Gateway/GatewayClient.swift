@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Frame shapes mirror `chat4000-matrix-ws-proxy/src/protocol.rs`.
 @MainActor
-final class GatewayClient: GatewayRequesting {
+final class GatewayClient: GatewayRequesting, @unchecked Sendable {
     struct Identity {
         let appId: String
         let clientVersion: String
@@ -68,7 +68,8 @@ final class GatewayClient: GatewayRequesting {
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
-    private var keepaliveTask: Task<Void, Never>?
+    private let keepaliveQueue = DispatchQueue(label: "chat4000.gateway.keepalive", qos: .utility)
+    private var keepaliveTimer: DispatchSourceTimer?
     /// Set by `disconnect()` so the receive loop's resulting error does not fire
     /// `onClosed` (which would trigger a spurious reconnect on a clean close).
     private var isClosing = false
@@ -166,8 +167,8 @@ final class GatewayClient: GatewayRequesting {
 
     func disconnect() {
         isClosing = true
-        keepaliveTask?.cancel()
-        keepaliveTask = nil
+        keepaliveTimer?.cancel()
+        keepaliveTimer = nil
         receiveLoop?.cancel()
         receiveLoop = nil
         socket?.cancel(with: .normalClosure, reason: nil)
@@ -183,17 +184,28 @@ final class GatewayClient: GatewayRequesting {
     /// invite arrived. A ping every 20s keeps it alive; a failed ping surfaces
     /// the dead socket so reconnect kicks in.
     private func startKeepalive() {
-        keepaliveTask?.cancel()
-        keepaliveTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(20))
-                guard !Task.isCancelled, let self, let socket = self.socket else { return }
-                AppLog.debug("🛰️↔ ping")
-                socket.sendPing { error in
-                    if let error { AppLog.log("⚙️ gateway ping failed: \(error)") }
+        keepaliveTimer?.cancel()
+        keepaliveTimer = nil
+        guard let socket else { return }
+        let timer = DispatchSource.makeTimerSource(queue: keepaliveQueue)
+        var lastPingAt: Date?
+        timer.schedule(deadline: .now() + .seconds(20), repeating: .seconds(20), leeway: .seconds(2))
+        timer.setEventHandler {
+            let now = Date()
+            if let previous = lastPingAt {
+                let gap = now.timeIntervalSince(previous)
+                if gap > 30 {
+                    AppLog.log("⚠️ keepalive gap %.0fs", gap)
                 }
             }
+            lastPingAt = now
+            AppLog.debug("🛰️↔ ping")
+            socket.sendPing { error in
+                if let error { AppLog.log("⚙️ gateway ping failed: \(error)") }
+            }
         }
+        keepaliveTimer = timer
+        timer.resume()
     }
 
     /// Re-auth in place (after `reauth`) without dropping the socket.
@@ -471,8 +483,8 @@ final class GatewayClient: GatewayRequesting {
 
     private func handleSocketError(_ error: Error) {
         AppLog.log("⚙️ gateway socket closed: \(error)")
-        keepaliveTask?.cancel()
-        keepaliveTask = nil
+        keepaliveTimer?.cancel()
+        keepaliveTimer = nil
         failAllPending(error)
         // Reconnect/backoff is the caller's concern (MatrixSession owns retry).
         // Suppressed on a clean `disconnect()`.

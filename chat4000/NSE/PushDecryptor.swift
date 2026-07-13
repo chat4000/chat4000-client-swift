@@ -31,7 +31,7 @@ import Foundation
 /// it fails closed (the NSE then falls back to the generic banner) rather than
 /// opening any network/crypto write the NSE must never perform (F.2.5).
 @MainActor
-private final class NoGateway: GatewayRequesting {
+private final class NoGateway: GatewayRequesting, @unchecked Sendable {
     func request(method: String, path: String, body: [String: Any]?) async throws(AppError) -> (status: Int, body: Data) {
         throw AppError.notReady
     }
@@ -105,7 +105,7 @@ enum PushDecryptor {
             return nil
         }
 
-        if let clear = try? engine.decrypt(eventJSON: cipherEvent, roomId: roomId) {
+        if let clear = try? await engine.decrypt(eventJSON: cipherEvent, roomId: roomId) {
             return banner(fromClear: clear)
         }
 
@@ -118,7 +118,7 @@ enum PushDecryptor {
         // IS live, or recovery doesn't yield the key, fall back to the generic banner.
         AppLog.log("🔔 [nse] local decrypt missed — attempting cold-key recovery")
         let recovered = await coldKeyRecover(record: record, engine: engine)
-        guard recovered, let clear = try? engine.decrypt(eventJSON: cipherEvent, roomId: roomId) else {
+        guard recovered, let clear = try? await engine.decrypt(eventJSON: cipherEvent, roomId: roomId) else {
             AppLog.log("🔔 [nse] cold-key recovery did not yield the key — generic fallback")
             return nil
         }
@@ -252,7 +252,7 @@ enum PushDecryptor {
                 return false
             }
             do {
-                try engine.receiveSyncChangesIntoStore(sync)   // imports keys under the flock
+                try await engine.receiveSyncChangesIntoStore(sync)   // imports keys under the flock
             } catch {
                 AppLog.log("🔔 [nse] cold-key import failed: %@", String(describing: error))
                 return false
