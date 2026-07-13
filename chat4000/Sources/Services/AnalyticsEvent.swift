@@ -87,6 +87,10 @@ enum AnalyticsEvent: String {
     /// taller than the 560px cap, or both). The "card rendered badly" signal;
     /// fires at most once per card. {axis: horizontal|vertical|both, height_bucket}
     case htmlCardOverflow = "html_card_overflow"  // CL27
+    case onboardingStepViewed = "onboarding_step_viewed"  // CL29
+    case onboardingNotificationsResult = "onboarding_notifications_result"  // CL30
+    case onboardingCompleted = "onboarding_completed"  // CL31
+    case onboardingAnswer = "onboarding_answer"  // CL32
 
     // APNS / push
     case apnsTokenRegistered = "apns_token_registered"
@@ -114,6 +118,15 @@ enum AnalyticsBuckets {
         case ..<31: return "16_30s"
         case ..<61: return "31_60s"
         default: return "60s_plus"
+        }
+    }
+
+    static func onboardingDurationBucket(for duration: TimeInterval) -> String {
+        switch duration {
+        case ..<30: return "0_30s"
+        case ..<120: return "30s_2m"
+        case ..<600: return "2m_10m"
+        default: return "10m_plus"
         }
     }
 

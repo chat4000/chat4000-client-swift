@@ -11,6 +11,9 @@ import AppKit
 #endif
 
 enum AppScreen {
+    #if os(iOS)
+    case onboarding
+    #endif
     case enterPairingCode
     case pairingConnecting
     case appConnecting
@@ -36,6 +39,10 @@ struct chat4000App: App {
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
     @State private var versionPolicy = VersionPolicyManager.shared
+    #if os(iOS)
+    @State private var onboardingManager = OnboardingManager()
+    @State private var pendingOnboardingPairingCode: String?
+    #endif
     #if os(macOS)
     @State private var macUpdater = MacUpdater.shared
     #endif
@@ -58,7 +65,17 @@ struct chat4000App: App {
         if initialViewModel.isPaired {
             initialScreen = initialViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting
         } else {
+            #if os(iOS)
+            if OnboardingManager.needsOnboarding(isAlreadyPaired: initialViewModel.isPaired) {
+                // Product decision: the first-run notification gate is hard on every
+                // iOS flavor, including the App Store build.
+                initialScreen = .onboarding
+            } else {
+                initialScreen = .enterPairingCode
+            }
+            #else
             initialScreen = .enterPairingCode
+            #endif
         }
         _currentScreen = State(initialValue: initialScreen)
         _showLegalReconsentModal = State(initialValue: false)
@@ -245,6 +262,11 @@ struct chat4000App: App {
                 #endif
                 switch newPhase {
                 case .active:
+                    #if os(iOS)
+                    if currentScreen == .onboarding {
+                        onboardingManager.handleSceneBecameActive()
+                    }
+                    #endif
                     // Log the running version on every foreground (not just cold
                     // launch) so a pulled log always identifies the exact build,
                     // even when the app was only resumed.
@@ -429,6 +451,14 @@ struct chat4000App: App {
     @ViewBuilder
     private var primaryContent: some View {
         switch currentScreen {
+        #if os(iOS)
+        case .onboarding:
+            OnboardingFlowView(
+                manager: onboardingManager,
+                onComplete: completeOnboarding
+            )
+        #endif
+
         case .enterPairingCode:
             EnterPairingCodeView(
                 errorMessage: errorMessage,
@@ -536,6 +566,12 @@ struct chat4000App: App {
                 .pairingLinkOpened,
                 properties: ["source": url.scheme?.lowercased() == "chat4000" ? "url_scheme" : "universal_link"]
             )
+            #if os(iOS)
+            if currentScreen == .onboarding {
+                pendingOnboardingPairingCode = code
+                return
+            }
+            #endif
             startJoinPairing(code)
             return
         }
@@ -601,6 +637,20 @@ struct chat4000App: App {
         }
         Task { await chatViewModel.pair(code: code) }
     }
+
+    #if os(iOS)
+    private func completeOnboarding() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            currentScreen = .enterPairingCode
+        }
+        guard let code = pendingOnboardingPairingCode else { return }
+        pendingOnboardingPairingCode = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            startJoinPairing(code)
+        }
+    }
+    #endif
 
 }
 

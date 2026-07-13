@@ -140,6 +140,7 @@
 		26CB79EC9996DF917C3DC9EF /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 891EE3C3BBC8005ABB77BE86 /* Sentry */; };
 		26E5BD943DB72F49DB808184 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E62C9B7F93B5FD69B564FAA /* TelemetryManager.swift */; };
 		26E88BEC815778B426175956 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
+		26EA7A82C4EB7AA9832AF11C /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		26EFAA43C99EC1F777157E19 /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E279BECEC1DDA3BABCBFD605 /* MatrixSession.swift */; };
 		2702B52A3D5706164730CE50 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A396B2DAEFF7B4E0F82BC2B2 /* AppEnvironment.swift */; };
 		2708F9839E9AA107B662B07B /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
@@ -163,6 +164,7 @@
 		2D4167B5E8A64CFD4C1B5571 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
 		2D5B6913F255CECF8D11C8F4 /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
 		2DEF2EC1C99339D975EEEE17 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
+		2E5104A2E369D0C2F75E830D /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		2E68E8B269B22274C3A3DA4C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		2E841A093A29AA92C818D63B /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		2F44F85B97327A1372051BCA /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
@@ -178,6 +180,7 @@
 		3259F611C33817B85D74DD30 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF384D3E7D467BD2AD433354 /* Haptics.swift */; };
 		3279196D4881FD57A4346161 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		32CD32F44DB29E4CB4307BDE /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
+		330CAF345885B3183B834882 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		334CC41E9134C885B5D9469E /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
 		3378610D43DD7BA1C50A9E57 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		33790303489AD5FF375B1EB3 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
@@ -204,6 +207,7 @@
 		3903CD4CC2FCB660A6F498FD /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
 		390D381964B61899E1E2B299 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 254D9F26902395CF118B2FA9 /* PostHog */; };
 		394038F7604185DA25535A8B /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
+		3998B8E7C854613141B3B8CC /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		39A0912A7E45E9B1FE96FF83 /* MatrixPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFE23E76382E9E59EB73FF2 /* MatrixPairing.swift */; };
 		3A20C78078F528B07381FA1A /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		3A2ACA1B5355F312EA6C6671 /* MatrixCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97C15B692F729175C38D5BE8 /* MatrixCredentialStore.swift */; };
@@ -233,6 +237,7 @@
 		424D563CF1B48A41519EF508 /* MatrixMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6267C167CD38DDCBAE9FB2 /* MatrixMedia.swift */; };
 		429E4234F505F042DD3C78EF /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
 		42B6B5B4FC561EB9307C8A19 /* MacUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59ECDBD879EA339EF5149C47 /* MacUpdater.swift */; };
+		42D689B1D65EA7963FFB70FD /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		42D8C3AE99A70933379D20F1 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775F83E456452A65DE8E465F /* ChatMessage.swift */; };
 		42FF832AE3992709FDCBCA04 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		434B6B72183F919E90F8879B /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0F0A5286A39685CA3C6558 /* GatewayClient.swift */; };
@@ -251,6 +256,7 @@
 		477DEBBE76182C752121B43A /* NotificationContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA8AEBEDE13F9A2C379D2C6 /* NotificationContentBuilder.swift */; };
 		47E44AE46A616BA5D6FAD177 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC091E5444DA21F658F41CE /* RoomViewModel.swift */; };
 		485782B9FF876545310FBFCD /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
+		48706AC4F3B3F3FBDB2B83D8 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		48ABDBB100DCA0F9096A35E8 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		49709019F266CAE6B9FD8768 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		4A18352362778A3A6C4D4B1B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
@@ -280,6 +286,7 @@
 		50643B80B6A2158BB2108FDC /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E62C9B7F93B5FD69B564FAA /* TelemetryManager.swift */; };
 		5126D13D831E0846FC360D3B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		517CBAD7434D7F9519F0240F /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A396B2DAEFF7B4E0F82BC2B2 /* AppEnvironment.swift */; };
+		51B295C8BF17A82667CD52CE /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		51F55F8717024CB7C8EDE5CF /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1210B8CE0CC1FAAC69FA2434 /* PushNotificationService.swift */; };
 		52A20FC77D9E6078C219A730 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		52C5D0821D819310F85EA0E1 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5AC52C4AD26F008EF36616 /* AppLog.swift */; };
@@ -341,6 +348,7 @@
 		67B9A1D95828D0D0AEF5A340 /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
 		6840A2692ED62420678D6AE2 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
 		68442E19C91819ABACA382D8 /* ToolCallBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */; };
+		684943983DA2F42A2C136AEF /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		68882F7E16F87CDC6239BD90 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
 		6898AC52836CB5CF313BC0DC /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
 		6983D5815663067608D5178C /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAB6C3931C50F92E3354E52 /* ProtocolModels.swift */; };
@@ -373,9 +381,11 @@
 		74387E64CFB8948FAEAC4F1C /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		7469EB14B4D9E9AE6BB714F3 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 3C565F3443075652F4EE1454 /* Sentry */; };
 		74C1D7B879AB7622AF2DC966 /* CryptoStoreLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA431F0443236533C509FA6 /* CryptoStoreLockTests.swift */; };
+		74E5083C468AFAEFA18ED084 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		75121EF2343055B31A2D2D47 /* MatrixMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6267C167CD38DDCBAE9FB2 /* MatrixMedia.swift */; };
 		760D6D4F93B492EF8A13FA83 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 730FD16E8E03EFBFDAADFA20 /* Sentry */; };
 		761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
+		76B6B73629C1A99E3B08A7EA /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		773EFBF6EED0001C709A6F19 /* HTMLCardSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE14FB545F169BACAD1DB84 /* HTMLCardSanitizer.swift */; };
 		77F912496D819D1429F62678 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		780E51866C71150B82C2C055 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
@@ -385,6 +395,7 @@
 		7980E2C7BCD9833A237EC50F /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8424EB00ED7D201481A6BCF9 /* SlidingSync.swift */; };
 		79E8CB2855B75FADD7B7BED5 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDA5291BCB003302FCE025F /* ImageCache.swift */; };
 		7A26C94D5C54C4418A60B8A4 /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
+		7A42EE00F1FE8122B8EE7CE2 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		7B25E0CFDDC7EAEDCC97B66E /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
 		7B8A2DACE8C1AF16A2202ABB /* TalkToTeamButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09A046D82165CC7FC62A91 /* TalkToTeamButton.swift */; };
 		7B9C2A5867E2052CA094D292 /* FounderChatPromptModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192964FAF1BD18F37F44D7E6 /* FounderChatPromptModal.swift */; };
@@ -439,6 +450,7 @@
 		88C4511CC943EED31EACA883 /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8424EB00ED7D201481A6BCF9 /* SlidingSync.swift */; };
 		88DD22837943880367AF83DC /* AnalyticsEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 131E1298E44D54D03E09EA80 /* AnalyticsEvent.swift */; };
 		88EF5E4566498AD2486CCF19 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E62C9B7F93B5FD69B564FAA /* TelemetryManager.swift */; };
+		89E2A7369B4D76302C00252F /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		8A3235DAA9380F637DE127F3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
 		8AAF492EAB3728F1B3A04CA0 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB7CCE014B46CF4301D2661 /* SettingsSheet.swift */; };
 		8B247C2ACDDBA766B1533186 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
@@ -533,7 +545,9 @@
 		A7187198C1B050E8FE5BA025 /* ToolCallBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */; };
 		A7C1E9BD00F5DA2EF1C9A03C /* CryptoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536E1D7D281BC133A9722AE3 /* CryptoEngine.swift */; };
 		A7C80BDC5C82EAF951CCF63E /* MatrixMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05027BA245E6C6A3547D1AFB /* MatrixMediaTests.swift */; };
+		A828D5D69E146C5758D14C78 /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		A86E72D1A04501585B7B5623 /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
+		A8C5B9C1037A607A05ECB518 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		A9D8C7E96B9FDC3A78AE7418 /* DiagnosticReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F1F0DA670EEFD16A0CE81F4 /* DiagnosticReportService.swift */; };
 		A9DDC8C97FF49202DBBE9E69 /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A0FDF267BFD143FD8D6077 /* AppError.swift */; };
 		A9F3382E64ACDFAD701B47C4 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E62C9B7F93B5FD69B564FAA /* TelemetryManager.swift */; };
@@ -541,6 +555,7 @@
 		AA36CC370F5A335AA49695C6 /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53A6BCB00D435794ED325EFD /* ErrorReporter.swift */; };
 		AA38A9594FFDA3A6F448D9D0 /* UpdateAvailablePopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */; };
 		AA46875A56305FB8CAADECD3 /* SharedCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031DD9689D03BA51921ABF1E /* SharedCredentials.swift */; };
+		AB025B6B1DAA290BDBFE9A5E /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		AB3B6807135D1A1F18801ED2 /* ClientIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C493069A887B17836FE6E50 /* ClientIdentity.swift */; };
 		AB4560DAC495F67A8AD29D10 /* UpgradeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */; };
 		AB67193DF0D8C55704C90200 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FEDF9A158CCD55C122E4C0 /* ConnectingView.swift */; };
@@ -632,6 +647,7 @@
 		C698F743E2252D137EACB96B /* chat4000App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8BF1914A6E192A09704942 /* chat4000App.swift */; };
 		C6BFD49641FDAA970C89B4F6 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 316A6E007883AD327A4A7B1F /* MatrixSDKCrypto */; };
 		C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2921479514ABE106F4A0EE2 /* MessageBubble.swift */; };
+		C716186E1140E55AD008FD3A /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		C74E35997A4C381E20A87C09 /* IntercomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9DF1240787264D8401784C /* IntercomService.swift */; };
 		C79B8EF99266290AC85F7E24 /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1094D50799D3A69691930FF /* VoiceNotes.swift */; };
 		C7D1D497D081D2B50847C3AC /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
@@ -643,6 +659,7 @@
 		C94431E998C97ABF45DFF15A /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0F7BF48F790433EC31076 /* MatrixEnvironment.swift */; };
 		C9B1FAAD9BE1370DB46E5240 /* CryptoStoreLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD53025C6CCAD5D8E5B133E4 /* CryptoStoreLock.swift */; };
 		CA40C01D3FB056A908D2B420 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDA5291BCB003302FCE025F /* ImageCache.swift */; };
+		CAA2AFAF1AF02CC667FECF3B /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		CAAC4CEB5BC258B29144B13E /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		CB1607EFBCC9DCB58B88F003 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD1AE31ACFE31F364F2B886 /* LegalConsent.swift */; };
 		CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
@@ -670,7 +687,9 @@
 		D07CA14015A1AC1ED0136141 /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2DE19AE020BA69583B75BB /* MessageTransport.swift */; };
 		D07CF58AA1DC4322EDEEE96B /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775F83E456452A65DE8E465F /* ChatMessage.swift */; };
 		D08C13C1E2F3F8B8ECD59A21 /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376137AA7D1D7398FA8A2D97 /* TelemetryPreferences.swift */; };
+		D0A6FCF331E1E7C834A666BC /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		D0C6B4EDB31CC16A0345FBDF /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A0FDF267BFD143FD8D6077 /* AppError.swift */; };
+		D0D202FE07C75FB5254E32CF /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C12CCD270BD319582092498 /* OnboardingFlowView.swift */; };
 		D23F02EEFFF3F01B3BBF22C8 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAB6C3931C50F92E3354E52 /* ProtocolModels.swift */; };
 		D2929D3A6579E0FA160A6BD6 /* TelemetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E62C9B7F93B5FD69B564FAA /* TelemetryManager.swift */; };
 		D2B456F4141D4923C08E03F6 /* VoiceMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FC8A46DD252A0D2CBFC988 /* VoiceMessageViews.swift */; };
@@ -817,6 +836,7 @@
 		FEA340B7655EC6CEFAD5DD75 /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */; };
 		FEA99C5C48703C37160CF061 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5AC52C4AD26F008EF36616 /* AppLog.swift */; };
 		FEEAE6346995666956880BFB /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
+		FFCD224BC1431841725B4281 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		FFD1986D5F2C7A54AC8DDBC6 /* CryptoStoreLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD53025C6CCAD5D8E5B133E4 /* CryptoStoreLock.swift */; };
 		FFD9A02F43B368354BC53BBA /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 /* End PBXBuildFile section */
@@ -983,6 +1003,7 @@
 		8424EB00ED7D201481A6BCF9 /* SlidingSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlidingSync.swift; sourceTree = "<group>"; };
 		8AA8FB2373B6454B9B67D090 /* chat4000macprod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = chat4000macprod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResilientModelContainer.swift; sourceTree = "<group>"; };
+		8C12CCD270BD319582092498 /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
 		9775EA221E8E2069202C8EEB /* NotificationContentBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationContentBuilderTests.swift; sourceTree = "<group>"; };
 		97C15B692F729175C38D5BE8 /* MatrixCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixCredentialStore.swift; sourceTree = "<group>"; };
 		987E633C3AE8037A73BDD2D2 /* dev-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dev-config.json"; sourceTree = "<group>"; };
@@ -1004,6 +1025,7 @@
 		BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat4000Shortcuts.swift; sourceTree = "<group>"; };
 		C3E0F7BF48F790433EC31076 /* MatrixEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixEnvironment.swift; sourceTree = "<group>"; };
 		C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = chat4000Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C71F612714F9A2D995E93C5D /* OnboardingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingManager.swift; sourceTree = "<group>"; };
 		CB8627734E252FE4E0D03E22 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		CE0F0A5286A39685CA3C6558 /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		CFA431F0443236533C509FA6 /* CryptoStoreLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoStoreLockTests.swift; sourceTree = "<group>"; };
@@ -1257,6 +1279,7 @@
 				D151FC7FE9D1F2CE13684397 /* UpdatePill.swift */,
 				B012389C8EFB22EEAF38F50D /* UpgradeViews.swift */,
 				A07F252E761A1639763D74AC /* Components */,
+				71CCED3226817208D0AFF125 /* Onboarding */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1328,6 +1351,15 @@
 				C60C6D511BF53E608B8BFAF1 /* chat4000Tests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		71CCED3226817208D0AFF125 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				8C12CCD270BD319582092498 /* OnboardingFlowView.swift */,
+				C71F612714F9A2D995E93C5D /* OnboardingManager.swift */,
+			);
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 		784E8F4F0AF893A5BCD43FC2 /* Packages */ = {
@@ -2669,6 +2701,8 @@
 				AA12AB581270CD33DADB3567 /* MessageBubble.swift in Sources */,
 				D75E0F2C6477331921EC8FE6 /* MessageTransport.swift in Sources */,
 				E043C3B46740013AB17CC3E6 /* NotificationContentBuilder.swift in Sources */,
+				74E5083C468AFAEFA18ED084 /* OnboardingFlowView.swift in Sources */,
+				FFCD224BC1431841725B4281 /* OnboardingManager.swift in Sources */,
 				1C4C4CBAB292E07CBA21F539 /* PlatformAppDelegate.swift in Sources */,
 				64FE882907B47AA579B91B30 /* PreparedJSON.swift in Sources */,
 				B15D1432D4D9A5AD7EF9027F /* ProtocolModels.swift in Sources */,
@@ -2742,6 +2776,8 @@
 				2FF5243AF71271A4A24120E9 /* MessageBubble.swift in Sources */,
 				EB11B917B610CD042E7F267F /* MessageTransport.swift in Sources */,
 				0B938F2BE45E95B9C27ACA9F /* NotificationContentBuilder.swift in Sources */,
+				D0A6FCF331E1E7C834A666BC /* OnboardingFlowView.swift in Sources */,
+				48706AC4F3B3F3FBDB2B83D8 /* OnboardingManager.swift in Sources */,
 				E58534267C219A9011087DA3 /* PlatformAppDelegate.swift in Sources */,
 				A328EA36A962DFA060E2467F /* PreparedJSON.swift in Sources */,
 				EC0D878AFF66C5AD1ABC13CA /* ProtocolModels.swift in Sources */,
@@ -2815,6 +2851,8 @@
 				C6C26BAEFCA4F101DE1913C9 /* MessageBubble.swift in Sources */,
 				0EF977F7180790312CE0BFD2 /* MessageTransport.swift in Sources */,
 				02F368BCEE2EEF00FACF0ED0 /* NotificationContentBuilder.swift in Sources */,
+				76B6B73629C1A99E3B08A7EA /* OnboardingFlowView.swift in Sources */,
+				3998B8E7C854613141B3B8CC /* OnboardingManager.swift in Sources */,
 				761FAE3555D8B0488582D61A /* PlatformAppDelegate.swift in Sources */,
 				28F534570A2B5D1237B14FE1 /* PreparedJSON.swift in Sources */,
 				D23F02EEFFF3F01B3BBF22C8 /* ProtocolModels.swift in Sources */,
@@ -2888,6 +2926,8 @@
 				5AE92A49665C5E18A8D1F93E /* MessageBubble.swift in Sources */,
 				4AB9B19264A31177D9703EA2 /* MessageTransport.swift in Sources */,
 				4CF0DFBFF6C57B2935AD2474 /* NotificationContentBuilder.swift in Sources */,
+				AB025B6B1DAA290BDBFE9A5E /* OnboardingFlowView.swift in Sources */,
+				C716186E1140E55AD008FD3A /* OnboardingManager.swift in Sources */,
 				860D9832174139740B2C735D /* PlatformAppDelegate.swift in Sources */,
 				AF492BB35AB6030BF6E29713 /* PreparedJSON.swift in Sources */,
 				BAD4200248CF1BEB68997DBF /* ProtocolModels.swift in Sources */,
@@ -2961,6 +3001,8 @@
 				6898AC52836CB5CF313BC0DC /* MessageBubble.swift in Sources */,
 				A3F6582514DAD33656805F27 /* MessageTransport.swift in Sources */,
 				4ED892C46948B7DE57E29014 /* NotificationContentBuilder.swift in Sources */,
+				89E2A7369B4D76302C00252F /* OnboardingFlowView.swift in Sources */,
+				2E5104A2E369D0C2F75E830D /* OnboardingManager.swift in Sources */,
 				60088DBAE573AA1CDE0E63F3 /* PlatformAppDelegate.swift in Sources */,
 				E029006027684988537920CA /* PreparedJSON.swift in Sources */,
 				D07B76E1025B93C728B29FF2 /* ProtocolModels.swift in Sources */,
@@ -3052,6 +3094,8 @@
 				2F44F85B97327A1372051BCA /* MessageBubble.swift in Sources */,
 				EF1AD9A376BFC24440F4C851 /* MessageTransport.swift in Sources */,
 				EF567A7CF5A963D318A96150 /* NotificationContentBuilder.swift in Sources */,
+				CAA2AFAF1AF02CC667FECF3B /* OnboardingFlowView.swift in Sources */,
+				51B295C8BF17A82667CD52CE /* OnboardingManager.swift in Sources */,
 				FBA8D342A3451B326E93C1B4 /* PlatformAppDelegate.swift in Sources */,
 				33979384137E3BEF47428669 /* PreparedJSON.swift in Sources */,
 				C467040C32029A9494948239 /* ProtocolModels.swift in Sources */,
@@ -3146,6 +3190,8 @@
 				5A52BBC3DE49AA28978752E1 /* MessageBubble.swift in Sources */,
 				D07CA14015A1AC1ED0136141 /* MessageTransport.swift in Sources */,
 				DEC86187B58B470267BA4E3A /* NotificationContentBuilder.swift in Sources */,
+				7A42EE00F1FE8122B8EE7CE2 /* OnboardingFlowView.swift in Sources */,
+				26EA7A82C4EB7AA9832AF11C /* OnboardingManager.swift in Sources */,
 				845BE8DAFACC8D97F1C8C668 /* PlatformAppDelegate.swift in Sources */,
 				2CF252A9BE784DBF34899667 /* PreparedJSON.swift in Sources */,
 				372149DB0E943B9AACEEFA9B /* ProtocolModels.swift in Sources */,
@@ -3240,6 +3286,8 @@
 				8D29A1220032A6B3A745C83B /* MessageBubble.swift in Sources */,
 				6A7099FFBB46192CB1E7FC1B /* MessageTransport.swift in Sources */,
 				E975000D8E1CD74343E546B9 /* NotificationContentBuilder.swift in Sources */,
+				A828D5D69E146C5758D14C78 /* OnboardingFlowView.swift in Sources */,
+				330CAF345885B3183B834882 /* OnboardingManager.swift in Sources */,
 				3E7243D7CF4A4B0ACDF15BA8 /* PlatformAppDelegate.swift in Sources */,
 				A4017BA535EFFD46937F74D8 /* PreparedJSON.swift in Sources */,
 				6983D5815663067608D5178C /* ProtocolModels.swift in Sources */,
@@ -3334,6 +3382,8 @@
 				38A1F810EFF6479156A10307 /* MessageBubble.swift in Sources */,
 				3A5EA0F98C830B2AD1205D4D /* MessageTransport.swift in Sources */,
 				477DEBBE76182C752121B43A /* NotificationContentBuilder.swift in Sources */,
+				42D689B1D65EA7963FFB70FD /* OnboardingFlowView.swift in Sources */,
+				A8C5B9C1037A607A05ECB518 /* OnboardingManager.swift in Sources */,
 				7FCFB1729A9EBA97737C0283 /* PlatformAppDelegate.swift in Sources */,
 				8E205E95BC79C478424FDFA5 /* PreparedJSON.swift in Sources */,
 				BFF4F7113772110C380F65C7 /* ProtocolModels.swift in Sources */,
@@ -3407,6 +3457,8 @@
 				E19900B4C6FD38C78F85282A /* MessageBubble.swift in Sources */,
 				E0E67601525596B1115FA7DF /* MessageTransport.swift in Sources */,
 				E72C2361395BD7442674F1F2 /* NotificationContentBuilder.swift in Sources */,
+				D0D202FE07C75FB5254E32CF /* OnboardingFlowView.swift in Sources */,
+				684943983DA2F42A2C136AEF /* OnboardingManager.swift in Sources */,
 				BE43FD413C2AE78ACD3BD8CE /* PlatformAppDelegate.swift in Sources */,
 				BCB68487C7A144DAFCBE4715 /* PreparedJSON.swift in Sources */,
 				860BFF322F2D76F057D4FF46 /* ProtocolModels.swift in Sources */,

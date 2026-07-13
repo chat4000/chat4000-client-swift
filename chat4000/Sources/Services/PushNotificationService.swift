@@ -72,6 +72,35 @@ final class PushNotificationManager: NSObject {
         #endif
     }
 
+    #if os(iOS)
+    func requestAuthorizationForOnboarding() async -> Bool {
+        configure()
+        AppLog.log("🔔 [push] onboarding requesting notification authorization")
+        let granted: Bool
+        do {
+            granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        } catch {
+            ErrorReporter.capture(error, context: "PushNotificationManager.requestAuthorizationForOnboarding")
+            AppLog.log("⚠️ [push] onboarding notification authorization failed: \(error.localizedDescription)")
+            return false
+        }
+        if granted {
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+        return granted
+    }
+
+    func hasNotificationAuthorization() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        default:
+            return false
+        }
+    }
+    #endif
+
     func clearBadge() {
         #if os(iOS)
         UNUserNotificationCenter.current().setBadgeCount(0) { error in
