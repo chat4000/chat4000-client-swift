@@ -164,7 +164,7 @@ struct OnboardingFlowView: View {
                 // this step if the config never loads.
                 stepText(title: "One second…", body: "Loading questions")
                 ProgressView()
-                    .tint(AppColors.accent)
+                    .tint(AppColors.textSecondary)
             }
         }
     }
