@@ -243,16 +243,17 @@ final class OnboardingManager {
     )
 
     static let defaultPollConfig = PollConfig(
-        version: 1,
+        version: 2,
         questions: [
             "heard_from": PollQuestion(
                 title: "Where did you hear about us?",
                 options: [
-                    PollOption(id: "website", label: "A website", kind: "choice"),
-                    PollOption(id: "twitter_x", label: "Twitter / X", kind: "choice"),
                     PollOption(id: "friend", label: "A friend told me", kind: "choice"),
-                    PollOption(id: "other", label: "Other", kind: "text"),
-                    PollOption(id: "prefer_not_say", label: "Prefer not to say", kind: "choice")
+                    PollOption(id: "twitter_x", label: "Twitter / X", kind: "choice"),
+                    PollOption(id: "discord", label: "Discord", kind: "choice"),
+                    PollOption(id: "whatsapp_group", label: "A WhatsApp group", kind: "choice"),
+                    PollOption(id: "reddit", label: "Reddit", kind: "choice"),
+                    PollOption(id: "other", label: "Other", kind: "text")
                 ]
             ),
             "expected_app": PollQuestion(
