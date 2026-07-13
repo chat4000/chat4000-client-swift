@@ -752,6 +752,9 @@ struct RoomMessagesView: View {
     /// How close (pt) the content bottom must be to the viewport bottom to count as
     /// "pinned". Generous so layout jitter / the busy row don't unpin.
     private static let bottomThreshold: CGFloat = 120
+    /// R42: bottom-edge-above-viewport gap beyond which we treat the state as
+    /// over-scrolled-into-the-void and snap back (normal bounces stay well under).
+    private static let overscrollClampThreshold: CGFloat = 240
 
     private var contentSignature: String {
         "\(room.messages.count)|\(room.messages.last?.text.count ?? 0)|\(room.isAgentBusy)"
@@ -772,7 +775,7 @@ struct RoomMessagesView: View {
                             Color.clear.onChange(
                                 of: geo.frame(in: .named(Self.scrollSpace)).maxY, initial: true
                             ) { _, maxY in
-                                updatePinned(contentMaxY: maxY)
+                                updatePinned(contentMaxY: maxY, proxy: proxy)
                             }
                         }
                     )
@@ -851,8 +854,19 @@ struct RoomMessagesView: View {
     /// bottom down. That single rule fixes the "incoming doesn't follow while
     /// pinned" race ordering-independently AND stops a scrolled-up reader from being
     /// disturbed when a message arrives.
-    private func updatePinned(contentMaxY: CGFloat) {
+    private func updatePinned(contentMaxY: CGFloat, proxy: ScrollViewProxy) {
         guard viewportHeight > 0 else { return }
+        // R42 self-heal: the content's bottom edge sitting far ABOVE the viewport's
+        // bottom means we're resting in the void past the end — LazyVStack's
+        // estimated-size overshoot during heavy growth, or any unclamped shrink.
+        // SwiftUI never clamps this state back on its own, so snap to the real
+        // bottom whenever geometry reports it. 240pt keeps rubber-band bounces and
+        // the legitimate short-content case (where scrollTo is a harmless no-op)
+        // from ever fighting the user.
+        if viewportHeight - contentMaxY > Self.overscrollClampThreshold {
+            AppLog.log("↕️ overscroll clamp maxY=%.0f viewport=%.0f", contentMaxY, viewportHeight)
+            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+        }
         let nearBottom = (contentMaxY - viewportHeight) < Self.bottomThreshold
         if nearBottom {
             if !isPinnedToBottom {
