@@ -183,29 +183,48 @@ final class GatewayClient: GatewayRequesting, @unchecked Sendable {
     /// by NAT/iOS after ~15-30s — which dropped us right before the plugin's
     /// invite arrived. A ping every 20s keeps it alive; a failed ping surfaces
     /// the dead socket so reconnect kicks in.
+    /// Ticker state shared with the keepalive handler. A tiny reference box so
+    /// the handler (which runs NONISOLATED on `keepaliveQueue`) carries no
+    /// main-actor captures — the timer queue is the only reader/writer.
+    private final class KeepaliveTicker: @unchecked Sendable {
+        var lastPingAt: Date?
+    }
+
     private func startKeepalive() {
         keepaliveTimer?.cancel()
         keepaliveTimer = nil
         guard let socket else { return }
         let timer = DispatchSource.makeTimerSource(queue: keepaliveQueue)
-        var lastPingAt: Date?
+        let ticker = KeepaliveTicker()
         timer.schedule(deadline: .now() + .seconds(20), repeating: .seconds(20), leeway: .seconds(2))
-        timer.setEventHandler {
-            let now = Date()
-            if let previous = lastPingAt {
-                let gap = now.timeIntervalSince(previous)
-                if gap > 30 {
-                    AppLog.log("⚠️ keepalive gap %.0fs", gap)
-                }
-            }
-            lastPingAt = now
-            AppLog.debug("🛰️↔ ping")
-            socket.sendPing { error in
-                if let error { AppLog.log("⚙️ gateway ping failed: \(error)") }
-            }
+        // The handler MUST NOT inherit this @MainActor context: the dispatch source
+        // invokes it on `keepaliveQueue`, and a main-actor-inferred closure trips the
+        // runtime executor check there (EXC_BREAKPOINT in dispatch_assert_queue — the
+        // 2026-07-13 mac launch crash). `@Sendable` blocks isolation inheritance and
+        // the body routes through a `nonisolated static` tick with zero actor captures.
+        timer.setEventHandler { @Sendable [socket] in
+            Self.keepaliveTick(socket: socket, ticker: ticker)
         }
         keepaliveTimer = timer
         timer.resume()
+    }
+
+    /// Runs on `keepaliveQueue`, NOT the main actor. Everything it touches is
+    /// thread-safe: AppLog serializes internally, and URLSessionWebSocketTask's
+    /// sendPing is documented thread-safe.
+    private nonisolated static func keepaliveTick(socket: URLSessionWebSocketTask, ticker: KeepaliveTicker) {
+        let now = Date()
+        if let previous = ticker.lastPingAt {
+            let gap = now.timeIntervalSince(previous)
+            if gap > 30 {
+                AppLog.log("⚠️ keepalive gap %.0fs", gap)
+            }
+        }
+        ticker.lastPingAt = now
+        AppLog.debug("🛰️↔ ping")
+        socket.sendPing { error in
+            if let error { AppLog.log("⚙️ gateway ping failed: \(error)") }
+        }
     }
 
     /// Re-auth in place (after `reauth`) without dropping the socket.
