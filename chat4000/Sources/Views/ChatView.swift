@@ -1346,9 +1346,6 @@ final class ChatViewModel {
         matrixSession.onRoomEvent = { [weak self] roomId, event, live in
             self?.room(for: roomId).ingest(event, live: live)
         }
-        matrixSession.onPrefetchDedup = { [weak self] roomId, msgIds, eventIds in
-            self?.room(for: roomId).prefetchDupIndex(msgIds: msgIds, eventIds: eventIds)
-        }
         // session.new auto-open / first-room select sets the front pointer here.
         matrixSession.onActiveRoomChange = { [weak self] id in
             guard let self else { return }

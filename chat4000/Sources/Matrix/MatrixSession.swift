@@ -33,11 +33,6 @@ struct DecryptedRoomEvent: Sendable {
     }
 }
 
-private struct SyncFrameCheckpoint: Codable {
-    var pos: String
-    var processedEventIds: [String]
-}
-
 private struct StatusCollapseStats {
     var newestDeliveredTs: Int64 = Int64.min
     var delivered = 0
@@ -253,7 +248,6 @@ final class MatrixSession {
     /// on room switch). `live` is false for backfilled/replayed history.
     @ObservationIgnored var onRoomEvent: ((_ roomId: String, _ event: DecryptedRoomEvent, _ live: Bool) -> Void)?
     @ObservationIgnored var onSyncFrameBoundary: ((Bool) -> Void)?
-    @ObservationIgnored var onPrefetchDedup: ((_ roomId: String, _ msgIds: [String], _ eventIds: [String]) -> Void)?
     /// An outbound message's send completed → its homeserver event_id (for
     /// correlating later read receipts). `localId` is what `sendText`'s caller used.
     @ObservationIgnored var onSentEventId: ((_ localId: String, _ eventId: String) -> Void)?
@@ -266,6 +260,9 @@ final class MatrixSession {
     @ObservationIgnored private var gateway: GatewayClient?
     @ObservationIgnored private var crypto: CryptoEngine?
     @ObservationIgnored private var syncGeneration: UInt64 = 0
+    /// Lazily loads the durable processed-event journal into `seenEventIds` on
+    /// the first sync frame of a session (R41 resume).
+    @ObservationIgnored private var processedIdsLoaded = false
     @ObservationIgnored private var reachableRoomsCache: Set<String> = []
     @ObservationIgnored private var roomSnapshotSaveTask: Task<Void, Never>?
     @ObservationIgnored private var creds: MatrixCredentialStore.Stored?
@@ -685,6 +682,7 @@ final class MatrixSession {
         joinedInviteAttempts = []
         trackedUsers = []
         seenEventIds = []
+        processedIdsLoaded = false   // next sync reloads the new identity's journal
         roomKinds = [:]
         pinnedRoomIds = []
         mutedRoomIds = []
@@ -904,19 +902,29 @@ final class MatrixSession {
             AppLog.log("⚙️ crypto.receiveSyncChanges failed: \(error)")
         }
 
-        var checkpointIds: Set<String> = []
-        if let pos = sync.pos {
-            if let checkpoint = Self.loadSyncFrameCheckpoint(userId: userId), checkpoint.pos == pos {
-                checkpointIds = Set(checkpoint.processedEventIds)
-                let skipped = sync.rooms.reduce(0) { total, room in
-                    total + room.timeline.filter { event in
-                        event.eventId.map { checkpointIds.contains($0) } ?? false
-                    }.count
-                }
-                AppLog.log("⏩ resume frame pos=%@ skipped=%d", pos, skipped)
-            } else {
-                Self.clearSyncFrameCheckpoint(userId: userId)
+        // Durable progress journal (R41): processed event ids persist across
+        // relaunches in an append-only file, NOT keyed by frame pos — the pos
+        // advances on every reconnect (live events keep landing), so a pos-keyed
+        // checkpoint never matched and every launch re-ground the whole backlog.
+        // Event ids are globally unique, so membership alone is the right key:
+        // any re-delivered or re-backfilled event is skipped BEFORE decrypt.
+        if !processedIdsLoaded {
+            processedIdsLoaded = true
+            let uid = userId
+            let journal = await Task.detached(priority: .utility) {
+                Self.loadProcessedIds(userId: uid)
+            }.value
+            seenEventIds.formUnion(journal)
+            AppLog.log("🗂️ processed-id journal loaded n=%d", journal.count)
+        }
+        var checkpointIds = seenEventIds
+        if !checkpointIds.isEmpty {
+            let skipped = sync.rooms.reduce(0) { total, room in
+                total + room.timeline.filter { event in
+                    event.eventId.map { checkpointIds.contains($0) } ?? false
+                }.count
             }
+            if skipped > 0 { AppLog.log("⏩ resume: %d already-processed event(s) will be skipped", skipped) }
         }
 
         // STEP 2 — discover rooms + track new members (updateTrackedUsers), decrypt
@@ -925,7 +933,6 @@ final class MatrixSession {
         for room in sync.rooms {
             let completed = await processRoom(
                 room,
-                framePos: sync.pos,
                 checkpointIds: &checkpointIds,
                 generation: capturedGeneration,
                 statusStats: &statusStatsByRoom
@@ -1011,7 +1018,6 @@ final class MatrixSession {
             // re-deliver next sync.
             let ackToDevicePos = cryptoPersisted ? sync.toDevicePos : nil
             gateway?.syncAck(pos: pos, toDevicePos: ackToDevicePos)
-            Self.clearSyncFrameCheckpoint(userId: userId)
         }
         resumeSyncWaiters()
     }
@@ -1074,7 +1080,6 @@ final class MatrixSession {
 
     private func processRoom(
         _ room: SyncRoom,
-        framePos: String?,
         checkpointIds: inout Set<String>,
         generation: UInt64,
         statusStats: inout [String: StatusCollapseStats]
@@ -1225,7 +1230,6 @@ final class MatrixSession {
                     (decryptedEvents[lhs].outer.originServerTs ?? 0) < (decryptedEvents[rhs].outer.originServerTs ?? 0)
                 }
             onSyncFrameBoundary?(true)
-            onPrefetchDedup?(room.id, dedupIds(from: decryptedEvents), dedupIds(from: decryptedEvents))
             for (index, event) in decryptedEvents.enumerated() {
                 let prepared = preparedEvents[index]
                 let event = DecryptedRoomEvent(
@@ -1271,12 +1275,10 @@ final class MatrixSession {
             }
             onSyncFrameBoundary?(false)
             checkpointIds.formUnion(processedIds)
-            if let framePos {
-                Self.saveSyncFrameCheckpoint(
-                    SyncFrameCheckpoint(pos: framePos, processedEventIds: Array(checkpointIds)),
-                    userId: userId
-                )
-            }
+            seenEventIds.formUnion(processedIds)
+            // Rows are saved (boundary above) BEFORE their ids are journaled, so
+            // a crash between the two only ever re-processes, never skips-unsaved.
+            Self.appendProcessedIds(Array(processedIds), userId: userId)
             await Task.yield()
             guard generation == syncGeneration else { return false }
         }
@@ -1405,10 +1407,6 @@ final class MatrixSession {
             outer: PreparedJSON.parse(outer),
             clearType: preparedClear?.objectValue?["type"] as? String
         )
-    }
-
-    private func dedupIds(from events: [DecryptedRoomEvent]) -> [String] {
-        events.compactMap { $0.outer.eventId }
     }
 
     private func rebuildRoomList() {
@@ -2477,24 +2475,44 @@ final class MatrixSession {
         UserDefaults.standard.removeObject(forKey: syncPosKey(userId))
     }
 
-    private static func syncFrameCheckpointKey(_ userId: String?) -> String {
-        "chat4000.syncFrameCheckpoint.\(userId ?? "")"
+    // MARK: - Durable processed-event journal (R41 resume)
+    //
+    // One event id per line, append-only. Best-effort by design: a lost or
+    // purged journal only means re-processing (the dedup guards keep that
+    // correct); it can never cause a skip of unsaved work because ids are
+    // appended AFTER the chunk's rows are persisted.
+
+    private nonisolated static func processedIdsURL(userId: String?) -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        let safe = String((userId ?? "anon").map { $0.isLetter || $0.isNumber ? $0 : "_" })
+        return base.appendingPathComponent("sync-processed-\(safe).txt")
     }
 
-    private static func saveSyncFrameCheckpoint(_ checkpoint: SyncFrameCheckpoint, userId: String?) {
-        guard let data = try? JSONEncoder().encode(checkpoint) else { return }
-        UserDefaults.standard.set(data, forKey: syncFrameCheckpointKey(userId))
-    }
-
-    private static func loadSyncFrameCheckpoint(userId: String?) -> SyncFrameCheckpoint? {
-        guard let data = UserDefaults.standard.data(forKey: syncFrameCheckpointKey(userId)) else {
-            return nil
+    private nonisolated static func loadProcessedIds(userId: String?) -> Set<String> {
+        let url = processedIdsURL(userId: userId)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var lines = text.split(separator: "\n").map(String.init)
+        // Compact a runaway journal: keep the newest slice so the file and the
+        // in-memory set stay bounded (a few MB).
+        if lines.count > 200_000 {
+            lines = Array(lines.suffix(120_000))
+            try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
         }
-        return try? JSONDecoder().decode(SyncFrameCheckpoint.self, from: data)
+        return Set(lines)
     }
 
-    private static func clearSyncFrameCheckpoint(userId: String?) {
-        UserDefaults.standard.removeObject(forKey: syncFrameCheckpointKey(userId))
+    private nonisolated static func appendProcessedIds(_ ids: [String], userId: String?) {
+        guard !ids.isEmpty else { return }
+        let url = processedIdsURL(userId: userId)
+        guard let data = (ids.joined(separator: "\n") + "\n").data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+        }
     }
 
     /// Per-account durably-persisted TO-DEVICE cursor (protocol D.1). A SEPARATE
