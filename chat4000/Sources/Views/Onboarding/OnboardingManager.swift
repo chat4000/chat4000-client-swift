@@ -70,6 +70,11 @@ final class OnboardingManager {
 
     private(set) var step: Step = .notifExplainer
     private(set) var attempts = 0
+    /// Set true by `complete()` — the single "onboarding is finished" signal the
+    /// view observes to dismiss. Needed because completion can be reached WITHOUT
+    /// a step change (OpenClaw/Hermes finish straight from the agent step), so the
+    /// view can't rely on `step` alone to know it's done.
+    private(set) var isComplete = false
     /// nil until the registrar answers — the app ships NO bundled options (RG10).
     private(set) var pollConfig: PollConfig?
     /// Set after the fetch retries are exhausted; poll steps are then skipped.
@@ -114,6 +119,7 @@ final class OnboardingManager {
     /// the @State object in the same update cycle as the toggle silently fails).
     func resetForRerun() {
         started = false
+        isComplete = false
         step = .notifExplainer
         attempts = 0
         viewedSteps = []
@@ -221,6 +227,7 @@ final class OnboardingManager {
         ]
         if pollSkipped { properties["poll_skipped"] = true }   // CL31
         TelemetryManager.shared.track(.onboardingCompleted, properties: properties)
+        isComplete = true   // signal the view to dismiss (all completion paths)
     }
 
     private func move(to nextStep: Step, forceTrack: Bool = false) {

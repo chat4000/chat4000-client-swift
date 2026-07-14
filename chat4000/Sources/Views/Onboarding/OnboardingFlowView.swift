@@ -38,6 +38,12 @@ struct OnboardingFlowView: View {
             }
         }
         .onAppear { manager.start() }
+        // Single completion signal: OpenClaw/Hermes finish straight from the agent
+        // step (no step change), so the view can't infer "done" from `step` — it
+        // reacts to the manager's isComplete flag and dismisses once.
+        .onChange(of: manager.isComplete) { _, done in
+            if done { onComplete() }
+        }
     }
 
     @ViewBuilder
@@ -333,8 +339,9 @@ struct OnboardingFlowView: View {
     }
 
     private func finish() {
+        // complete() flips manager.isComplete → the onChange above fires onComplete
+        // exactly once (don't also call onComplete here — that would double-fire).
         manager.complete()
-        onComplete()
     }
 }
 #endif
