@@ -62,21 +62,27 @@ struct chat4000App: App {
         // there's no full-screen "connecting" wall. Only a never-set-up pairing still
         // shows the first-run connecting screen.
         let initialScreen: AppScreen
+        #if os(iOS)
+        // Onboarding is checked FIRST, ahead of the paired/unpaired split, so the
+        // QA "simulate a fresh install" force flag (Settings 10-tap) reruns the
+        // flow even on a paired device. For a normal paired user with no force
+        // flag, needsOnboarding is false (the is-paired short-circuit), so this
+        // changes nothing for them. Product decision: the notifications gate is
+        // hard on every iOS flavor, including the App Store build.
+        if OnboardingManager.needsOnboarding(isAlreadyPaired: initialViewModel.isPaired) {
+            initialScreen = .onboarding
+        } else if initialViewModel.isPaired {
+            initialScreen = initialViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting
+        } else {
+            initialScreen = .enterPairingCode
+        }
+        #else
         if initialViewModel.isPaired {
             initialScreen = initialViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting
         } else {
-            #if os(iOS)
-            if OnboardingManager.needsOnboarding(isAlreadyPaired: initialViewModel.isPaired) {
-                // Product decision: the first-run notification gate is hard on every
-                // iOS flavor, including the App Store build.
-                initialScreen = .onboarding
-            } else {
-                initialScreen = .enterPairingCode
-            }
-            #else
             initialScreen = .enterPairingCode
-            #endif
         }
+        #endif
         _currentScreen = State(initialValue: initialScreen)
         _showLegalReconsentModal = State(initialValue: false)
         _currentTermsVersion = State(initialValue: nil)
@@ -411,7 +417,12 @@ struct chat4000App: App {
 
     private func routeAfterConnectionProgress() {
         guard chatViewModel.connectionState == .connected else { return }
-        if chatViewModel.showSetupProgress {
+        // A RETURNING user (already set up at least once) never gets pulled off
+        // the chat onto the setup/connecting screen — messages show from disk and
+        // the socket settles in the background. The setup screen is first-run only.
+        // (Belt-and-suspenders atop the reachability warm-start: even if setupPhase
+        // dips non-ready mid-reconnect, a returning user stays in chat.)
+        if chatViewModel.showSetupProgress && !chatViewModel.matrixSession.hasCompletedFirstSetup {
             withAnimation(.easeInOut(duration: 0.3)) {
                 currentScreen = .setup
             }
@@ -640,8 +651,14 @@ struct chat4000App: App {
 
     #if os(iOS)
     private func completeOnboarding() {
+        // A paired device running the QA rerun goes back to its chat, not the
+        // pairing screen — it never lost its session. A genuine first-run install
+        // proceeds to enter a pairing code.
+        let destination: AppScreen = chatViewModel.isPaired
+            ? (chatViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting)
+            : .enterPairingCode
         withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen = .enterPairingCode
+            currentScreen = destination
         }
         guard let code = pendingOnboardingPairingCode else { return }
         pendingOnboardingPairingCode = nil

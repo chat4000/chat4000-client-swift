@@ -2779,6 +2779,15 @@ final class MatrixSession {
         }
         let restoredActiveRoomId = activeRoomId
         controlRoomId = nil
+        // Warm-start the reachability cache from the snapshot BEFORE the first
+        // rebuild (R41 regression fix). `isRoomReady` reads this cache, which is
+        // otherwise empty until the first post-sync `refreshReachability` — so a
+        // cold launch showed an EMPTY sidebar + non-ready setup phase (→ the
+        // "connecting" screen) until the socket synced. A snapshot room WAS
+        // reachable when saved, so present it as ready from disk; the first
+        // post-sync refresh reconciles anything that changed. Restores the old
+        // instant-chat-from-disk behavior the async CryptoEngine actor broke.
+        reachableRoomsCache = Set(roomOrder)
         rebuildRoomList()
         applyAutoOpen()
         if activeRoomId == restoredActiveRoomId {
