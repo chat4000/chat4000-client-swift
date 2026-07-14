@@ -485,9 +485,10 @@ struct SettingsSheet: View {
         Haptics.success()
         // Present the REAL first-run flow immediately as a cover — reliable,
         // no force-quit / cold-launch dance (the old force-flag was only read at
-        // app-init, so a warm foreground never re-checked it). A fresh manager
-        // gives clean state each time; dismiss on completion.
-        onboardingPreviewManager = OnboardingManager()
+        // app-init, so a warm foreground never re-checked it). Reset the STABLE
+        // manager (never reassign the @State object — that broke presentation)
+        // and toggle the bool, mirroring the working add-device cover exactly.
+        onboardingPreviewManager.resetForRerun()
         showOnboardingPreview = true
         #endif
     }

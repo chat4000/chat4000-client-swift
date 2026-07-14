@@ -86,6 +86,24 @@ final class OnboardingManager {
         Task { await fetchPollConfigWithRetries() }
     }
 
+    /// QA preview reset (Settings 10-tap): return a REUSED manager to first-run
+    /// state so `start()` runs again. Reusing one stable @State object + a plain
+    /// bool toggle is what makes the fullScreenCover present reliably (reassigning
+    /// the @State object in the same update cycle as the toggle silently fails).
+    func resetForRerun() {
+        started = false
+        step = .notifExplainer
+        attempts = 0
+        viewedSteps = []
+        returningFromSettings = false
+        pollConfig = nil
+        pollUnavailable = false
+        pollSkipped = false
+        heardFromAnswerId = "unknown"
+        hasAgentAnswerId = "neither"
+        startedAt = Date()
+    }
+
     func enableNotifications() {
         attempts += 1
         Task {
