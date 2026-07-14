@@ -933,6 +933,19 @@ struct RoomMessagesView: View {
         LazyVStack(spacing: AppSpacing.messageGap) {
             messageListRows(proxy: proxy)
         }
+        // Bottom-anchor a short room: without this a room with less than a
+        // screen of content top-aligns in the ScrollView, leaving a large empty
+        // gap above the composer (the "empty space" on macOS especially). Making
+        // the content at least viewport-tall and .bottom-aligned pins short
+        // content to the bottom like a real chat; tall content exceeds the floor
+        // so this is a no-op for it. Guard viewportHeight>0 (pre-layout).
+        .frame(
+            maxWidth: .infinity,
+            minHeight: viewportHeight > 0
+                ? max(0, viewportHeight - 2 * AppSpacing.chatListVerticalInset)
+                : nil,
+            alignment: .bottom
+        )
     }
 
     @ViewBuilder
