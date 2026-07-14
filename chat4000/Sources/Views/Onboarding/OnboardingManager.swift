@@ -34,6 +34,9 @@ final class OnboardingManager {
     }
 
     static let completionDefaultsKey = "chat4000.onboardingCompleted.v1"
+    /// One-shot QA flag (10 taps on Settings → Devices): rerun the first-run flow
+    /// on next launch even though this install is paired/completed.
+    static let forceNextDefaultsKey = "chat4000.onboardingForceNext.v1"
 
     private let defaults: UserDefaults
     private var viewedSteps: Set<Step> = []
@@ -56,8 +59,15 @@ final class OnboardingManager {
     }
 
     static func needsOnboarding(isAlreadyPaired: Bool, defaults: UserDefaults = .standard) -> Bool {
+        if defaults.bool(forKey: forceNextDefaultsKey) { return true }   // QA rerun
         guard !isAlreadyPaired else { return false }
         return !defaults.bool(forKey: completionDefaultsKey)
+    }
+
+    /// See `forceNextDefaultsKey` — invoked by the Settings 10-tap QA gesture.
+    static func scheduleDebugRerun(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: completionDefaultsKey)
+        defaults.set(true, forKey: forceNextDefaultsKey)
     }
 
     var sourceQuestion: PollQuestion? {
@@ -162,6 +172,7 @@ final class OnboardingManager {
 
     func complete() {
         defaults.set(true, forKey: Self.completionDefaultsKey)
+        defaults.removeObject(forKey: Self.forceNextDefaultsKey)   // QA one-shot spent
         let duration = Date().timeIntervalSince(startedAt)
         var properties: [String: Any] = [
             "has_agent": hasAgentAnswerId,

@@ -41,6 +41,9 @@ struct SettingsSheet: View {
     @State private var diagnosticStatusMessage: String?
     @State private var showDiagnosticAlert = false
     @State private var showAddDeviceInfo = false
+    @State private var onboardingResetTapCount = 0
+    @State private var onboardingResetTapStartedAt: Date?
+    @State private var showOnboardingResetAlert = false
 
     var body: some View {
         ScrollView {
@@ -165,6 +168,14 @@ struct SettingsSheet: View {
         } message: {
             Text(diagnosticStatusMessage ?? "Sending diagnostics…")
         }
+        .alert(
+            "Onboarding reset",
+            isPresented: $showOnboardingResetAlert
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Force-quit chat4000 and relaunch — the first-run flow (notifications gate + poll) will run again, even on this paired device.")
+        }
         .onReceive(NotificationCenter.default.publisher(for: DiagnosticReportService.statusChanged)) { note in
             guard let status = note.object as? DiagnosticReportService.Status else { return }
             switch status {
@@ -185,6 +196,10 @@ struct SettingsSheet: View {
             Text("Devices")
                 .font(AppFonts.sectionTitle)
                 .foregroundStyle(AppColors.textSecondary)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    handleOnboardingResetGesture()
+                }
 
             VStack(alignment: .leading, spacing: 16) {
                 Button {
@@ -445,6 +460,29 @@ struct SettingsSheet: View {
         // result and pop ONE alert instead.
         Haptics.success()
         DiagnosticReportService.shared.runReport()
+    }
+
+    /// QA affordance ("simulate a fresh install"): 10 taps on the Devices section
+    /// header reset the first-run onboarding — completion flag cleared plus a
+    /// one-shot force flag so the flow reruns on next launch even though this
+    /// device is paired. 10 (not 15) deliberately: it never collides with the
+    /// 15-tap gestures, which all live on OTHER elements.
+    private func handleOnboardingResetGesture() {
+        #if os(iOS)
+        let next = nextTapCount(
+            currentCount: onboardingResetTapCount,
+            startedAt: onboardingResetTapStartedAt
+        )
+        onboardingResetTapCount = next.count
+        onboardingResetTapStartedAt = next.startedAt
+        AppLog.log("🧪 onboarding-reset tap %ld/10", onboardingResetTapCount)
+        guard onboardingResetTapCount >= 10 else { return }
+        onboardingResetTapCount = 0
+        onboardingResetTapStartedAt = nil
+        OnboardingManager.scheduleDebugRerun()
+        Haptics.success()
+        showOnboardingResetAlert = true
+        #endif
     }
 
     private func nextTapCount(currentCount: Int, startedAt: Date?) -> (count: Int, startedAt: Date) {
