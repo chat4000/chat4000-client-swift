@@ -25,6 +25,9 @@ struct EnterPairingCodeView: View {
     @State private var showScanner = false
     @State private var helpRoute: HelpRoute = .none
     @State private var installCommandCopied = false
+    /// Fresh-install branch: nil = ask which agent; "openclaw"/"hermes" = show the
+    /// install; "other" = the not-supported path. Mirrors the onboarding question.
+    @State private var freshInstallAgent: String?
     @State private var agreeChecked = false
     @FocusState private var focused: Bool
 
@@ -341,6 +344,7 @@ extension EnterPairingCodeView {
                 // install_page_viewed {ref} for THIS tap, without client_id ever
                 // reaching the site.
                 TelemetryManager.shared.track(.helpRouteSelected, properties: ["route": "fresh_install"])  // CL20
+                freshInstallAgent = nil   // start each entry at the agent question
                 helpRoute = .freshInstall
             }
 
@@ -359,25 +363,99 @@ extension EnterPairingCodeView {
         VStack(spacing: 16) {
             helpDetailHeader(title: "Fresh Plugin Install")
 
-            VStack(spacing: 10) {
-                helpStepCard(
-                    number: 1,
-                    title: "Set up the plugin in your agent",
-                    command: Self.installCommand,
-                    hint: "Send this to your OpenClaw or Hermes agent on Telegram — or wherever you already chat with it. No chat set up yet? Run it right on the machine."
-                )
-                copyInstallCommandButton
-                helpStepCard(
-                    number: 2,
-                    title: "Pair this device",
-                    hint: "The plugin prints a single-use 6-digit code (and a QR) — enter it on the pairing screen, or scan the QR with Scan QR."
-                )
+            switch freshInstallAgent {
+            case nil:
+                freshInstallAgentQuestion
+            case "other":
+                freshInstallUnsupported
+            default:            // openclaw / hermes — same one-line installer
+                freshInstallSteps
             }
+        }
+    }
 
-            ChatWithFounderCallout(caption: "Stuck? Chat with founder.", source: "setup_fresh_install")
-
+    private var freshInstallAgentQuestion: some View {
+        VStack(spacing: 12) {
+            Text("Do you have OpenClaw, Hermes, or something else?")
+                .font(AppFonts.label)
+                .foregroundStyle(AppColors.textPrimary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 2)
+            agentHelpButton(title: "OpenClaw", glyph: "🦞") { freshInstallAgent = "openclaw" }
+            agentHelpButton(title: "Hermes", glyph: "☤", glyphScale: 1.3) { freshInstallAgent = "hermes" }
+            agentHelpButton(title: "Something else") { freshInstallAgent = "other" }
             helpBackToMenuButton
         }
+    }
+
+    private var freshInstallSteps: some View {
+        VStack(spacing: 10) {
+            helpStepCard(
+                number: 1,
+                title: "Set up the plugin in your agent",
+                command: Self.installCommand,
+                hint: "Send this to your \(freshInstallAgent == "hermes" ? "Hermes" : "OpenClaw") agent on Telegram — or wherever you already chat with it. No chat set up yet? Run it right on the machine."
+            )
+            copyInstallCommandButton
+            helpStepCard(
+                number: 2,
+                title: "Pair this device",
+                hint: "The plugin prints a single-use 6-digit code (and a QR) — enter it on the pairing screen, or scan the QR with Scan QR."
+            )
+            ChatWithFounderCallout(caption: "Stuck? Chat with founder.", source: "setup_fresh_install")
+            helpBackToMenuButton
+        }
+    }
+
+    private var freshInstallUnsupported: some View {
+        VStack(spacing: 12) {
+            Text("chat4000 works with OpenClaw or Hermes")
+                .font(AppFonts.label)
+                .foregroundStyle(AppColors.textPrimary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+            Text("Running something else? The founder would love to hear what you're using — it helps decide what to support next.")
+                .font(AppFonts.caption)
+                .foregroundStyle(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+            ChatWithFounderCallout(caption: "Tell the founder", source: "setup_fresh_other")
+            helpBackToMenuButton
+        }
+    }
+
+    private func agentHelpButton(
+        title: String,
+        glyph: String? = nil,
+        glyphScale: CGFloat = 1.0,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let glyph {
+                    Text(glyph)
+                        .font(.system(size: 20 * glyphScale))
+                        .frame(width: 26, alignment: .center)
+                }
+                Text(title)
+                    .font(AppFonts.button)
+                    .foregroundStyle(AppColors.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 60)
+            .background(Color.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var copyInstallCommandButton: some View {
