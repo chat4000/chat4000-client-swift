@@ -53,6 +53,11 @@ final class OnboardingManager {
     struct PollConfig: Codable, Equatable {
         let version: Int
         let questions: [String: PollQuestion]
+        /// RG10 build stamp — the deployed registrar commit that served this
+        /// config. Echoed back on every answer (RG11/CL32 `poll_commit`) so a
+        /// response is attributable to the config version shown. Optional: an
+        /// older registrar omits it.
+        var commit: String?
     }
 
     static let completionDefaultsKey = "chat4000.onboardingCompleted.v1"
@@ -298,14 +303,18 @@ final class OnboardingManager {
         // PostHog).
         var props: [String: Any] = ["question_id": questionId, "answer_id": answerId]
         if let cappedText { props["answer_text"] = cappedText }
+        // poll_commit: which config version (RG10 commit) the user was shown.
+        let pollCommit = pollConfig?.commit
+        if let pollCommit { props["poll_commit"] = pollCommit }
         TelemetryManager.shared.track(.onboardingAnswer, properties: props)
-        Task { await postAnswer(questionId: questionId, answerId: answerId, answerText: cappedText, attempt: 0) }
+        Task { await postAnswer(questionId: questionId, answerId: answerId, answerText: cappedText, pollCommit: pollCommit, attempt: 0) }
     }
 
     private func postAnswer(
         questionId: String,
         answerId: String,
         answerText: String?,
+        pollCommit: String?,
         attempt: Int
     ) async {
         let env = MatrixEnvironment.current
@@ -319,6 +328,7 @@ final class OnboardingManager {
         if let text = answerText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
             body["answer_text"] = text
         }
+        if let pollCommit { body["poll_commit"] = pollCommit }
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
 
         var request = URLRequest(url: url)
@@ -333,7 +343,7 @@ final class OnboardingManager {
               (response as? HTTPURLResponse)?.statusCode == 204 else {
             if attempt == 0 {
                 try? await Task.sleep(for: .seconds(5))
-                await postAnswer(questionId: questionId, answerId: answerId, answerText: answerText, attempt: 1)
+                await postAnswer(questionId: questionId, answerId: answerId, answerText: answerText, pollCommit: pollCommit, attempt: 1)
             }
             return
         }
