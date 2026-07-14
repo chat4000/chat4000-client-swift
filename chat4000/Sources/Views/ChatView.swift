@@ -1388,16 +1388,6 @@ final class ChatViewModel {
             self.roomVMs[roomId]?.clearHistory()
             self.roomVMs.removeValue(forKey: roomId)
         }
-
-        // Restore rooms + the active room from disk SYNCHRONOUSLY here at init —
-        // NOT in the view's onAppear — so the very first rendered frame is the
-        // real chat, not a blank window for a few frames (the "shows nothing for
-        // a few ms" launch flash). Runs after the callbacks above are wired so the
-        // snapshot's onActiveRoomChange selects the front room. Idempotent: the
-        // later setupMatrix call no-ops (restoreFromDisk guards on nil transport).
-        // Messages fill in the instant setupMatrix attaches the modelContext.
-        matrixSession.restoreFromDisk()
-        syncActiveRoomFromSession()
     }
 
     /// Lazily create (and persist-attach) the view model for a room, keeping it
