@@ -30,7 +30,7 @@ final class IntercomMacWindowController {
 
         let hosting = NSHostingController(rootView: root)
         let nsWindow = NSWindow(contentViewController: hosting)
-        nsWindow.title = "Chat with founder"
+        nsWindow.title = "Chat with team"
         nsWindow.styleMask = [.titled, .closable, .resizable, .miniaturizable]
         nsWindow.setContentSize(NSSize(width: 460, height: 640))
         nsWindow.minSize = NSSize(width: 380, height: 480)

@@ -339,7 +339,7 @@ extension EnterPairingCodeView {
 
             // ② has an agent but no chat4000 plugin → fresh install.
             helpButton(
-                title: "I have OpenClaw or Hermes, but not chat4000",
+                title: "I have 🦞 OpenClaw or ☤ Hermes, but not chat4000",
                 subtitle: "Install the chat4000 plugin in your agent."
             ) {
                 freshInstallAgent = nil            // start this branch at the agent question
@@ -351,7 +351,7 @@ extension EnterPairingCodeView {
             // ③ no agent at all → they need OpenClaw or Hermes first.
             helpButton(
                 title: "I don't have either yet",
-                subtitle: "chat4000 runs on OpenClaw or Hermes."
+                subtitle: "chat4000 runs on 🦞 OpenClaw or ☤ Hermes."
             ) {
                 helpRoute = .noAgent
                 TelemetryManager.shared.track(.helpRouteSelected, properties: ["route": "have_neither"])  // CL20
@@ -364,6 +364,12 @@ extension EnterPairingCodeView {
     /// The canonical one-line installer (mirrors chat4000.com/#install step 2).
     /// One command covers both OpenClaw and Hermes — no in-app forking.
     static let installCommand = "curl -fsSL https://chat4000.com/install.sh | bash"
+
+    /// The messenger variant: same one-liner plus the website's exact trailing
+    /// agent cue (`# run script pls`, from chat4000.com index.astro) so that when
+    /// it's pasted into an OpenClaw/Hermes chat it reads as "run this". The SSH
+    /// path shows the plain `installCommand` — you run that yourself.
+    static let installCommandForAgent = installCommand + " # run script pls"
 
     /// ② Fresh plugin install: pick the agent → do you have a messaging channel →
     /// the exact command to run (via that chat, or over SSH) → Done, enter code.
@@ -395,6 +401,9 @@ extension EnterPairingCodeView {
             agentHelpButton(title: "Hermes", glyph: "☤", glyphScale: 1.3) { selectFreshAgent("hermes") }
             helpBackToMenuButton
         }
+        .onAppear {
+            TelemetryManager.shared.track(.helpStepViewed, properties: ["step": "agent_question"])  // CL38
+        }
     }
 
     private func selectFreshAgent(_ agent: String) {
@@ -419,6 +428,9 @@ extension EnterPairingCodeView {
             helpButton(title: "No, I'll use the terminal (SSH)") { answerMessaging(false) }
             helpSecondaryBack("Back") { freshInstallAgent = nil }
         }
+        .onAppear {
+            TelemetryManager.shared.track(.helpStepViewed, properties: ["step": "messaging_question"])  // CL38
+        }
     }
 
     private func answerMessaging(_ hasMessaging: Bool) {
@@ -434,20 +446,24 @@ extension EnterPairingCodeView {
     /// either way — only the surrounding copy differs.
     private func freshInstallCommand(method: String) -> some View {
         let agentName = freshInstallAgent == "hermes" ? "Hermes" : "OpenClaw"
+        let glyph = freshAgentGlyph
+        // Messenger path shows the website's `… | bash # run script pls` (the `#`
+        // cue makes an agent run it); the SSH path shows the plain one-liner.
+        let command = method == "messaging" ? Self.installCommandForAgent : Self.installCommand
         return VStack(spacing: 10) {
             if method == "messaging" {
                 helpStepCard(
                     number: 1,
-                    title: "Send this to your \(agentName) agent",
-                    command: Self.installCommand,
-                    hint: "Paste it into Telegram — or wherever you chat with \(agentName). It installs chat4000 and replies with a single-use 6-digit code."
+                    title: "Send this to your \(glyph) \(agentName) agent",
+                    command: command,
+                    hint: "Paste it into Telegram — or wherever you chat with \(glyph) \(agentName). It installs chat4000 and replies with a single-use 6-digit code."
                 )
             } else {
                 helpStepCard(
                     number: 1,
                     title: "SSH into the machine and run this",
-                    command: Self.installCommand,
-                    hint: "Run it on the computer where \(agentName) lives. It installs chat4000 and prints a single-use 6-digit code."
+                    command: command,
+                    hint: "Run it on the computer where \(glyph) \(agentName) lives. It installs chat4000 and prints a single-use 6-digit code."
                 )
             }
             copyInstallCommandButton(method: method)
@@ -456,7 +472,7 @@ extension EnterPairingCodeView {
                 title: "Enter the code here",
                 hint: "Copy the 6-digit code it gives you, tap Done, and type it on the pairing screen."
             )
-            ChatWithFounderCallout(caption: "Stuck? Chat with founder.", source: "setup_fresh_install")
+            ChatWithFounderCallout(caption: "Stuck? Chat with the team.", source: "setup_fresh_install")
             Button {
                 helpRoute = .none
                 focused = true
@@ -476,7 +492,15 @@ extension EnterPairingCodeView {
             .buttonStyle(.plain)
             helpSecondaryBack("Back") { freshInstallHasMessaging = nil }
         }
+        .onAppear {
+            TelemetryManager.shared.track(.helpStepViewed, properties: [
+                "step": method == "messaging" ? "command_messaging" : "command_ssh"
+            ])  // CL38
+        }
     }
+
+    /// 🦞 for OpenClaw, ☤ for Hermes — matches the agent buttons and chat4000.com.
+    private var freshAgentGlyph: String { freshInstallAgent == "hermes" ? "☤" : "🦞" }
 
     /// ③ No agent at all — chat4000 needs OpenClaw or Hermes first.
     private var noAgentHelpContent: some View {
@@ -488,14 +512,17 @@ extension EnterPairingCodeView {
                     .foregroundStyle(AppColors.textPrimary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                Text("Get OpenClaw or Hermes set up on your computer first, then come back and pick the OpenClaw or Hermes option.")
+                Text("Get 🦞 OpenClaw or ☤ Hermes set up on your computer first, then come back and pick that option.")
                     .font(AppFonts.caption)
                     .foregroundStyle(AppColors.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
-            ChatWithFounderCallout(caption: "Not sure where to start? Chat with founder.", source: "setup_no_agent")
+            ChatWithFounderCallout(caption: "Not sure where to start? Chat with the team.", source: "setup_no_agent")
             helpBackToMenuButton
+        }
+        .onAppear {
+            TelemetryManager.shared.track(.helpStepViewed, properties: ["step": "no_agent"])  // CL38
         }
     }
 
@@ -533,12 +560,13 @@ extension EnterPairingCodeView {
     }
 
     private func copyInstallCommandButton(method: String) -> some View {
-        Button {
+        let command = method == "messaging" ? Self.installCommandForAgent : Self.installCommand
+        return Button {
             #if os(iOS)
-            UIPasteboard.general.string = Self.installCommand
+            UIPasteboard.general.string = command
             #elseif os(macOS)
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(Self.installCommand, forType: .string)
+            NSPasteboard.general.setString(command, forType: .string)
             #endif
             Haptics.success()
             installCommandCopied = true
@@ -612,9 +640,12 @@ extension EnterPairingCodeView {
             }
             .buttonStyle(.plain)
 
-            ChatWithFounderCallout(caption: "That didn't help? Chat with founder.", source: "setup_other_device")
+            ChatWithFounderCallout(caption: "That didn't help? Chat with the team.", source: "setup_other_device")
 
             helpBackToMenuButton
+        }
+        .onAppear {
+            TelemetryManager.shared.track(.helpStepViewed, properties: ["step": "other_device"])  // CL38
         }
     }
 

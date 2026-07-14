@@ -68,6 +68,7 @@ enum AnalyticsEvent: String {
     case helpMessagingAnswered = "help_messaging_answered"  // CL35  {agent, has_messaging}
     case helpInstallCommandCopied = "help_install_command_copied" // CL36  {agent, method}
     case helpFreshDone = "help_fresh_done"                  // CL37  {agent, method}
+    case helpStepViewed = "help_step_viewed"                // CL38  {step} — where in Help the user is
     case addDeviceFlowCompleted = "add_device_flow_completed" // CL21
     case addDeviceFlowFailed = "add_device_flow_failed"       // CL21
     case diagnosticStarted = "diagnostic_started"     // CL23

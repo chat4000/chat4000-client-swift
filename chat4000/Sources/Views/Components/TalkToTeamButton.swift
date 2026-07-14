@@ -5,8 +5,8 @@ import UIKit
 import AppKit
 #endif
 
-/// Tappable button for the "Chat with founder" CTA. Runs the same escalation as
-/// the founder push modal: WhatsApp → Telegram → Intercom (`FounderOutreach`).
+/// Tappable button for the "Chat with team" CTA. Runs the same escalation as
+/// the team push modal: WhatsApp → Telegram → Intercom (`FounderOutreach`).
 /// On macOS it goes straight to the Intercom web messenger.
 struct ChatWithFounderButton: View {
     /// Funnel source for analytics. e.g. "settings", "setup_pair_failed".
@@ -17,7 +17,7 @@ struct ChatWithFounderButton: View {
             HStack(spacing: 10) {
                 Image(systemName: "person.bubble.fill")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Chat with founder")
+                Text("Chat with team")
                     .font(AppFonts.button)
             }
             .foregroundStyle(AppColors.textPrimary)

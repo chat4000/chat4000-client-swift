@@ -6,6 +6,9 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
     @State private var selectedTextOption: OnboardingManager.PollOption?
     @State private var textAnswer = ""
+    /// Drives the text field's keyboard. Picking a free-text option ("Something
+    /// else") auto-raises the keyboard — no second tap on the field needed.
+    @FocusState private var textFieldFocused: Bool
 
     var body: some View {
         ZStack {
@@ -122,7 +125,7 @@ struct OnboardingFlowView: View {
     private var agentPollStep: some View {
         VStack(spacing: 18) {
             stepIcon("desktopcomputer")
-            stepText(title: "Do you have OpenClaw, Hermes, or neither?", body: nil)
+            stepText(title: "Do you have 🦞 OpenClaw, ☤ Hermes, or neither?", body: nil)
             // Glyphs match chat4000.com's header: 🦞 for OpenClaw, ☤ (caduceus,
             // U+2624) for Hermes — the caduceus sits small in its em box so it's
             // scaled up like the site does (1.28em there).
@@ -136,10 +139,10 @@ struct OnboardingFlowView: View {
         VStack(spacing: 18) {
             stepIcon("person.bubble.fill")
             stepText(
-                title: "Right now chat4000 is only for OpenClaw and Hermes users — but the founder would love to interview you.",
+                title: "Right now chat4000 is only for 🦞 OpenClaw and ☤ Hermes users — but the team would love to interview you.",
                 body: nil
             )
-            primaryButton("Contact the founder", systemImage: "message.fill") {
+            primaryButton("Contact the team", systemImage: "message.fill") {
                 // Auto-jump straight into the messaging app (WhatsApp → Telegram →
                 // Intercom escalation) instead of surfacing the intermediate modal.
                 let channel = FounderOutreach.contactFounder(
@@ -231,6 +234,10 @@ struct OnboardingFlowView: View {
                     RoundedRectangle(cornerRadius: 14)
                         .stroke(AppColors.inputBorder, lineWidth: 1)
                 )
+                .focused($textFieldFocused)
+                // Selecting a free-text option swaps this view in — raise the
+                // keyboard immediately so the user can type without a second tap.
+                .onAppear { textFieldFocused = true }
                 // The Continue button can sit under the keyboard on short screens.
                 // Make the keyboard's return key submit too, so the answer is
                 // always reachable without dismissing the keyboard first.

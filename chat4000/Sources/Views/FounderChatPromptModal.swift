@@ -31,7 +31,7 @@ struct FounderChatPromptModal: View {
     let disableTelegram: Bool
 
     static let defaultTitle = "Need a hand?"
-    static let defaultBody = "We noticed you might be having trouble. Would you like to chat with a founder right now?"
+    static let defaultBody = "We noticed you might be having trouble. Would you like to chat with the team right now?"
 
     init(
         source: String,
@@ -70,7 +70,7 @@ struct FounderChatPromptModal: View {
 
             VStack(spacing: 10) {
                 Button(action: chatNow) {
-                    Text("Chat with founder")
+                    Text("Chat with team")
                         .font(AppFonts.button)
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
