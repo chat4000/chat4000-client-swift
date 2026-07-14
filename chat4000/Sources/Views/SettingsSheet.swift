@@ -43,7 +43,10 @@ struct SettingsSheet: View {
     @State private var showAddDeviceInfo = false
     @State private var onboardingResetTapCount = 0
     @State private var onboardingResetTapStartedAt: Date?
-    @State private var showOnboardingResetAlert = false
+    #if os(iOS)
+    @State private var showOnboardingPreview = false
+    @State private var onboardingPreviewManager = OnboardingManager()
+    #endif
 
     var body: some View {
         ScrollView {
@@ -168,14 +171,14 @@ struct SettingsSheet: View {
         } message: {
             Text(diagnosticStatusMessage ?? "Sending diagnostics…")
         }
-        .alert(
-            "Onboarding reset",
-            isPresented: $showOnboardingResetAlert
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Force-quit chat4000 and relaunch — the first-run flow (notifications gate + poll) will run again, even on this paired device.")
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showOnboardingPreview) {
+            OnboardingFlowView(
+                manager: onboardingPreviewManager,
+                onComplete: { showOnboardingPreview = false }
+            )
         }
+        #endif
         .onReceive(NotificationCenter.default.publisher(for: DiagnosticReportService.statusChanged)) { note in
             guard let status = note.object as? DiagnosticReportService.Status else { return }
             switch status {
@@ -479,9 +482,13 @@ struct SettingsSheet: View {
         guard onboardingResetTapCount >= 10 else { return }
         onboardingResetTapCount = 0
         onboardingResetTapStartedAt = nil
-        OnboardingManager.scheduleDebugRerun()
         Haptics.success()
-        showOnboardingResetAlert = true
+        // Present the REAL first-run flow immediately as a cover — reliable,
+        // no force-quit / cold-launch dance (the old force-flag was only read at
+        // app-init, so a warm foreground never re-checked it). A fresh manager
+        // gives clean state each time; dismiss on completion.
+        onboardingPreviewManager = OnboardingManager()
+        showOnboardingPreview = true
         #endif
     }
 
