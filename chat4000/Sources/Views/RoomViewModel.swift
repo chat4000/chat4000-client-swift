@@ -46,6 +46,18 @@ final class RoomViewModel {
     @ObservationIgnored private var batchNeedsSave = false
     @ObservationIgnored private var lastOlderLoadAt: Date?
 
+    // Retroactive read state (R40). A peer read receipt can arrive BEFORE the row
+    // it covers exists — an image whose row is created only after its async
+    // download, a late-decrypted event, a backfilled gap. `handleRead` flips only
+    // rows present at receipt time, so such a row would stay on a single ✓ forever.
+    // We remember what's been read so a row created LATER flips itself:
+    //  • peerReadWatermark — cumulative "read up to this wall-clock ts" (covers any
+    //    earlier user row, matching the CUMULATIVE receipt semantics).
+    //  • peerReadEventIds — exact event ids marked read whose ts we couldn't resolve
+    //    yet (anchor row absent); consumed when their row materializes, so bounded.
+    @ObservationIgnored private var peerReadWatermark: Date?
+    @ObservationIgnored private var peerReadEventIds: Set<String> = []
+
     // Streaming assembly (one in-flight agent stream at a time).
     @ObservationIgnored private var currentStreamId: String?
     @ObservationIgnored private var currentStreamText = ""
@@ -409,6 +421,7 @@ final class RoomViewModel {
         guard let msgId = message.msgId, !msgId.isEmpty else {
             insertInTimestampOrder(message)
             modelContext?.insert(message)
+            applyReadStateIfCovered(message)
             trimToWindow()
             return true
         }
@@ -432,8 +445,23 @@ final class RoomViewModel {
         }
         insertInTimestampOrder(message)
         modelContext?.insert(message)
+        applyReadStateIfCovered(message)
         trimToWindow()
         return true
+    }
+
+    /// R40 retroactive flip: mark `row` delivered if a read receipt seen EARLIER
+    /// already covers it (its event id was marked read, or it falls at/under the
+    /// cumulative read watermark). Only ever advances .sending/.sent → .delivered,
+    /// never backwards; a no-op for agent rows and un-read rows.
+    private func applyReadStateIfCovered(_ row: ChatMessage) {
+        guard row.sender == .user, row.status == .sending || row.status == .sent else { return }
+        let coveredById = row.matrixEventId.map { peerReadEventIds.contains($0) } ?? false
+        let coveredByWatermark = peerReadWatermark.map { row.timestamp <= $0 } ?? false
+        guard coveredById || coveredByWatermark else { return }
+        row.status = .delivered
+        // A materialized id has done its job — drop it so the set can't grow.
+        if let eid = row.matrixEventId { peerReadEventIds.remove(eid) }
     }
 
     func cardHeightKey(for message: ChatMessage) -> String {
@@ -1218,6 +1246,9 @@ final class RoomViewModel {
         guard let row = messages.first(where: { $0.msgId == localId }) else { return }
         row.matrixEventId = eventId
         if row.status == .sending { row.status = .sent }
+        // The plugin may have READ this send (and we recorded the receipt) before
+        // the send HTTP response gave the row its event_id — apply it now (R40).
+        applyReadStateIfCovered(row)
         persistContext()
     }
 
@@ -1231,10 +1262,21 @@ final class RoomViewModel {
     /// to flipping just the exact match (safe — never flips a not-yet-read row).
     func handleRead(eventId: String) {
         // The receipt's target event, located in this room's timeline (it may be
-        // one of our sends, an agent reply, or absent if it was a dropped event).
+        // one of our sends, an agent reply, or absent if its row doesn't exist yet
+        // — a still-downloading image, a not-yet-decrypted event).
         let anchorTs = messages.first(where: {
             $0.matrixEventId == eventId || $0.msgId == eventId
         })?.timestamp
+        // Remember the read state so a row that materializes LATER can flip itself
+        // (R40). The event id covers the exact target even before its row exists;
+        // the watermark advances to the anchor ts for CUMULATIVE coverage.
+        peerReadEventIds.insert(eventId)
+        if let anchorTs, peerReadWatermark.map({ anchorTs > $0 }) ?? true {
+            peerReadWatermark = anchorTs
+        }
+        // Safety bound: consumed ids are removed on materialization, so this set
+        // stays tiny in practice; cap it anyway so a pathological stream can't grow it.
+        if peerReadEventIds.count > 2000 { peerReadEventIds = Set(peerReadEventIds.prefix(1000)) }
         var changed = false
         for row in messages
         where row.sender == .user && (row.status == .sending || row.status == .sent) {
@@ -1407,6 +1449,8 @@ final class RoomViewModel {
         persistContext()
         messages.removeAll()
         cardHeights.removeAll()
+        peerReadEventIds.removeAll()
+        peerReadWatermark = nil
         didLoadAllOlder = false
         savedAnchorMsgId = nil
         savedWasPinned = true
