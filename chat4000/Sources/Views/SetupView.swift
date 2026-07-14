@@ -13,6 +13,7 @@ struct EnterPairingCodeView: View {
         case none
         case menu
         case pairedDevice
+        case freshInstall
         // Fresh-install help opens the canonical web page directly
         // (https://chat4000.com/#install) instead of duplicating the
         // setup steps in-app — that page is the single source of truth
@@ -23,6 +24,7 @@ struct EnterPairingCodeView: View {
     @State private var lastSubmittedCode = ""
     @State private var showScanner = false
     @State private var helpRoute: HelpRoute = .none
+    @State private var installCommandCopied = false
     @State private var agreeChecked = false
     @FocusState private var focused: Bool
 
@@ -31,13 +33,6 @@ struct EnterPairingCodeView: View {
 
     /// v2 pairing codes are exactly 6 digits (OTP-style, protocol section 3).
     private static let codeLength = 6
-    /// IDN6/CL22 — a fresh one-time attribution token, minted per tap of the
-    /// in-app install link, so each app→website install visit joins exactly. A
-    /// short URL-safe random string (no client_id ever reaches the site).
-    private static func makeInstallRef() -> String {
-        let alphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-        return String((0..<10).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] })
-    }
 
     /// Digits-only, capped at the code length — what the boxes show and we submit.
     private var sanitizedCode: String {
@@ -105,6 +100,8 @@ struct EnterPairingCodeView: View {
                         helpMenuContent
                     case .pairedDevice:
                         pairedDeviceHelpContent
+                    case .freshInstall:
+                        freshPluginInstallHelpContent
                     }
                 }
                 .padding(AppSpacing.cardPadding)
@@ -344,30 +341,78 @@ extension EnterPairingCodeView {
                 // install_page_viewed {ref} for THIS tap, without client_id ever
                 // reaching the site.
                 TelemetryManager.shared.track(.helpRouteSelected, properties: ["route": "fresh_install"])  // CL20
-                let ref = Self.makeInstallRef()
-                TelemetryManager.shared.track(
-                    .installRefOpened,
-                    properties: ["ref": ref, "source": "setup_help_menu"]
-                )
-                if let url = URL(string: "https://chat4000.com/?ref=\(ref)#install") {
-                    #if os(iOS)
-                    UIApplication.shared.open(url)
-                    #elseif os(macOS)
-                    NSWorkspace.shared.open(url)
-                    #endif
-                }
+                helpRoute = .freshInstall
             }
 
             ChatWithFounderButton(source: "setup_help_menu")
         }
     }
 
-    // `freshPluginInstallHelpContent` removed — the "Fresh Plugin Install"
-    // button now opens https://chat4000.com/#install in the system
-    // browser directly so the in-app help doesn't drift from the canonical
-    // setup docs every time the install command changes (and so we don't
-    // need to fork the page into separate Hermes / OpenClaw branches
-    // in-app — chat4000.com#install handles both).
+    /// The canonical one-line installer (mirrors chat4000.com/#install step 2).
+    /// One command covers both OpenClaw and Hermes — no in-app forking.
+    static let installCommand = "curl -fsSL https://chat4000.com/install.sh | bash"
+
+    /// In-app "Fresh Plugin Install" help (restored from the web link): the
+    /// user is already in the app, so the website's step 1 "download the app"
+    /// is moot — this is just step 2, "set up the plugin", styled in-app.
+    private var freshPluginInstallHelpContent: some View {
+        VStack(spacing: 16) {
+            helpDetailHeader(title: "Fresh Plugin Install")
+
+            VStack(spacing: 10) {
+                helpStepCard(
+                    number: 1,
+                    title: "Set up the plugin in your agent",
+                    command: Self.installCommand,
+                    hint: "Send this to your OpenClaw or Hermes agent on Telegram — or wherever you already chat with it. No chat set up yet? Run it right on the machine."
+                )
+                copyInstallCommandButton
+                helpStepCard(
+                    number: 2,
+                    title: "Pair this device",
+                    hint: "The plugin prints a single-use 6-digit code (and a QR) — enter it on the pairing screen, or scan the QR with Scan QR."
+                )
+            }
+
+            ChatWithFounderCallout(caption: "Stuck? Chat with founder.", source: "setup_fresh_install")
+
+            helpBackToMenuButton
+        }
+    }
+
+    private var copyInstallCommandButton: some View {
+        Button {
+            #if os(iOS)
+            UIPasteboard.general.string = Self.installCommand
+            #elseif os(macOS)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(Self.installCommand, forType: .string)
+            #endif
+            Haptics.success()
+            installCommandCopied = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                installCommandCopied = false
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: installCommandCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(installCommandCopied ? "Copied" : "Copy command")
+                    .font(AppFonts.button)
+            }
+            .foregroundStyle(installCommandCopied ? AppColors.connected : AppColors.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 
     private var pairedDeviceHelpContent: some View {
         VStack(spacing: 16) {
