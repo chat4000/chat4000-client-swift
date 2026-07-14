@@ -60,7 +60,14 @@ enum AnalyticsEvent: String {
     case notificationTapped = "notification_tapped"        // CL17
     case messageReceived = "message_received"    // CL18  {kind, turn_duration_bucket?}
     case helpMenuOpened = "help_menu_opened"     // CL19
-    case helpRouteSelected = "help_route_selected" // CL20
+    case helpRouteSelected = "help_route_selected" // CL20  {route: have_other_device|have_agent|have_neither}
+    // Pairing-screen Help funnel (redesigned 2026-07-14 — the 3-way "where are
+    // you starting from" menu). See the analytics registry CL33-37.
+    case helpScanQrTapped = "help_scan_qr_tapped"           // CL33  {}
+    case helpAgentSelected = "help_agent_selected"          // CL34  {agent}
+    case helpMessagingAnswered = "help_messaging_answered"  // CL35  {agent, has_messaging}
+    case helpInstallCommandCopied = "help_install_command_copied" // CL36  {agent, method}
+    case helpFreshDone = "help_fresh_done"                  // CL37  {agent, method}
     case addDeviceFlowCompleted = "add_device_flow_completed" // CL21
     case addDeviceFlowFailed = "add_device_flow_failed"       // CL21
     case diagnosticStarted = "diagnostic_started"     // CL23
