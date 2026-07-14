@@ -25,7 +25,29 @@ final class OnboardingManager {
 
     struct PollQuestion: Codable, Equatable {
         let title: String
+        var subtitle: String?   // optional server-served explainer (RG10)
         let options: [PollOption]
+    }
+
+    /// Progress-dot model (fixes the "1 → 3 jump" when notifications are granted):
+    /// the notif explainer + blocked screens are ONE phase (blocked is a detour,
+    /// not a step), so granting goes phase 0 → 1, not dot 1 → 3. The neither branch
+    /// adds the two extra phases only when the user is actually in it.
+    var progressPhase: Int {
+        switch step {
+        case .notifExplainer, .notifBlocked: return 0
+        case .pollSource: return 1
+        case .pollAgent: return 2
+        case .pollExpected: return 3
+        case .interviewOffer: return 4
+        }
+    }
+
+    var progressTotal: Int {
+        switch step {
+        case .pollExpected, .interviewOffer: return 5
+        default: return hasAgentAnswerId == "neither" ? 5 : 3
+        }
     }
 
     struct PollConfig: Codable, Equatable {

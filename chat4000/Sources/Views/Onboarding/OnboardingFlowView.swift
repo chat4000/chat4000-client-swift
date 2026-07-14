@@ -6,7 +6,6 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
     @State private var selectedTextOption: OnboardingManager.PollOption?
     @State private var textAnswer = ""
-    @State private var showFounderModal = false
 
     var body: some View {
         ZStack {
@@ -39,10 +38,6 @@ struct OnboardingFlowView: View {
             }
         }
         .onAppear { manager.start() }
-        .sheet(isPresented: $showFounderModal, onDismiss: finish) {
-            FounderChatPromptModal(source: "onboarding_neither")
-                .presentationBackground(AppColors.background)
-        }
     }
 
     @ViewBuilder
@@ -122,8 +117,11 @@ struct OnboardingFlowView: View {
         VStack(spacing: 18) {
             stepIcon("desktopcomputer")
             stepText(title: "Do you have OpenClaw, Hermes, or neither?", body: nil)
-            optionButton("OpenClaw") { manager.answerAgent(answerId: "openclaw") }
-            optionButton("Hermes") { manager.answerAgent(answerId: "hermes") }
+            // Glyphs match chat4000.com's header: 🦞 for OpenClaw, ☤ (caduceus,
+            // U+2624) for Hermes — the caduceus sits small in its em box so it's
+            // scaled up like the site does (1.28em there).
+            optionButton("OpenClaw", glyph: "🦞") { manager.answerAgent(answerId: "openclaw") }
+            optionButton("Hermes", glyph: "☤", glyphScale: 1.3) { manager.answerAgent(answerId: "hermes") }
             optionButton("Neither") { manager.answerAgent(answerId: "neither") }
         }
     }
@@ -136,7 +134,19 @@ struct OnboardingFlowView: View {
                 body: nil
             )
             primaryButton("Contact the founder", systemImage: "message.fill") {
-                showFounderModal = true
+                // Auto-jump straight into the messaging app (WhatsApp → Telegram →
+                // Intercom escalation) instead of surfacing the intermediate modal.
+                let channel = FounderOutreach.contactFounder(
+                    message: nil,
+                    disableWhatsApp: false,
+                    disableTelegram: false,
+                    source: "onboarding_neither"
+                )
+                TelemetryManager.shared.track(
+                    .founderChatPromptAction,
+                    properties: ["source": "onboarding_neither", "action": "chat_now", "channel": channel.rawValue]
+                )
+                finish()
             }
             Button(action: finish) {
                 Text("No thanks")
@@ -174,7 +184,7 @@ struct OnboardingFlowView: View {
         question: OnboardingManager.PollQuestion,
         submit: @escaping (OnboardingManager.PollOption, String?) -> Void
     ) -> some View {
-        stepText(title: question.title, body: nil)
+        stepText(title: question.title, body: question.subtitle)
         ForEach(question.options) { option in
             if selectedTextOption?.id == option.id {
                 textEntry(option: option, submit: submit)
@@ -196,7 +206,14 @@ struct OnboardingFlowView: View {
         option: OnboardingManager.PollOption,
         submit: @escaping (OnboardingManager.PollOption, String?) -> Void
     ) -> some View {
-        VStack(spacing: 12) {
+        let submitText = {
+            let trimmed = textAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            submit(option, textAnswer)
+            selectedTextOption = nil
+            textAnswer = ""
+        }
+        return VStack(spacing: 12) {
             TextField(option.label, text: $textAnswer)
                 .font(AppFonts.input)
                 .foregroundStyle(AppColors.textPrimary)
@@ -208,24 +225,26 @@ struct OnboardingFlowView: View {
                     RoundedRectangle(cornerRadius: 14)
                         .stroke(AppColors.inputBorder, lineWidth: 1)
                 )
-            primaryButton("Continue", systemImage: "arrow.right") {
-                submit(option, textAnswer)
-                selectedTextOption = nil
-                textAnswer = ""
-            }
-            .disabled(textAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                // The Continue button can sit under the keyboard on short screens.
+                // Make the keyboard's return key submit too, so the answer is
+                // always reachable without dismissing the keyboard first.
+                .submitLabel(.done)
+                .onSubmit(submitText)
+            primaryButton("Continue", systemImage: "arrow.right", action: submitText)
+                .disabled(textAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
     private var progressDots: some View {
         HStack(spacing: 7) {
-            ForEach(OnboardingManager.Step.allCases, id: \.self) { dotStep in
+            ForEach(0..<manager.progressTotal, id: \.self) { i in
                 Circle()
-                    .fill(dotStep == manager.step ? Color.white : Color.white.opacity(0.18))
-                    .frame(width: dotStep == manager.step ? 8 : 6, height: dotStep == manager.step ? 8 : 6)
+                    .fill(i == manager.progressPhase ? Color.white : Color.white.opacity(0.18))
+                    .frame(width: i == manager.progressPhase ? 8 : 6, height: i == manager.progressPhase ? 8 : 6)
             }
         }
         .frame(height: 12)
+        .animation(.easeInOut(duration: 0.2), value: manager.progressPhase)
     }
 
     private func stepIcon(_ systemName: String) -> some View {
@@ -266,9 +285,19 @@ struct OnboardingFlowView: View {
         }
     }
 
-    private func optionButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func optionButton(
+        _ title: String,
+        glyph: String? = nil,
+        glyphScale: CGFloat = 1.0,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 10) {
+                if let glyph {
+                    Text(glyph)
+                        .font(.system(size: 20 * glyphScale))
+                        .frame(width: 26, alignment: .center)
+                }
                 Text(title)
                     .font(AppFonts.button)
                     .foregroundStyle(AppColors.textPrimary)
