@@ -19,8 +19,6 @@ struct EnterPairingCodeView: View {
         case noAgent       // ③ have neither yet → need an agent first
     }
 
-    @State private var codeText = ""
-    @State private var lastSubmittedCode = ""
     @State private var showScanner = false
     @State private var helpRoute: HelpRoute = .none
     @State private var installCommandCopied = false
@@ -31,44 +29,9 @@ struct EnterPairingCodeView: View {
     /// Fresh-install branch, after the agent is picked: nil = ask; true = "send the
     /// curl to your agent chat"; false = "SSH into the machine and run it".
     @State private var freshInstallHasMessaging: Bool?
-    @State private var agreeChecked = false
-    @FocusState private var focused: Bool
 
     var errorMessage: String?
     var onSubmit: (String) -> Void
-
-    /// v2 pairing codes are exactly 6 digits (OTP-style, protocol section 3).
-    private static let codeLength = 6
-
-    /// Digits-only, capped at the code length — what the boxes show and we submit.
-    private var sanitizedCode: String {
-        String(codeText.filter(\.isNumber).prefix(Self.codeLength))
-    }
-
-    private var requiresConsent: Bool {
-        !LegalConsent.hasAcceptedAnyVersion
-    }
-
-    private var canSubmit: Bool {
-        sanitizedCode.count == Self.codeLength && (!requiresConsent || agreeChecked)
-    }
-
-    private func submitInput(_ rawInput: String) {
-        // Handles a bare typed code OR a pasted chat4000://pair?code= URI.
-        let code = MatrixPairing.extractCode(from: rawInput)
-        guard code.count == Self.codeLength, code != lastSubmittedCode else { return }
-
-        lastSubmittedCode = code
-        focused = false
-        if requiresConsent {
-            LegalConsent.acceptPendingRelayVersion()
-            TelemetryManager.shared.track(
-                .legalConsentAccepted,
-                properties: ["version": "pending_relay_version"]
-            )
-        }
-        onSubmit(code)
-    }
 
     var body: some View {
         ZStack {
@@ -129,29 +92,6 @@ struct EnterPairingCodeView: View {
 
                 Spacer(minLength: 20)
             }
-            .onTapGesture { focused = false }
-        }
-        .onAppear { focused = true }
-        .sheet(isPresented: $showScanner) {
-            QRScannerView(
-                onScanned: { scannedText in
-                    // Accept a QR encoding the 6-digit code, usually a
-                    // chat4000://pair?code=NNNNNN URI — parse the `code` param
-                    // (don't digit-filter the whole payload).
-                    let code = MatrixPairing.extractCode(from: scannedText)
-                    codeText = code
-                    showScanner = false
-                    if requiresConsent {
-                        focused = true
-                    } else {
-                        submitInput(code)
-                    }
-                },
-                onBack: {
-                    showScanner = false
-                }
-            )
-            .presentationBackground(AppColors.background)
         }
     }
 }
@@ -176,98 +116,14 @@ extension EnterPairingCodeView {
                     .frame(maxWidth: 240)
             }
 
-            VStack(spacing: 14) {
-                Text("Pairing code")
-                    .font(AppFonts.label)
-                    .foregroundStyle(AppColors.textSecondary)
-
-                ZStack {
-                    TextField("", text: $codeText)
-                        .focused($focused)
-                        .textFieldStyle(.plain)
-                        .font(AppFonts.input)
-                        .foregroundStyle(.clear)
-                        .accentColor(.clear)
-                        // macOS 14.x renders the TextField caret using the
-                        // underlying NSTextField field editor's
-                        // insertionPointColor, which neither .accentColor
-                        // nor .tint reach. Drop the entire TextField's
-                        // rendering opacity to ~0 so the caret is
-                        // invisible; the field stays fully interactive
-                        // (focus, typing, paste, return) because .opacity
-                        // affects rendering only, not hit testing or the
-                        // responder chain. PairingCodeBoxes shows the
-                        // visible state.
-                        .opacity(0.001)
-                        .textContentType(.oneTimeCode)
-                        #if os(iOS)
-                        .keyboardType(.numberPad)
-                        #endif
-                        .autocorrectionDisabled()
-                        .onSubmit {
-                            guard canSubmit else { return }
-                            submitInput(codeText)
-                        }
-                        .onChange(of: codeText) { _, newValue in
-                            // Keep digits only (or the code param if a URI was
-                            // pasted), capped at the 6-digit code length.
-                            let digits = MatrixPairing.extractCode(from: newValue)
-                            if digits != newValue { codeText = digits }
-                            if digits.isEmpty { lastSubmittedCode = "" }
-                            // Auto-submit once 6 digits are entered (OTP-style).
-                            if !requiresConsent, digits.count == Self.codeLength, digits != lastSubmittedCode {
-                                submitInput(digits)
-                            }
-                        }
-
-                    PairingCodeBoxes(code: sanitizedCode)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { focused = true }
-
-                Text("Enter the code from your plugin or another paired device.")
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textTimestamp)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 250)
-            }
+            PairingEntryView(
+                errorMessage: errorMessage,
+                onSubmit: onSubmit,
+                showScanner: $showScanner
+            )
 
             Button {
-                showScanner = true
-            } label: {
-                Label("Scan QR", systemImage: "qrcode.viewfinder")
-                    .font(AppFonts.button)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 8)
-            }
-            .buttonStyle(.plain)
-
-            if requiresConsent {
-                LegalConsentCheckboxRow(isChecked: $agreeChecked)
-                    .padding(.horizontal, 4)
-            }
-
-            Button {
-                submitInput(codeText)
-            } label: {
-                Text("Pair")
-                    .font(AppFonts.button)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(canSubmit ? Color.white : Color.white.opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .black.opacity(canSubmit ? 0.15 : 0), radius: 16, x: 0, y: 8)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSubmit)
-
-            Button {
-                focused = false
+                Haptics.impact()
                 helpRoute = .menu
                 TelemetryManager.shared.track(.helpMenuOpened, properties: ["source": "setup"])  // CL19
             } label: {
@@ -284,17 +140,6 @@ extension EnterPairingCodeView {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
-
-            if let errorMessage, !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.error)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(AppColors.errorBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
-            }
         }
     }
 
@@ -302,8 +147,8 @@ extension EnterPairingCodeView {
         VStack(spacing: 20) {
             HStack {
                 Button {
+                    Haptics.impact()
                     helpRoute = .none
-                    focused = true
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
@@ -474,8 +319,8 @@ extension EnterPairingCodeView {
             )
             ChatWithFounderCallout(caption: "Stuck? Chat with the team.", source: "setup_fresh_install")
             Button {
+                Haptics.impact()
                 helpRoute = .none
-                focused = true
                 TelemetryManager.shared.track(.helpFreshDone, properties: [
                     "agent": freshInstallAgent ?? "unknown",
                     "method": method
