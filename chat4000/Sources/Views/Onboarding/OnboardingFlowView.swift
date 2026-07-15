@@ -34,32 +34,34 @@ struct OnboardingFlowView: View {
             )
                 .ignoresSafeArea()
 
-            // Scrollable so tall windows (the install steps + pairing entry +
-            // Chat-with-team) are always fully reachable — bounces only when the
-            // content actually overflows.
-            ScrollView {
-                VStack {
-                    Spacer(minLength: 24)
-                    content
-                        .padding(AppSpacing.cardPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 28)
-                                .fill(AppColors.cardBackground.opacity(0.8))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 28)
-                                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                                )
-                                .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 18)
-                        )
-                        .padding(.horizontal, 24)
-                    Spacer(minLength: 24)
+            // The card centers in the AVAILABLE area (the window, via GeometryReader —
+            // not the whole screen, which on a large Mac window forced a needless
+            // scroll) and only scrolls when the content genuinely overflows.
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack {
+                        Spacer(minLength: 24)
+                        content
+                            .padding(AppSpacing.cardPadding)
+                            .background(
+                                RoundedRectangle(cornerRadius: 28)
+                                    .fill(AppColors.cardBackground.opacity(0.8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 28)
+                                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                    )
+                                    .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 18)
+                            )
+                            .padding(.horizontal, 24)
+                        Spacer(minLength: 24)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                 }
-                .frame(maxWidth: .infinity, minHeight: viewportHeight - 40)
+                .scrollBounceBehavior(.basedOnSize)
+                #if os(iOS)
+                .scrollDismissesKeyboard(.interactively)
+                #endif
             }
-            .scrollBounceBehavior(.basedOnSize)
-            #if os(iOS)
-            .scrollDismissesKeyboard(.interactively)
-            #endif
         }
         .onAppear { manager.start() }
         // Dismiss signal — used by the QA preview cover; the real flow is dismissed
@@ -503,18 +505,6 @@ struct OnboardingFlowView: View {
             .frame(width: 24, height: 24)
             .background(Color.white)
             .clipShape(Circle())
-    }
-
-    /// Screen height used to keep the card centered while still scrolling on
-    /// overflow — platform-neutral (UIScreen on iOS, NSScreen on macOS).
-    private var viewportHeight: CGFloat {
-        #if os(iOS)
-        UIScreen.main.bounds.height
-        #elseif os(macOS)
-        NSScreen.main?.frame.height ?? 800
-        #else
-        800
-        #endif
     }
 
     private func hintText(_ text: String) -> some View {
