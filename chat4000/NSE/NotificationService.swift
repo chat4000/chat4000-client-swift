@@ -47,6 +47,18 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         self.bestAttempt = mutable
 
         let userInfo = request.content.userInfo
+
+        // Founder-chat prompt: store it on DELIVERY so the app surfaces the
+        // "we'd love to interview you" screen on next foreground — even if the
+        // user dismisses this notification without tapping it (the app's
+        // foreground/tap paths also store it; this covers dismissed-in-background).
+        // Then deliver the banner unchanged — no decrypt needed.
+        if (userInfo["type"] as? String) == "founder_chat_prompt" {
+            storeFounderPrompt(from: userInfo)
+            deliver(mutable)
+            return
+        }
+
         let roomId = userInfo["room_id"] as? String
         let eventId = userInfo["event_id"] as? String
         let accountId = userInfo["account_id"] as? String
@@ -113,5 +125,28 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         guard let handler = contentHandler else { return }
         contentHandler = nil
         handler(content)
+    }
+
+    /// Persist a founder-chat prompt to the shared App-Group store so the app
+    /// shows it on next foreground regardless of whether the banner was tapped or
+    /// dismissed. Snooze-aware (via `FounderPromptPending.store`).
+    private func storeFounderPrompt(from userInfo: [AnyHashable: Any]) {
+        let request = FounderChatPromptRequest(
+            source: (userInfo["source"] as? String) ?? "push_delivered",
+            modalTitle: userInfo["modal_title"] as? String,
+            modalBody: userInfo["modal_body"] as? String,
+            contactMessage: userInfo["contact_message"] as? String,
+            disableWhatsApp: Self.boolFlag(userInfo["disable_whatsapp"]),
+            disableTelegram: Self.boolFlag(userInfo["disable_telegram"])
+        )
+        FounderPromptPending.store(request)
+    }
+
+    /// Parse a JSON/APNS boolean that may arrive as Bool, NSNumber, or "true"/"1".
+    private static func boolFlag(_ value: Any?) -> Bool {
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let s = value as? String { return ["1", "true", "yes"].contains(s.lowercased()) }
+        return false
     }
 }

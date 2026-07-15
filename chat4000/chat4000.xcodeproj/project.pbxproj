@@ -82,6 +82,7 @@
 		13E3659A4D782AC3AD3170F8 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
 		146EC4D942219833E74A2E88 /* SharedCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031DD9689D03BA51921ABF1E /* SharedCredentials.swift */; };
 		1480D8904E4D08B296FF77F5 /* MatrixRoomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CE0DAF4BFEC52C43109A3B /* MatrixRoomSnapshot.swift */; };
+		14E1ABD0223704EF4C8551F8 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		156A6DC7273C8AC3DF6821DC /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
 		159B673C61007433386BE9A2 /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A0FDF267BFD143FD8D6077 /* AppError.swift */; };
 		15BDC1445C4CF4C4057986FA /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5D77671C59217A6004BCB4 /* NotificationService.swift */; };
@@ -110,6 +111,7 @@
 		1C39FF19A2CB13123832860A /* VersionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98FA24EA5A373862282F6C4 /* VersionPolicyTests.swift */; };
 		1C4C4CBAB292E07CBA21F539 /* PlatformAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461D6E973E8C03EB39C8A28F /* PlatformAppDelegate.swift */; };
 		1C9AA3161E303A5C9DC3BBBD /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9CA202C1F244D6D3DF1AF /* Sentry */; };
+		1D0B8AB7C002FEEBE84D4D06 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		1D0DB50BD00E0B206969187A /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A37D5BA7C139712EE5B726 /* ConnectionState.swift */; };
 		1D1A63B60A2A7AE3A473C17F /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8627734E252FE4E0D03E22 /* QRScannerView.swift */; };
 		1D55986F03B49681D85845C3 /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53A6BCB00D435794ED325EFD /* ErrorReporter.swift */; };
@@ -148,6 +150,7 @@
 		2702B52A3D5706164730CE50 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A396B2DAEFF7B4E0F82BC2B2 /* AppEnvironment.swift */; };
 		2708F9839E9AA107B662B07B /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
 		2720FC65EA9DDAC856774B90 /* Intercom in Frameworks */ = {isa = PBXBuildFile; productRef = 0F2511B4D08991E82A7177B4 /* Intercom */; };
+		2769BC154F7B47CED184CED2 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		2785CC2EC4F14739BA550479 /* SharedCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031DD9689D03BA51921ABF1E /* SharedCredentials.swift */; };
 		27BC67E0911F38FF5F40EBA7 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2FC9D4D806CA68BD6121AA /* CameraCaptureView.swift */; };
 		282C593BA624978CF43DC7F0 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AED0C54D38FF2D3189B523 /* LaunchActionStore.swift */; };
@@ -178,9 +181,11 @@
 		2FFA9391365F7CDFC4F3F8C0 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5AC52C4AD26F008EF36616 /* AppLog.swift */; };
 		3051DB0C021A137A9ED4FC9E /* MatrixSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E279BECEC1DDA3BABCBFD605 /* MatrixSession.swift */; };
 		305D38BEBCD33FC6719426C6 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 9154B2D45FD636347CB58E89 /* PostHog */; };
+		309C80BCD2883FA344E17DEE /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		30FBF597C6D08DB72246825D /* MacUpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77E664F74634136F1A9F20FB /* MacUpdateInstaller.swift */; };
 		31DDC02CBDD4CEEC3481A584 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
 		322361A7BDCA86BBC50062AC /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53A6BCB00D435794ED325EFD /* ErrorReporter.swift */; };
+		32560C17D96FBBB073ADD601 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		3259F611C33817B85D74DD30 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF384D3E7D467BD2AD433354 /* Haptics.swift */; };
 		3279196D4881FD57A4346161 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		32CD32F44DB29E4CB4307BDE /* dev-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 987E633C3AE8037A73BDD2D2 /* dev-config.json */; };
@@ -200,6 +205,7 @@
 		3647DA01BFF2A4A8BFADF8B3 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF384D3E7D467BD2AD433354 /* Haptics.swift */; };
 		36A8F28F1A3108FAA506F317 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
 		372149DB0E943B9AACEEFA9B /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAB6C3931C50F92E3354E52 /* ProtocolModels.swift */; };
+		377C473CB1706F7ED3D2CF0B /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		37E48A901F3A5B754AEC25F1 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A396B2DAEFF7B4E0F82BC2B2 /* AppEnvironment.swift */; };
 		380B40C4BAADFAA0DEEFAA5C /* chat4000Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED9769AC010F65D744662F8 /* chat4000Shortcuts.swift */; };
 		383BF1F09E1243860C3E858E /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
@@ -260,12 +266,14 @@
 		46C9CC2E34485ABD9B2E40DE /* PairingEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305B7DFEA9DFDD9428A6A540 /* PairingEntryView.swift */; };
 		471C36050D21B9D529C98C00 /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0F7BF48F790433EC31076 /* MatrixEnvironment.swift */; };
 		477DEBBE76182C752121B43A /* NotificationContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA8AEBEDE13F9A2C379D2C6 /* NotificationContentBuilder.swift */; };
+		479C84245B3974D3D44FA35D /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		47E44AE46A616BA5D6FAD177 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC091E5444DA21F658F41CE /* RoomViewModel.swift */; };
 		485782B9FF876545310FBFCD /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		48706AC4F3B3F3FBDB2B83D8 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		48ABDBB100DCA0F9096A35E8 /* ResilientModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */; };
 		49709019F266CAE6B9FD8768 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699A925D633994FB5DE9E381 /* AppGroup.swift */; };
 		4A18352362778A3A6C4D4B1B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1574D1CDAB67C60CD828BBEE /* Assets.xcassets */; };
+		4A7610BBE5DAE92846C4A6E0 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		4A8D50AD9934E59651795615 /* SessionsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28531A32EFC4C6B9AAA98089 /* SessionsSidebar.swift */; };
 		4AB9B19264A31177D9703EA2 /* MessageTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2DE19AE020BA69583B75BB /* MessageTransport.swift */; };
 		4AC219D21833EEE67E974445 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AED0C54D38FF2D3189B523 /* LaunchActionStore.swift */; };
@@ -309,6 +317,7 @@
 		56971FAF994A3CA310D7344E /* CryptoStoreLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD53025C6CCAD5D8E5B133E4 /* CryptoStoreLock.swift */; };
 		5716A6FB32C25E8B89256192 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5D77671C59217A6004BCB4 /* NotificationService.swift */; };
 		5738B959B10B116601729AAA /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5AC52C4AD26F008EF36616 /* AppLog.swift */; };
+		57ED614758A4903CAFEF0C13 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		5849E9AFE57E5CD803AF05A8 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9EA29D23E1AD0C71314E58 /* Theme.swift */; };
 		58E80E2743D7DDA55780E4A7 /* UpdateAvailablePopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2407AD6961F77C61BFE55EC2 /* UpdateAvailablePopup.swift */; };
 		59139249738457EA6F82EED8 /* MatrixMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6267C167CD38DDCBAE9FB2 /* MatrixMedia.swift */; };
@@ -411,6 +420,8 @@
 		7BDC8CE1BE3CE246E6B43DD5 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A396B2DAEFF7B4E0F82BC2B2 /* AppEnvironment.swift */; };
 		7C5486BB5CEB4071A1BA00B4 /* SlidingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8424EB00ED7D201481A6BCF9 /* SlidingSync.swift */; };
 		7C7F3AEA29FB2B9289CF3BDE /* chat4000NSEDevHermes.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3E3776723E54CBC57BD12435 /* chat4000NSEDevHermes.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7C881F73B6ECF40486CAF2D8 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
+		7CAF99A035CBA0E87579FBBB /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		7CBDEE2357BBACC10608EDD3 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 6209D65C5F362C4E61266816 /* Sentry */; };
 		7CD7698A5DA0089A5E55FC97 /* HTMLCardBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72C3CE61CF49762C2A0444C /* HTMLCardBubble.swift */; };
 		7D7D7C174C32B72DE4605FCC /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDA5291BCB003302FCE025F /* ImageCache.swift */; };
@@ -491,6 +502,7 @@
 		94D10286BD05569C63E4362F /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376137AA7D1D7398FA8A2D97 /* TelemetryPreferences.swift */; };
 		951244640F879CD734056129 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0F0A5286A39685CA3C6558 /* GatewayClient.swift */; };
 		952C56ABFD8BB2573F8A2929 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD1AE31ACFE31F364F2B886 /* LegalConsent.swift */; };
+		954FFFB1207814CA16C05B43 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		95A7B3C9FF5F7E88D6301660 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AED0C54D38FF2D3189B523 /* LaunchActionStore.swift */; };
 		95BD7FED9151CB699CD05E7B /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
 		961F402DB6812A904C86E392 /* LegalConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD1AE31ACFE31F364F2B886 /* LegalConsent.swift */; };
@@ -506,6 +518,7 @@
 		997854A0C89A79772F1A6529 /* SyncModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB56EFCD3A2338A435F488 /* SyncModel.swift */; };
 		998DE05BA3A1457C47624BD4 /* LaunchActionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AED0C54D38FF2D3189B523 /* LaunchActionStore.swift */; };
 		99E8BC0DAC306E76C0685513 /* IntercomMacWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514BEC078A9D49AD59117FC8 /* IntercomMacWebView.swift */; };
+		9A47A2A4A6A97BAD174E1FA7 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		9A48EE040CF4B5C708C15E97 /* MatrixSDKCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 13F22F0630358FDFCC712B62 /* MatrixSDKCrypto */; };
 		9ADC8BFACCD7AF7DA9E9350F /* TelemetryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376137AA7D1D7398FA8A2D97 /* TelemetryPreferences.swift */; };
 		9B1B3423F0523B7200E073E5 /* NotificationContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA8AEBEDE13F9A2C379D2C6 /* NotificationContentBuilder.swift */; };
@@ -707,6 +720,7 @@
 		D4BBA8127B8E907792136FCC /* MatrixEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0F7BF48F790433EC31076 /* MatrixEnvironment.swift */; };
 		D4FCBCFFBE18E3ABF9590132 /* MatrixPairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3456DE2763129AAB854E7D /* MatrixPairingTests.swift */; };
 		D503B1BB65863875363BCA84 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E905F943A4177A6D5D3B75 /* SetupView.swift */; };
+		D5041C34D1A418728A9FCE39 /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 		D5244AECFC7CF5502D7D19E7 /* CryptoStoreLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD53025C6CCAD5D8E5B133E4 /* CryptoStoreLock.swift */; };
 		D58170FC9D047FF37F062D14 /* SharedCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031DD9689D03BA51921ABF1E /* SharedCredentials.swift */; };
 		D5824ACE797FBF31A7D4ECED /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B42D7242579BD437991A3C /* ChatView.swift */; };
@@ -849,6 +863,7 @@
 		FFCD224BC1431841725B4281 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F612714F9A2D995E93C5D /* OnboardingManager.swift */; };
 		FFD1986D5F2C7A54AC8DDBC6 /* CryptoStoreLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD53025C6CCAD5D8E5B133E4 /* CryptoStoreLock.swift */; };
 		FFD9A02F43B368354BC53BBA /* IntercomMacSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B361122EBA34CDD2F91344 /* IntercomMacSheet.swift */; };
+		FFDAEDBB580AA310828B3B2B /* FounderPromptShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848398546A4A0F00555282DA /* FounderPromptShared.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1012,6 +1027,7 @@
 		7EBD6E8BBC0D11554EDF7CA7 /* chat4000iphonelocalprod.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = chat4000iphonelocalprod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7FDC754FEDCCEA9F8AD0A3D3 /* ToolCallBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallBubble.swift; sourceTree = "<group>"; };
 		8424EB00ED7D201481A6BCF9 /* SlidingSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlidingSync.swift; sourceTree = "<group>"; };
+		848398546A4A0F00555282DA /* FounderPromptShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FounderPromptShared.swift; sourceTree = "<group>"; };
 		8AA8FB2373B6454B9B67D090 /* chat4000macprod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = chat4000macprod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B90171F2A4A832D4286BB5E /* ResilientModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResilientModelContainer.swift; sourceTree = "<group>"; };
 		8C12CCD270BD319582092498 /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
@@ -1252,6 +1268,7 @@
 			children = (
 				699A925D633994FB5DE9E381 /* AppGroup.swift */,
 				AD53025C6CCAD5D8E5B133E4 /* CryptoStoreLock.swift */,
+				848398546A4A0F00555282DA /* FounderPromptShared.swift */,
 				4CA8AEBEDE13F9A2C379D2C6 /* NotificationContentBuilder.swift */,
 				031DD9689D03BA51921ABF1E /* SharedCredentials.swift */,
 			);
@@ -2638,6 +2655,7 @@
 				3DB47619FC6897F7D5078527 /* CryptoEngine.swift in Sources */,
 				BB12BFDE8A560072914DF2A9 /* CryptoStoreLock.swift in Sources */,
 				FE57746DDB09587E38CB4D13 /* ErrorReporter.swift in Sources */,
+				D5041C34D1A418728A9FCE39 /* FounderPromptShared.swift in Sources */,
 				A0D9FCA250CEE672F8E60782 /* MatrixEnvironment.swift in Sources */,
 				D0046B2B49184486660D5366 /* NotificationContentBuilder.swift in Sources */,
 				BEDE9CE3D10C2729C7D31CE1 /* NotificationService.swift in Sources */,
@@ -2659,6 +2677,7 @@
 				F970A2501CBF0149ABF805BD /* CryptoEngine.swift in Sources */,
 				AE2D97DAAAE78084B5570B62 /* CryptoStoreLock.swift in Sources */,
 				6C748E67E9CE1F57129BA21E /* ErrorReporter.swift in Sources */,
+				7CAF99A035CBA0E87579FBBB /* FounderPromptShared.swift in Sources */,
 				20CE391470C779C1E22EAD16 /* MatrixEnvironment.swift in Sources */,
 				C04306D4AEB3E052301C01A5 /* NotificationContentBuilder.swift in Sources */,
 				15BDC1445C4CF4C4057986FA /* NotificationService.swift in Sources */,
@@ -2690,6 +2709,7 @@
 				8B51793BB0112869D1C38435 /* ErrorReporter.swift in Sources */,
 				F6F6430F76E45BC2A3D2ED79 /* FounderChatPromptModal.swift in Sources */,
 				AC1898501A9E3AAAC2850FD5 /* FounderOutreach.swift in Sources */,
+				4A7610BBE5DAE92846C4A6E0 /* FounderPromptShared.swift in Sources */,
 				17A23A9C7954974946A0405A /* GatewayClient.swift in Sources */,
 				7CD7698A5DA0089A5E55FC97 /* HTMLCardBubble.swift in Sources */,
 				AF52742EF9925CB0BB2E70FA /* HTMLCardSanitizer.swift in Sources */,
@@ -2766,6 +2786,7 @@
 				F7059496B9829A93CDBC490C /* ErrorReporter.swift in Sources */,
 				AF0CDFD2690F21169F9E9FEC /* FounderChatPromptModal.swift in Sources */,
 				60A35F72040D93BC87F82132 /* FounderOutreach.swift in Sources */,
+				57ED614758A4903CAFEF0C13 /* FounderPromptShared.swift in Sources */,
 				011345109EDFE67A65E79C2A /* GatewayClient.swift in Sources */,
 				780E51866C71150B82C2C055 /* HTMLCardBubble.swift in Sources */,
 				409DDB745528F46CC77251FE /* HTMLCardSanitizer.swift in Sources */,
@@ -2842,6 +2863,7 @@
 				54E5AAD16E9342EB7A74BA29 /* ErrorReporter.swift in Sources */,
 				A33A423C8D53EB552C3F24E5 /* FounderChatPromptModal.swift in Sources */,
 				9E24DBCDBE75C7885580FC84 /* FounderOutreach.swift in Sources */,
+				954FFFB1207814CA16C05B43 /* FounderPromptShared.swift in Sources */,
 				A49E70879457D174263E6A5D /* GatewayClient.swift in Sources */,
 				CB3C2A6CD51401A3AD732868 /* HTMLCardBubble.swift in Sources */,
 				B0EEACC8B6E90E1E3EB0B781 /* HTMLCardSanitizer.swift in Sources */,
@@ -2918,6 +2940,7 @@
 				A233D27B0204E6E8E0A82994 /* ErrorReporter.swift in Sources */,
 				9219EEFC745D38E3D0ED78D5 /* FounderChatPromptModal.swift in Sources */,
 				60978C4E68B8876E55C3D4EF /* FounderOutreach.swift in Sources */,
+				9A47A2A4A6A97BAD174E1FA7 /* FounderPromptShared.swift in Sources */,
 				1231B1A73A8F40644668CE9F /* GatewayClient.swift in Sources */,
 				02E81A72EDFDEF654848F374 /* HTMLCardBubble.swift in Sources */,
 				985AC02CBE9B202BE9AF45B4 /* HTMLCardSanitizer.swift in Sources */,
@@ -2994,6 +3017,7 @@
 				5BFD3CB09310E07149F8AC30 /* ErrorReporter.swift in Sources */,
 				B131E4EF65029387F8915085 /* FounderChatPromptModal.swift in Sources */,
 				6379B09A53E214F6447BD238 /* FounderOutreach.swift in Sources */,
+				FFDAEDBB580AA310828B3B2B /* FounderPromptShared.swift in Sources */,
 				242C352B24049557E68662B4 /* GatewayClient.swift in Sources */,
 				0C77F6435895D4059A4AF15D /* HTMLCardBubble.swift in Sources */,
 				1AED531343640A618FAD61FB /* HTMLCardSanitizer.swift in Sources */,
@@ -3088,6 +3112,7 @@
 				1AE00770C594CC0F3856D66B /* ErrorReporter.swift in Sources */,
 				5D4B85373E68AC1CD30D4B20 /* FounderChatPromptModal.swift in Sources */,
 				E2EA38933AD2C34774B95046 /* FounderOutreach.swift in Sources */,
+				377C473CB1706F7ED3D2CF0B /* FounderPromptShared.swift in Sources */,
 				BAF74E2F58234D20C61434FF /* GatewayClient.swift in Sources */,
 				F7E15D42971ABC75D42BAACD /* HTMLCardBubble.swift in Sources */,
 				4D7885E6A117E65C54A6C115 /* HTMLCardSanitizer.swift in Sources */,
@@ -3154,6 +3179,7 @@
 				354B993AB72B050B12035223 /* CryptoEngine.swift in Sources */,
 				EB0228DA4AC2C4577F55AC5E /* CryptoStoreLock.swift in Sources */,
 				322361A7BDCA86BBC50062AC /* ErrorReporter.swift in Sources */,
+				32560C17D96FBBB073ADD601 /* FounderPromptShared.swift in Sources */,
 				626B6967F5E8A8CB2C08F30C /* MatrixEnvironment.swift in Sources */,
 				F4ED8EACBF4705B874878F4D /* NotificationContentBuilder.swift in Sources */,
 				18E91FDB3BC99D5C147CE3C7 /* NotificationService.swift in Sources */,
@@ -3185,6 +3211,7 @@
 				561C8D73CB4A77DBDB41EA1F /* ErrorReporter.swift in Sources */,
 				7B9C2A5867E2052CA094D292 /* FounderChatPromptModal.swift in Sources */,
 				CCAD4E019AB470C1C7385DC1 /* FounderOutreach.swift in Sources */,
+				479C84245B3974D3D44FA35D /* FounderPromptShared.swift in Sources */,
 				0E434102519B7F08FABEDA93 /* GatewayClient.swift in Sources */,
 				E219F223A966F8E9698A6FF6 /* HTMLCardBubble.swift in Sources */,
 				ECD9C9BB6932B9FAEFA6A4BA /* HTMLCardSanitizer.swift in Sources */,
@@ -3251,6 +3278,7 @@
 				F7DBCDAEDD0D8BE27529C3BC /* CryptoEngine.swift in Sources */,
 				A665C8CF149C3266415C8D29 /* CryptoStoreLock.swift in Sources */,
 				4DEBE637EC125702E7BE7E7C /* ErrorReporter.swift in Sources */,
+				309C80BCD2883FA344E17DEE /* FounderPromptShared.swift in Sources */,
 				0D4A194679D0A3580902ADA5 /* MatrixEnvironment.swift in Sources */,
 				9B1B3423F0523B7200E073E5 /* NotificationContentBuilder.swift in Sources */,
 				BBEE9A02FBCB9F332926432B /* NotificationService.swift in Sources */,
@@ -3282,6 +3310,7 @@
 				1D55986F03B49681D85845C3 /* ErrorReporter.swift in Sources */,
 				2A246997F7520C31017726A8 /* FounderChatPromptModal.swift in Sources */,
 				4F8163982E693D5300DF16A9 /* FounderOutreach.swift in Sources */,
+				2769BC154F7B47CED184CED2 /* FounderPromptShared.swift in Sources */,
 				434B6B72183F919E90F8879B /* GatewayClient.swift in Sources */,
 				F60D10184A90FBDD4A88B131 /* HTMLCardBubble.swift in Sources */,
 				2DEF2EC1C99339D975EEEE17 /* HTMLCardSanitizer.swift in Sources */,
@@ -3348,6 +3377,7 @@
 				9E6BEA435FE9CC974A9CF4C8 /* CryptoEngine.swift in Sources */,
 				0D11C460BCE0E5074D54CB02 /* CryptoStoreLock.swift in Sources */,
 				E40DAB19334989962D91329E /* ErrorReporter.swift in Sources */,
+				1D0B8AB7C002FEEBE84D4D06 /* FounderPromptShared.swift in Sources */,
 				A0D5AFD50A3B70B533356BE3 /* MatrixEnvironment.swift in Sources */,
 				F917F455F3996578E5A9F837 /* NotificationContentBuilder.swift in Sources */,
 				5716A6FB32C25E8B89256192 /* NotificationService.swift in Sources */,
@@ -3379,6 +3409,7 @@
 				4396470B8A93EF818710809B /* ErrorReporter.swift in Sources */,
 				2D5B6913F255CECF8D11C8F4 /* FounderChatPromptModal.swift in Sources */,
 				1C352CDCE0FB50F1483E2A2F /* FounderOutreach.swift in Sources */,
+				14E1ABD0223704EF4C8551F8 /* FounderPromptShared.swift in Sources */,
 				951244640F879CD734056129 /* GatewayClient.swift in Sources */,
 				1DD8FCD03887C5B413A288A0 /* HTMLCardBubble.swift in Sources */,
 				175B7AB04D8D6005EFC7BB18 /* HTMLCardSanitizer.swift in Sources */,
@@ -3455,6 +3486,7 @@
 				AA36CC370F5A335AA49695C6 /* ErrorReporter.swift in Sources */,
 				629E8F71453798B2170C1651 /* FounderChatPromptModal.swift in Sources */,
 				B5226AC0C8BA9F7672777E16 /* FounderOutreach.swift in Sources */,
+				7C881F73B6ECF40486CAF2D8 /* FounderPromptShared.swift in Sources */,
 				AC0E037C44BF5B30965DAA0E /* GatewayClient.swift in Sources */,
 				13E3659A4D782AC3AD3170F8 /* HTMLCardBubble.swift in Sources */,
 				773EFBF6EED0001C709A6F19 /* HTMLCardSanitizer.swift in Sources */,

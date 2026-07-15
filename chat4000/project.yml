@@ -137,6 +137,7 @@ targetTemplates:
       - path: Sources/Shared/NotificationContentBuilder.swift
       - path: Sources/Shared/AppGroup.swift
       - path: Sources/Shared/SharedCredentials.swift
+      - path: Sources/Shared/FounderPromptShared.swift
       - path: Sources/Matrix/CryptoEngine.swift
       - path: Sources/Matrix/MatrixEnvironment.swift
       - path: Sources/Models/AppError.swift

@@ -1,16 +1,7 @@
 import SwiftUI
 
-struct FounderChatPromptRequest: Codable, Equatable {
-    let source: String
-    let modalTitle: String?
-    let modalBody: String?
-    /// Prefill text for the WhatsApp / Intercom outreach (from the push, optional).
-    var contactMessage: String?
-    /// Push overrides to force-skip a channel so the next one can be tested without
-    /// uninstalling the app (e.g. skip WhatsApp to verify Telegram).
-    var disableWhatsApp: Bool?
-    var disableTelegram: Bool?
-}
+// `FounderChatPromptRequest` moved to Sources/Shared/FounderPromptShared.swift so
+// the NSE can build/store it on push delivery (see FounderPromptPending).
 
 /// Modal shown after an APNS push tags this device as "looks stuck."
 ///
@@ -155,58 +146,30 @@ struct FounderChatPromptModal: View {
 
 /// Persists the snooze / dismissal state for the founder-chat prompt across
 /// app launches. Backed by UserDefaults.
+/// App-side facade over the shared `FounderPromptPending` store (App-Group backed,
+/// so a prompt the NSE stored on delivery — even for a DISMISSED notification — is
+/// picked up here on the next foreground). Kept as the existing `@MainActor` API so
+/// its callers are unchanged.
 @MainActor
 final class FounderChatPromptStore {
     static let shared = FounderChatPromptStore()
-
-    private let snoozeUntilKey = "chat4000.FounderChatPrompt.snoozeUntil"
-    private let pendingPromptKey = "chat4000.FounderChatPrompt.pendingPrompt"
-    private let snoozeWindow: TimeInterval = 60 * 60 * 24 // 24 hours
-
     private init() {}
 
-    var isSnoozed: Bool {
-        guard let until = UserDefaults.standard.object(forKey: snoozeUntilKey) as? Date else {
-            return false
-        }
-        return until > Date()
-    }
+    var isSnoozed: Bool { FounderPromptPending.isSnoozed }
 
-    func snoozeForOneDay() {
-        UserDefaults.standard.set(Date().addingTimeInterval(snoozeWindow), forKey: snoozeUntilKey)
-    }
+    func snoozeForOneDay() { FounderPromptPending.snoozeForOneDay() }
 
     func markDismissedNow() {
         // No persistent suppression — a future targeted push can fire again.
         // We just clear any active snooze.
-        UserDefaults.standard.removeObject(forKey: snoozeUntilKey)
+        FounderPromptPending.clearSnooze()
     }
 
     func storePendingPrompt(_ request: FounderChatPromptRequest) {
-        do {
-            let data = try JSONEncoder().encode(request)
-            UserDefaults.standard.set(data, forKey: pendingPromptKey)
-            AppLog.log("🔔 [push] founder_chat_prompt stored pending source=%@", request.source)
-        } catch {
-            ErrorReporter.capture(error, context: "FounderChatPromptStore.storePendingPrompt")
-            AppLog.log("⚠️ [push] failed to store founder_chat_prompt pending request: \(error.localizedDescription)")
-        }
+        FounderPromptPending.store(request)
     }
 
     func consumePendingPrompt() -> FounderChatPromptRequest? {
-        guard let data = UserDefaults.standard.data(forKey: pendingPromptKey) else {
-            return nil
-        }
-
-        UserDefaults.standard.removeObject(forKey: pendingPromptKey)
-        do {
-            let request = try JSONDecoder().decode(FounderChatPromptRequest.self, from: data)
-            AppLog.log("🔔 [push] founder_chat_prompt consumed pending source=%@", request.source)
-            return request
-        } catch {
-            ErrorReporter.capture(error, context: "FounderChatPromptStore.consumePendingPrompt")
-            AppLog.log("⚠️ [push] failed to decode founder_chat_prompt pending request: \(error.localizedDescription)")
-            return nil
-        }
+        FounderPromptPending.consume()
     }
 }
