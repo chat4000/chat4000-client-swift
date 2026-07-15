@@ -1,6 +1,9 @@
-#if os(iOS)
 import SwiftUI
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct OnboardingFlowView: View {
     @Bindable var manager: OnboardingManager
@@ -51,10 +54,12 @@ struct OnboardingFlowView: View {
                         .padding(.horizontal, 24)
                     Spacer(minLength: 24)
                 }
-                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 40)
+                .frame(maxWidth: .infinity, minHeight: viewportHeight - 40)
             }
             .scrollBounceBehavior(.basedOnSize)
+            #if os(iOS)
             .scrollDismissesKeyboard(.interactively)
+            #endif
         }
         .onAppear { manager.start() }
         // Dismiss signal — used by the QA preview cover; the real flow is dismissed
@@ -71,9 +76,17 @@ struct OnboardingFlowView: View {
             Group {
                 switch manager.step {
                 case .notifExplainer:
+                    #if os(iOS)
                     notificationExplainer
+                    #else
+                    EmptyView()
+                    #endif
                 case .notifBlocked:
+                    #if os(iOS)
                     notificationBlocked
+                    #else
+                    EmptyView()
+                    #endif
                 case .pollSource:
                     pollStep(
                         icon: "sparkles",
@@ -111,8 +124,9 @@ struct OnboardingFlowView: View {
         .frame(maxWidth: 390)
     }
 
-    // MARK: - Phase 0 — Notifications
+    // MARK: - Phase 0 — Notifications (iOS only)
 
+    #if os(iOS)
     private var notificationExplainer: some View {
         VStack(spacing: 18) {
             stepIcon("bell.badge.fill")
@@ -149,6 +163,16 @@ struct OnboardingFlowView: View {
             }
         }
     }
+
+    private func settingsStep(number: Int, text: String) -> some View {
+        HStack(spacing: 12) {
+            numberBadge(number)
+            Text(text)
+                .font(AppFonts.body)
+                .foregroundStyle(AppColors.textPrimary)
+        }
+    }
+    #endif
 
     // MARK: - Phase 2 — Connection (W3-W9)
 
@@ -455,15 +479,6 @@ struct OnboardingFlowView: View {
         }
     }
 
-    private func settingsStep(number: Int, text: String) -> some View {
-        HStack(spacing: 12) {
-            numberBadge(number)
-            Text(text)
-                .font(AppFonts.body)
-                .foregroundStyle(AppColors.textPrimary)
-        }
-    }
-
     private func instructionRow(_ number: Int, _ title: String, _ hint: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             numberBadge(number)
@@ -488,6 +503,18 @@ struct OnboardingFlowView: View {
             .frame(width: 24, height: 24)
             .background(Color.white)
             .clipShape(Circle())
+    }
+
+    /// Screen height used to keep the card centered while still scrolling on
+    /// overflow — platform-neutral (UIScreen on iOS, NSScreen on macOS).
+    private var viewportHeight: CGFloat {
+        #if os(iOS)
+        UIScreen.main.bounds.height
+        #elseif os(macOS)
+        NSScreen.main?.frame.height ?? 800
+        #else
+        800
+        #endif
     }
 
     private func hintText(_ text: String) -> some View {
@@ -620,7 +647,12 @@ struct CommandCard: View {
 
             Button {
                 Haptics.success()
+                #if os(iOS)
                 UIPasteboard.general.string = command
+                #elseif os(macOS)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+                #endif
                 onCopy()
                 copied = true
                 Task { @MainActor in
@@ -644,4 +676,3 @@ struct CommandCard: View {
         }
     }
 }
-#endif

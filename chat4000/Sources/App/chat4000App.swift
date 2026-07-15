@@ -11,9 +11,7 @@ import AppKit
 #endif
 
 enum AppScreen {
-    #if os(iOS)
     case onboarding
-    #endif
     case enterPairingCode
     case pairingConnecting
     case appConnecting
@@ -39,10 +37,7 @@ struct chat4000App: App {
     @State private var showLegalReconsentModal: Bool
     @State private var currentTermsVersion: Int?
     @State private var versionPolicy = VersionPolicyManager.shared
-    #if os(iOS)
     @State private var onboardingManager = OnboardingManager()
-    @State private var pendingOnboardingPairingCode: String?
-    #endif
     #if os(macOS)
     @State private var macUpdater = MacUpdater.shared
     #endif
@@ -77,10 +72,11 @@ struct chat4000App: App {
             initialScreen = .enterPairingCode
         }
         #else
+        // macOS runs the same connect flow (minus the notifications phase).
         if initialViewModel.isPaired {
             initialScreen = initialViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting
         } else {
-            initialScreen = .enterPairingCode
+            initialScreen = .onboarding
         }
         #endif
         _currentScreen = State(initialValue: initialScreen)
@@ -462,7 +458,6 @@ struct chat4000App: App {
     @ViewBuilder
     private var primaryContent: some View {
         switch currentScreen {
-        #if os(iOS)
         case .onboarding:
             OnboardingFlowView(
                 manager: onboardingManager,
@@ -470,7 +465,6 @@ struct chat4000App: App {
                 onSubmit: startJoinPairing,
                 errorMessage: errorMessage
             )
-        #endif
 
         case .enterPairingCode:
             EnterPairingCodeView(
@@ -653,34 +647,24 @@ struct chat4000App: App {
     /// "I already have a way in" options (Disconnect → W3 limited); on macOS it's
     /// the standalone pairing screen. Call inside a `withAnimation` block.
     private func routeToEntryScreen() {
-        #if os(iOS)
+        // Both platforms re-enter the connect flow at the hub with only the two
+        // "I already have a way in" options (Disconnect → W3 limited).
         onboardingManager.resetForRerun()
         onboardingManager.startForReconnect()
         currentScreen = .onboarding
-        #else
-        currentScreen = .enterPairingCode
-        #endif
     }
 
-    #if os(iOS)
+    /// The onboarding flow's dismiss callback — used only by the QA preview cover
+    /// now (the real flow leaves via pairing routing). A paired device (QA rerun)
+    /// returns to chat; an unpaired one falls back to the pairing screen.
     private func completeOnboarding() {
-        // A paired device running the QA rerun goes back to its chat, not the
-        // pairing screen — it never lost its session. A genuine first-run install
-        // proceeds to enter a pairing code.
         let destination: AppScreen = chatViewModel.isPaired
             ? (chatViewModel.matrixSession.hasCompletedFirstSetup ? .chat : .appConnecting)
             : .enterPairingCode
         withAnimation(.easeInOut(duration: 0.3)) {
             currentScreen = destination
         }
-        guard let code = pendingOnboardingPairingCode else { return }
-        pendingOnboardingPairingCode = nil
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
-            startJoinPairing(code)
-        }
     }
-    #endif
 
 }
 

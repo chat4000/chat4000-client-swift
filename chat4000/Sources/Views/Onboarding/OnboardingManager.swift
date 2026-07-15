@@ -1,7 +1,8 @@
-#if os(iOS)
 import Foundation
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -54,18 +55,31 @@ final class OnboardingManager {
     /// the notif explainer + blocked screens are ONE phase (blocked is a detour,
     /// not a step), so granting goes phase 0 → 1, not dot 1 → 3. The neither branch
     /// adds the two extra phases only when the user is actually in it.
-    /// Three phases: Notifications, Where, Connection. The notif explainer +
-    /// blocked screens are ONE phase (blocked is a detour); everything in the
-    /// connection windows (W3-W9) is the third dot.
+    /// Phases: iOS = Notifications, Where, Connection (3 dots). macOS has no
+    /// notifications gate, so it's Where, Connection (2 dots). Everything in the
+    /// connection windows (W3-W9) is the last dot.
     var progressPhase: Int {
+        #if os(iOS)
         switch step {
         case .notifExplainer, .notifBlocked: return 0
         case .pollSource: return 1
         default: return 2
         }
+        #else
+        switch step {
+        case .pollSource: return 0
+        default: return 1
+        }
+        #endif
     }
 
-    var progressTotal: Int { 3 }
+    var progressTotal: Int {
+        #if os(iOS)
+        3
+        #else
+        2
+        #endif
+    }
 
     struct PollConfig: Codable, Equatable {
         let version: Int
@@ -98,7 +112,11 @@ final class OnboardingManager {
     /// CL31 fires once, at the first hub choice — guard against re-firing.
     private var completionFired = false
 
+    #if os(iOS)
     private(set) var step: Step = .notifExplainer
+    #else
+    private(set) var step: Step = .pollSource   // macOS: no notifications phase
+    #endif
     private(set) var attempts = 0
     /// Set true by `complete()` — the single "onboarding is finished" signal the
     /// view observes to dismiss. Needed because completion can be reached WITHOUT
@@ -157,6 +175,7 @@ final class OnboardingManager {
         started = true
         startedAt = Date()
         Task { await fetchPollConfigWithRetries() }
+        #if os(iOS)
         Task {
             // Skip phases already satisfied: notifications (if granted) and the
             // "where" poll (if this device already finished the poll portion).
@@ -170,6 +189,15 @@ final class OnboardingManager {
                 advanceToSourcePoll()
             }
         }
+        #else
+        // macOS: no notifications phase — go straight to where / the hub.
+        if defaults.bool(forKey: Self.completionDefaultsKey) {
+            completionFired = true
+            move(to: .connectHub, forceTrack: true)
+        } else {
+            advanceToSourcePoll()
+        }
+        #endif
     }
 
     /// Disconnect re-entry: jump straight to the connect hub with only the two
@@ -191,7 +219,11 @@ final class OnboardingManager {
     func resetForRerun() {
         started = false
         isComplete = false
+        #if os(iOS)
         step = .notifExplainer
+        #else
+        step = .pollSource
+        #endif
         attempts = 0
         viewedSteps = []
         returningFromSettings = false
@@ -206,6 +238,7 @@ final class OnboardingManager {
         startedAt = Date()
     }
 
+    #if os(iOS)
     func enableNotifications() {
         attempts += 1
         Task {
@@ -239,6 +272,14 @@ final class OnboardingManager {
             }
         }
     }
+
+    private func trackNotificationResult(granted: Bool) {
+        TelemetryManager.shared.track(
+            .onboardingNotificationsResult,
+            properties: ["granted": granted, "attempts": attempts]
+        )
+    }
+    #endif
 
     func answerSource(option: PollOption, text: String?) {
         heardFromAnswerId = option.id
@@ -359,13 +400,6 @@ final class OnboardingManager {
         )
     }
 
-    private func trackNotificationResult(granted: Bool) {
-        TelemetryManager.shared.track(
-            .onboardingNotificationsResult,
-            properties: ["granted": granted, "attempts": attempts]
-        )
-    }
-
     /// The options' ONLY source (RG10): retry the registrar up to 10× (5s apart);
     /// success fills the poll screens live, exhaustion skips them (poll_skipped).
     private func fetchPollConfigWithRetries() async {
@@ -464,4 +498,3 @@ private extension String {
         hasSuffix("/") ? String(dropLast()) : self
     }
 }
-#endif
