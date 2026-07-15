@@ -196,7 +196,7 @@ struct OnboardingFlowView: View {
             backHeader("Set up the plugin")
             stepText(
                 title: nil,
-                body: "chat4000 runs through a small plugin next to your agent. If it isn't set up yet, you'll run one command — send it to your agent in a chat, or run it on the machine over SSH. How would you like to do it?"
+                body: "chat4000 runs through a small plugin next to your agent. If it isn't set up yet, you'll have to run one command — either send it to your agent in a chat, or run it on the machine (over SSH, or right there if this is the machine). How would you like to do it?"
             )
             optionButton(agentInlineText(lead: "Send it in my chat with ", trail: " (Telegram, WhatsApp…)")) {
                 manager.chooseInstall(.chat)
@@ -221,12 +221,18 @@ struct OnboardingFlowView: View {
                         ? EnterPairingCodeView.installCommandForAgent
                         : EnterPairingCodeView.installCommand
                 )
-                Text(method == .chat
-                    ? "It may take a couple of minutes to come up, then it replies with a single-use 6-digit code."
-                    : "SSH in (or run it right there if this is the machine). It prints a single-use 6-digit code.")
-                    .font(AppFonts.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if method == .chat {
+                    hintText("It may take a couple of minutes to come up, then it replies with a single-use 6-digit code.")
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        hintText("It runs on the machine your agent is on — two ways:")
+                        hintText("1.  SSH into the machine and paste it, or")
+                        hintText("2.  if you're already on the machine, just run it there.")
+                        hintText("Either way, it prints a single-use 6-digit code.")
+                            .padding(.top, 2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             stepBlock(2, "Enter the 6-digit code it gives you") {
@@ -244,7 +250,7 @@ struct OnboardingFlowView: View {
     private var teamOffer: some View {
         VStack(spacing: 18) {
             backHeader(nil)
-            stepIcon("bird.fill")
+            stepIcon("bubble.left.and.bubble.right.fill")
             stepText(
                 title: "The team would love to chat",
                 body: "We'd love to hear about the expectations you had from this app, so we can build it for you."
@@ -477,6 +483,15 @@ struct OnboardingFlowView: View {
             .frame(width: 24, height: 24)
             .background(Color.white)
             .clipShape(Circle())
+    }
+
+    private func hintText(_ text: String) -> some View {
+        Text(text)
+            .font(AppFonts.caption)
+            .foregroundStyle(AppColors.textSecondary)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func backHeader(_ title: String?) -> some View {

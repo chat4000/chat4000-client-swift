@@ -105,12 +105,6 @@ struct PairingEntryView: View {
             .contentShape(Rectangle())
             .onTapGesture { focused = true }
 
-            Text("Enter the code from your plugin or another paired device.")
-                .font(AppFonts.caption)
-                .foregroundStyle(AppColors.textTimestamp)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 250)
-
             Button {
                 Haptics.impact()
                 showScanner = true

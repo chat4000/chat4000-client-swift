@@ -133,8 +133,23 @@ final class OnboardingManager {
         pollConfig?.questions["heard_from"]
     }
 
+    /// BUNDLED in the app (not registrar-served) so "what did you expect" always
+    /// shows the right options regardless of what a box has seeded. Only this
+    /// question is client-fixed; `heard_from` stays registrar-served (RG10). The
+    /// answer is still POSTed to the registrar (RG11) + mirrored to PostHog (CL32).
+    static let bundledExpectedQuestion = PollQuestion(
+        title: "What did you expect this app to be?",
+        subtitle: "No wrong answer — just curious what you pictured.",
+        options: [
+            PollOption(id: "chatgpt_or_claude", label: "An app similar to ChatGPT or Claude", kind: "choice"),
+            PollOption(id: "chatgpt_cheaper", label: "ChatGPT, but cheaper", kind: "choice"),
+            PollOption(id: "opensource", label: "An app to talk to open-source LLMs", kind: "choice"),
+            PollOption(id: "other", label: "Something else", kind: "text")
+        ]
+    )
+
     var expectedQuestion: PollQuestion? {
-        pollConfig?.questions["expected_app"]
+        Self.bundledExpectedQuestion
     }
 
     func start() {
