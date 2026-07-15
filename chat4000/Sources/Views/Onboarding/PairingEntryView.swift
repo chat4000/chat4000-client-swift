@@ -15,6 +15,11 @@ struct PairingEntryView: View {
     var errorMessage: String?
     var onSubmit: (String) -> Void
     @Binding var showScanner: Bool
+    /// When embedded in the onboarding connect windows we DON'T auto-raise the
+    /// keyboard — it would cover the instructions + the "Chat with team" button.
+    /// The user taps the code field when ready. The standalone pairing screen keeps
+    /// auto-focus (true).
+    var autofocus: Bool = true
 
     @State private var codeText = ""
     @State private var lastSubmittedCode = ""
@@ -153,7 +158,7 @@ struct PairingEntryView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.button))
             }
         }
-        .onAppear { focused = true }
+        .onAppear { if autofocus { focused = true } }
         .sheet(isPresented: $showScanner) {
             QRScannerView(
                 onScanned: { scannedText in

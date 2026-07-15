@@ -31,22 +31,30 @@ struct OnboardingFlowView: View {
             )
                 .ignoresSafeArea()
 
-            VStack {
-                Spacer(minLength: 24)
-                content
-                    .padding(AppSpacing.cardPadding)
-                    .background(
-                        RoundedRectangle(cornerRadius: 28)
-                            .fill(AppColors.cardBackground.opacity(0.8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 28)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                            )
-                            .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 18)
-                    )
-                    .padding(.horizontal, 24)
-                Spacer(minLength: 24)
+            // Scrollable so tall windows (the install steps + pairing entry +
+            // Chat-with-team) are always fully reachable — bounces only when the
+            // content actually overflows.
+            ScrollView {
+                VStack {
+                    Spacer(minLength: 24)
+                    content
+                        .padding(AppSpacing.cardPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28)
+                                .fill(AppColors.cardBackground.opacity(0.8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 28)
+                                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                )
+                                .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 18)
+                        )
+                        .padding(.horizontal, 24)
+                    Spacer(minLength: 24)
+                }
+                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 40)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
         }
         .onAppear { manager.start() }
         // Dismiss signal — used by the QA preview cover; the real flow is dismissed
@@ -83,11 +91,14 @@ struct OnboardingFlowView: View {
                 case .installSSH:
                     installCommandWindow(method: .ssh)
                 case .pollExpected:
-                    pollStep(
-                        icon: "questionmark.bubble.fill",
-                        question: manager.expectedQuestion,
-                        submit: manager.answerExpected(option:text:)
-                    )
+                    VStack(spacing: 16) {
+                        backHeader(nil)
+                        pollStep(
+                            icon: "questionmark.bubble.fill",
+                            question: manager.expectedQuestion,
+                            submit: manager.answerExpected(option:text:)
+                        )
+                    }
                 case .teamOffer:
                     teamOffer
                 }
@@ -147,11 +158,11 @@ struct OnboardingFlowView: View {
         VStack(spacing: 16) {
             stepIcon("point.3.filled.connected.trianglepath.dotted")
             stepText(title: "Let's connect you", body: "Where are you starting from?")
+            optionButton(agentInlineText(lead: "I have ", trail: ", but not chat4000")) {
+                manager.chooseConnect(.hasAgent)
+            }
             optionButton("I have chat4000 on another device") {
                 manager.chooseConnect(.otherDevice)
-            }
-            agentOptionButton("I have OpenClaw or Hermes, but not chat4000") {
-                manager.chooseConnect(.hasAgent)
             }
             if !manager.limitedHub {
                 optionButton("I have none of these yet") {
@@ -175,24 +186,25 @@ struct OnboardingFlowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            pairingEntry
+            pairingEntry()
         }
     }
 
     /// W5 — how do you want to install the plugin?
     private var installChooser: some View {
         VStack(spacing: 16) {
-            backHeader("Install the plugin")
+            backHeader("Set up the plugin")
             stepText(
                 title: nil,
-                body: "You need the chat4000 plugin on your server. Install it by pasting a command into the chat with your agent, or by SSHing into the machine — or just run it right there if this is the machine."
+                body: "chat4000 runs through a small plugin next to your agent. If it isn't set up yet, you'll run one command — send it to your agent in a chat, or run it on the machine over SSH. How would you like to do it?"
             )
-            agentOptionButton("I already chat with my agent (Telegram, WhatsApp…)") {
+            optionButton(agentInlineText(lead: "Send it in my chat with ", trail: " (Telegram, WhatsApp…)")) {
                 manager.chooseInstall(.chat)
             }
-            optionButton("I'll install over SSH / on the machine") {
+            optionButton("Run it on the machine over SSH") {
                 manager.chooseInstall(.ssh)
             }
+            ChatWithFounderCallout(caption: "Not sure? Chat with the team.", source: "onboarding_install_chooser")
         }
     }
 
@@ -200,20 +212,27 @@ struct OnboardingFlowView: View {
     /// `# run script pls` tail (so the agent runs it in chat); `ssh` shows the plain
     /// one-liner you run yourself.
     private func installCommandWindow(method: OnboardingManager.InstallMethod) -> some View {
-        VStack(spacing: 14) {
-            backHeader(method == .chat ? "Paste into your agent chat" : "Run it on the machine")
-            CommandCard(
-                command: method == .chat
-                    ? EnterPairingCodeView.installCommandForAgent
-                    : EnterPairingCodeView.installCommand
-            )
-            stepText(
-                title: nil,
-                body: method == .chat
-                    ? "Send it to your agent — it may take a couple of minutes to come up, then it replies with a single-use 6-digit code."
-                    : "SSH in (or run it right there if this is the machine). It prints a single-use 6-digit code."
-            )
-            pairingEntry
+        VStack(spacing: 18) {
+            backHeader(method == .chat ? "Send it to your agent" : "Run it on the machine")
+
+            stepBlock(1, method == .chat ? "Paste this into your agent chat" : "Run this on the machine") {
+                CommandCard(
+                    command: method == .chat
+                        ? EnterPairingCodeView.installCommandForAgent
+                        : EnterPairingCodeView.installCommand
+                )
+                Text(method == .chat
+                    ? "It may take a couple of minutes to come up, then it replies with a single-use 6-digit code."
+                    : "SSH in (or run it right there if this is the machine). It prints a single-use 6-digit code.")
+                    .font(AppFonts.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            stepBlock(2, "Enter the 6-digit code it gives you") {
+                pairingEntry()
+            }
+
             ChatWithFounderCallout(
                 caption: "Stuck? Chat with the team.",
                 source: method == .chat ? "onboarding_install_chat" : "onboarding_install_ssh"
@@ -228,7 +247,7 @@ struct OnboardingFlowView: View {
             stepIcon("bird.fill")
             stepText(
                 title: "The team would love to chat",
-                body: "Tell us what you're building — we'll see if we can help you get set up."
+                body: "We'd love to hear about the expectations you had from this app, so we can build it for you."
             )
             primaryButton("Talk to the team", systemImage: "message.fill") {
                 let channel = FounderOutreach.contactFounder(
@@ -245,13 +264,63 @@ struct OnboardingFlowView: View {
         }
     }
 
-    /// The shared pairing entry embedded in the connect windows.
-    private var pairingEntry: some View {
+    /// The shared pairing entry embedded in the connect windows — no auto-focus, so
+    /// the keyboard doesn't cover the instructions / Chat-with-team button.
+    private func pairingEntry() -> some View {
         PairingEntryView(
             errorMessage: errorMessage,
             onSubmit: onSubmit,
-            showScanner: $showPairingScanner
+            showScanner: $showPairingScanner,
+            autofocus: false
         )
+    }
+
+    /// "<lead>OpenClaw 🦞 or Hermes ☤<trail>" as a single wrapping Text with each
+    /// icon right after its word; the caduceus is scaled up + nudged to sit at cap
+    /// height. Reused for the hub option and the install-chat button.
+    private func agentInlineText(lead: String, trail: String) -> Text {
+        Text(lead + "OpenClaw ")
+            + Text("🦞").font(.system(size: 16))
+            + Text(" or Hermes ")
+            + Text("☤").font(.system(size: 21)).baselineOffset(-2)
+            + Text(trail)
+    }
+
+    /// An option button whose label is a rich `Text` (for inline agent icons).
+    private func optionButton(_ label: Text, action: @escaping () -> Void) -> some View {
+        cardButton(action: action) {
+            HStack(spacing: 10) {
+                label
+                    .font(AppFonts.button)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+        }
+    }
+
+    /// A numbered step block (badge + title, then content). Used by the install
+    /// windows to lay the command + pairing out as Step 1 → Step 2.
+    private func stepBlock<Content: View>(
+        _ number: Int,
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                numberBadge(number)
+                Text(title)
+                    .font(AppFonts.label)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Polls (source + expected)
@@ -488,25 +557,6 @@ struct OnboardingFlowView: View {
         }
     }
 
-    /// An option that names the agents in text, with 🦞 OpenClaw / ☤ Hermes icons
-    /// AFTER the text (Hermes sized to the cap height — see `AgentGlyphs`).
-    private func agentOptionButton(_ title: String, action: @escaping () -> Void) -> some View {
-        cardButton(action: action) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(AppFonts.button)
-                    .foregroundStyle(AppColors.textPrimary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                AgentGlyphs()
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppColors.textSecondary)
-            }
-        }
-    }
-
     private func primaryButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button {
             Haptics.impact()
@@ -525,20 +575,6 @@ struct OnboardingFlowView: View {
     }
 }
 
-/// 🦞 OpenClaw then ☤ Hermes, shown after a label. The caduceus sits small in its
-/// em box, so it is scaled up and nudged down so its TOP reaches the cap height of
-/// adjacent text (matching chat4000.com's header). Reused wherever both agents are
-/// referenced together.
-struct AgentGlyphs: View {
-    var body: some View {
-        HStack(spacing: 5) {
-            Text("🦞").font(.system(size: 19))
-            Text("☤").font(.system(size: 25)).baselineOffset(-3)
-        }
-        .accessibilityLabel("OpenClaw and Hermes")
-    }
-}
-
 /// A read-only command block with a Copy button. Reused by the install windows.
 struct CommandCard: View {
     let command: String
@@ -547,13 +583,13 @@ struct CommandCard: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(command)
-                .font(AppFonts.sans(11, weight: .regular))
+                .font(AppFonts.sans(15, weight: .medium))
                 .foregroundStyle(AppColors.textPrimary)
                 .textSelection(.enabled)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
+                .padding(12)
                 .background(Color.black.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(

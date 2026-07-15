@@ -249,13 +249,16 @@ final class OnboardingManager {
         move(to: method == .chat ? .installChat : .installSSH)
     }
 
-    /// The Back button per window (W4-W9 → their parent).
+    /// The Back button per window — each goes exactly ONE screen back.
     func goBack() {
         switch step {
-        case .connectDevice, .installChooser, .pollExpected, .teamOffer:
+        case .connectDevice, .installChooser, .pollExpected:
             move(to: .connectHub)
         case .installChat, .installSSH:
             move(to: .installChooser)
+        case .teamOffer:
+            // W9 → WA ("what did you expect") if it was shown, else the hub.
+            move(to: expectedQuestion != nil ? .pollExpected : .connectHub)
         default:
             break
         }
