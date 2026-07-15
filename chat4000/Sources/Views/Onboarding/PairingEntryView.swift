@@ -20,6 +20,16 @@ struct PairingEntryView: View {
     /// The user taps the code field when ready. The standalone pairing screen keeps
     /// auto-focus (true).
     var autofocus: Bool = true
+    /// Density knobs for the install windows (W6/W7), which already have an explicit
+    /// "Enter the 6-digit code" step: hide the redundant "Pairing code" label and
+    /// the big Scan-QR button (the plugin prints a code you TYPE — the QR belongs to
+    /// device-to-device pairing), and tighten spacing so the window fits without a
+    /// scroll. The standalone screen + W4 keep the defaults.
+    var showLabel: Bool = true
+    var showScanButton: Bool = true
+    var compact: Bool = false
+
+    private var controlHeight: CGFloat { compact ? 46 : 54 }
 
     @State private var codeText = ""
     @State private var lastSubmittedCode = ""
@@ -60,10 +70,12 @@ struct PairingEntryView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            Text("Pairing code")
-                .font(AppFonts.label)
-                .foregroundStyle(AppColors.textSecondary)
+        VStack(spacing: compact ? 10 : 14) {
+            if showLabel {
+                Text("Pairing code")
+                    .font(AppFonts.label)
+                    .foregroundStyle(AppColors.textSecondary)
+            }
 
             ZStack {
                 TextField("", text: $codeText)
@@ -105,20 +117,22 @@ struct PairingEntryView: View {
             .contentShape(Rectangle())
             .onTapGesture { focused = true }
 
-            Button {
-                Haptics.impact()
-                showScanner = true
-            } label: {
-                Label("Scan QR", systemImage: "qrcode.viewfinder")
-                    .font(AppFonts.button)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 8)
+            if showScanButton {
+                Button {
+                    Haptics.impact()
+                    showScanner = true
+                } label: {
+                    Label("Scan QR", systemImage: "qrcode.viewfinder")
+                        .font(AppFonts.button)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: controlHeight)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 8)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             if requiresConsent {
                 LegalConsentCheckboxRow(isChecked: $agreeChecked)
@@ -133,7 +147,7 @@ struct PairingEntryView: View {
                     .font(AppFonts.button)
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 54)
+                    .frame(height: controlHeight)
                     .background(canSubmit ? Color.white : Color.white.opacity(0.35))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .shadow(color: .black.opacity(canSubmit ? 0.15 : 0), radius: 16, x: 0, y: 8)

@@ -238,7 +238,7 @@ struct OnboardingFlowView: View {
     /// `# run script pls` tail (so the agent runs it in chat); `ssh` shows the plain
     /// one-liner you run yourself.
     private func installCommandWindow(method: OnboardingManager.InstallMethod) -> some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 14) {
             backHeader(method == .chat ? "Send it to your agent" : "Run it on the machine")
 
             stepBlock(1, method == .chat ? "Paste this into your agent chat" : "Run this on the machine") {
@@ -267,7 +267,7 @@ struct OnboardingFlowView: View {
             }
 
             stepBlock(2, "Enter the 6-digit code it gives you") {
-                pairingEntry()
+                pairingEntry(showScan: false, compact: true)
             }
 
             ChatWithFounderCallout(
@@ -302,13 +302,18 @@ struct OnboardingFlowView: View {
     }
 
     /// The shared pairing entry embedded in the connect windows — no auto-focus, so
-    /// the keyboard doesn't cover the instructions / Chat-with-team button.
-    private func pairingEntry() -> some View {
+    /// the keyboard doesn't cover the instructions / Chat-with-team button. `compact`
+    /// (the install windows, which have their own "Enter the code" step) hides the
+    /// redundant label + Scan-QR and tightens spacing so the window fits.
+    private func pairingEntry(showScan: Bool = true, compact: Bool = false) -> some View {
         PairingEntryView(
             errorMessage: errorMessage,
             onSubmit: onSubmit,
             showScanner: $showPairingScanner,
-            autofocus: false
+            autofocus: false,
+            showLabel: !compact,
+            showScanButton: showScan,
+            compact: compact
         )
     }
 
