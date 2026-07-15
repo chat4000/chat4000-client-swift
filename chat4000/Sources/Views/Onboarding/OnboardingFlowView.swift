@@ -196,7 +196,7 @@ struct OnboardingFlowView: View {
             backHeader("Set up the plugin")
             stepText(
                 title: nil,
-                body: "chat4000 runs through a small plugin next to your agent. If it isn't set up yet, you'll have to run one command — either send it to your agent in a chat, or run it on the machine (over SSH, or right there if this is the machine). How would you like to do it?"
+                body: "chat4000 runs through a small plugin next to your agent. If it isn't set up yet, you'll have to run one command — either send it to your agent in a chat, or run it on the machine your agent lives on (over SSH, or directly if you're on that machine). How would you like to do it?"
             )
             optionButton(agentInlineText(lead: "Send it in my chat with ", trail: " (Telegram, WhatsApp…)")) {
                 manager.chooseInstall(.chat)
@@ -220,14 +220,19 @@ struct OnboardingFlowView: View {
                     command: method == .chat
                         ? EnterPairingCodeView.installCommandForAgent
                         : EnterPairingCodeView.installCommand
-                )
+                ) {
+                    TelemetryManager.shared.track(.helpInstallCommandCopied, properties: [
+                        "method": method == .chat ? "messaging" : "ssh",
+                        "source": "onboarding"
+                    ])  // CL36
+                }
                 if method == .chat {
                     hintText("It may take a couple of minutes to come up, then it replies with a single-use 6-digit code.")
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
-                        hintText("It runs on the machine your agent is on — two ways:")
-                        hintText("1.  SSH into the machine and paste it, or")
-                        hintText("2.  if you're already on the machine, just run it there.")
+                        hintText("Run it on the machine your agent lives on — two ways:")
+                        hintText("1.  SSH into that machine and paste it, or")
+                        hintText("2.  run it there directly if you're already on that machine.")
                         hintText("Either way, it prints a single-use 6-digit code.")
                             .padding(.top, 2)
                     }
@@ -593,6 +598,7 @@ struct OnboardingFlowView: View {
 /// A read-only command block with a Copy button. Reused by the install windows.
 struct CommandCard: View {
     let command: String
+    var onCopy: () -> Void = {}
     @State private var copied = false
 
     var body: some View {
@@ -615,6 +621,7 @@ struct CommandCard: View {
             Button {
                 Haptics.success()
                 UIPasteboard.general.string = command
+                onCopy()
                 copied = true
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(2))
