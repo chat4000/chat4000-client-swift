@@ -226,7 +226,7 @@ struct chat4000App: App {
                         errorMessage = message
                         Haptics.error()
                         withAnimation(.easeInOut(duration: 0.3)) {
-                            currentScreen = .enterPairingCode
+                            routeToEntryScreen()
                         }
                     }
                 case .disconnected:
@@ -237,7 +237,7 @@ struct chat4000App: App {
                         || currentScreen == .reconnecting {
                         shouldCelebrateFirstConnection = false
                         withAnimation(.easeInOut(duration: 0.3)) {
-                            currentScreen = .enterPairingCode
+                            routeToEntryScreen()
                         }
                     }
                 default:
@@ -466,7 +466,9 @@ struct chat4000App: App {
         case .onboarding:
             OnboardingFlowView(
                 manager: onboardingManager,
-                onComplete: completeOnboarding
+                onComplete: completeOnboarding,
+                onSubmit: startJoinPairing,
+                errorMessage: errorMessage
             )
         #endif
 
@@ -484,7 +486,7 @@ struct chat4000App: App {
                     errorMessage = nil
                     shouldCelebrateFirstConnection = false
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        currentScreen = .enterPairingCode
+                        routeToEntryScreen()
                     }
                 }
             )
@@ -507,7 +509,7 @@ struct chat4000App: App {
                     errorMessage = nil
                     shouldCelebrateFirstConnection = false
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        currentScreen = .enterPairingCode
+                        routeToEntryScreen()
                     }
                 }
             )
@@ -577,12 +579,9 @@ struct chat4000App: App {
                 .pairingLinkOpened,
                 properties: ["source": url.scheme?.lowercased() == "chat4000" ? "url_scheme" : "universal_link"]
             )
-            #if os(iOS)
-            if currentScreen == .onboarding {
-                pendingOnboardingPairingCode = code
-                return
-            }
-            #endif
+            // The connect windows own pairing now, so a deep-linked code pairs
+            // directly from any screen (including mid-onboarding) — startJoinPairing
+            // routes to the connecting screen, leaving the flow.
             startJoinPairing(code)
             return
         }
@@ -647,6 +646,20 @@ struct chat4000App: App {
             currentScreen = .pairingConnecting
         }
         Task { await chatViewModel.pair(code: code) }
+    }
+
+    /// After a disconnect / pairing failure, return to the entry point. On iOS
+    /// that's the unified connect flow re-entered at the hub with only the two
+    /// "I already have a way in" options (Disconnect → W3 limited); on macOS it's
+    /// the standalone pairing screen. Call inside a `withAnimation` block.
+    private func routeToEntryScreen() {
+        #if os(iOS)
+        onboardingManager.resetForRerun()
+        onboardingManager.startForReconnect()
+        currentScreen = .onboarding
+        #else
+        currentScreen = .enterPairingCode
+        #endif
     }
 
     #if os(iOS)

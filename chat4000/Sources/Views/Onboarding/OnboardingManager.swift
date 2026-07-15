@@ -7,12 +7,33 @@ import UIKit
 @Observable
 final class OnboardingManager {
     enum Step: String, CaseIterable {
+        // Phase 0 — Notifications
         case notifExplainer = "notif_explainer"
         case notifBlocked = "notif_blocked"
+        // Phase 1 — Where did you hear about us
         case pollSource = "poll_source"
-        case pollAgent = "poll_agent"
-        case pollExpected = "poll_expected"
-        case interviewOffer = "interview_offer"
+        // Phase 2 — Connection (W3-W9)
+        case connectHub = "connect_hub"          // W3 — where are you starting from
+        case connectDevice = "connect_device"    // W4 — pair from another device
+        case installChooser = "install_chooser"  // W5 — chat vs SSH
+        case installChat = "install_chat"        // W6 — paste curl into the agent chat
+        case installSSH = "install_ssh"          // W7 — run curl on the machine
+        case pollExpected = "poll_expected"      // WA — what did you expect
+        case teamOffer = "team_offer"            // W9 — talk to the team
+    }
+
+    /// W3 hub choices — each is its own analytics value (neither vs don't-know are
+    /// distinct, per the owner) and routes to a different window.
+    enum ConnectChoice: String {
+        case otherDevice = "other_device"   // has chat4000 on another device → W4
+        case hasAgent = "has_agent"         // has OpenClaw/Hermes, no chat4000 → W5
+        case neither = "neither"            // no chat4000, no agent → WA → W9
+        case dontKnow = "dont_know"         // "I don't know what this is" → WA → W9
+    }
+
+    enum InstallMethod: String {
+        case chat   // paste the curl into the agent chat (Telegram/WhatsApp/…)
+        case ssh    // SSH / run on the machine directly
     }
 
     struct PollOption: Identifiable, Codable, Equatable {
@@ -33,22 +54,18 @@ final class OnboardingManager {
     /// the notif explainer + blocked screens are ONE phase (blocked is a detour,
     /// not a step), so granting goes phase 0 → 1, not dot 1 → 3. The neither branch
     /// adds the two extra phases only when the user is actually in it.
+    /// Three phases: Notifications, Where, Connection. The notif explainer +
+    /// blocked screens are ONE phase (blocked is a detour); everything in the
+    /// connection windows (W3-W9) is the third dot.
     var progressPhase: Int {
         switch step {
         case .notifExplainer, .notifBlocked: return 0
         case .pollSource: return 1
-        case .pollAgent: return 2
-        case .pollExpected: return 3
-        case .interviewOffer: return 4
+        default: return 2
         }
     }
 
-    var progressTotal: Int {
-        switch step {
-        case .pollExpected, .interviewOffer: return 5
-        default: return hasAgentAnswerId == "neither" ? 5 : 3
-        }
-    }
+    var progressTotal: Int { 3 }
 
     struct PollConfig: Codable, Equatable {
         let version: Int
@@ -71,7 +88,15 @@ final class OnboardingManager {
     private var returningFromSettings = false
     private var startedAt = Date()
     private var heardFromAnswerId = "unknown"
-    private var hasAgentAnswerId = "neither"
+    /// The W3 choice, kept for the completion event. nil until the user picks.
+    private var connectChoice: ConnectChoice?
+    /// Chosen install delivery (W5), kept so W6/W7 and the analytics know it.
+    private(set) var installMethod: InstallMethod = .chat
+    /// Reconnect entry (Disconnect): W3 shows ONLY options 1 & 2 (no neither /
+    /// don't-know), and the flow starts straight at the hub.
+    private(set) var limitedHub = false
+    /// CL31 fires once, at the first hub choice — guard against re-firing.
+    private var completionFired = false
 
     private(set) var step: Step = .notifExplainer
     private(set) var attempts = 0
@@ -92,8 +117,10 @@ final class OnboardingManager {
 
     static func needsOnboarding(isAlreadyPaired: Bool, defaults: UserDefaults = .standard) -> Bool {
         if defaults.bool(forKey: forceNextDefaultsKey) { return true }   // QA rerun
-        guard !isAlreadyPaired else { return false }
-        return !defaults.bool(forKey: completionDefaultsKey)
+        // The flow now OWNS pairing (W3-W9), so ANY unpaired device shows it — it
+        // internally skips notifications / where when those are already done and
+        // lands on the connect hub. A paired device never sees it.
+        return !isAlreadyPaired
     }
 
     /// See `forceNextDefaultsKey` — invoked by the Settings 10-tap QA gesture.
@@ -114,8 +141,32 @@ final class OnboardingManager {
         guard !started else { return }
         started = true
         startedAt = Date()
-        trackStep(.notifExplainer)
         Task { await fetchPollConfigWithRetries() }
+        Task {
+            // Skip phases already satisfied: notifications (if granted) and the
+            // "where" poll (if this device already finished the poll portion).
+            let granted = await PushNotificationManager.shared.hasNotificationAuthorization()
+            if !granted {
+                move(to: .notifExplainer, forceTrack: true)
+            } else if defaults.bool(forKey: Self.completionDefaultsKey) {
+                completionFired = true   // poll portion already done in a past run
+                move(to: .connectHub, forceTrack: true)
+            } else {
+                advanceToSourcePoll()
+            }
+        }
+    }
+
+    /// Disconnect re-entry: jump straight to the connect hub with only the two
+    /// "I already have a way in" options (no neither / don't-know), skipping
+    /// notifications + where.
+    func startForReconnect() {
+        started = true
+        limitedHub = true
+        completionFired = true          // already onboarded once — don't re-fire CL31
+        startedAt = Date()
+        Task { await fetchPollConfigWithRetries() }
+        move(to: .connectHub, forceTrack: true)
     }
 
     /// QA preview reset (Settings 10-tap): return a REUSED manager to first-run
@@ -133,7 +184,10 @@ final class OnboardingManager {
         pollUnavailable = false
         pollSkipped = false
         heardFromAnswerId = "unknown"
-        hasAgentAnswerId = "neither"
+        connectChoice = nil
+        installMethod = .chat
+        limitedHub = false
+        completionFired = false
         startedAt = Date()
     }
 
@@ -174,31 +228,58 @@ final class OnboardingManager {
     func answerSource(option: PollOption, text: String?) {
         heardFromAnswerId = option.id
         postAnswer(questionId: "heard_from", answerId: option.id, answerText: text)
-        move(to: .pollAgent)
+        move(to: .connectHub)
     }
 
-    func answerAgent(answerId: String) {
-        hasAgentAnswerId = answerId
-        postAnswer(questionId: "has_agent", answerId: answerId, answerText: nil)
-        if answerId == "neither" {
-            if pollUnavailable, expectedQuestion == nil {
-                pollSkipped = true
-                move(to: .interviewOffer)
-            } else {
-                move(to: .pollExpected)
-            }
+    /// W3 hub choice — routes to the matching window and, on the first choice,
+    /// marks the poll portion complete (CL31 with the choice).
+    func chooseConnect(_ choice: ConnectChoice) {
+        connectChoice = choice
+        fireCompletionOnce()
+        switch choice {
+        case .otherDevice:      move(to: .connectDevice)
+        case .hasAgent:         move(to: .installChooser)
+        case .neither, .dontKnow: advanceToExpected()
+        }
+    }
+
+    /// W5 install-delivery choice → the matching command window.
+    func chooseInstall(_ method: InstallMethod) {
+        installMethod = method
+        move(to: method == .chat ? .installChat : .installSSH)
+    }
+
+    /// The Back button per window (W4-W9 → their parent).
+    func goBack() {
+        switch step {
+        case .connectDevice, .installChooser, .pollExpected, .teamOffer:
+            move(to: .connectHub)
+        case .installChat, .installSSH:
+            move(to: .installChooser)
+        default:
+            break
+        }
+    }
+
+    private func advanceToExpected() {
+        if pollUnavailable, expectedQuestion == nil {
+            pollSkipped = true
+            move(to: .teamOffer)
         } else {
-            complete()
+            move(to: .pollExpected)
         }
     }
 
     /// RG10: options only ever come from the registrar. Config present → show the
-    /// poll; retries exhausted → skip it (CL31 poll_skipped); still fetching →
+    /// poll; retries exhausted → skip straight to the connect hub; still fetching →
     /// show the step's loading state and let the fetch resolution advance/skip.
     private func advanceToSourcePoll() {
-        if pollUnavailable, sourceQuestion == nil {
+        if defaults.bool(forKey: Self.completionDefaultsKey) {
+            completionFired = true
+            move(to: .connectHub)               // poll already done in a past run
+        } else if pollUnavailable, sourceQuestion == nil {
             pollSkipped = true
-            move(to: .pollAgent)
+            move(to: .connectHub)
         } else {
             move(to: .pollSource)
         }
@@ -209,30 +290,39 @@ final class OnboardingManager {
     private func skipPollStepIfWaiting() {
         if step == .pollSource, sourceQuestion == nil {
             pollSkipped = true
-            move(to: .pollAgent)
+            move(to: .connectHub)
         } else if step == .pollExpected, expectedQuestion == nil {
             pollSkipped = true
-            move(to: .interviewOffer)
+            move(to: .teamOffer)
         }
     }
 
     func answerExpected(option: PollOption, text: String?) {
         postAnswer(questionId: "expected_app", answerId: option.id, answerText: text)
-        move(to: .interviewOffer)
+        move(to: .teamOffer)
     }
 
-    func complete() {
+    /// The view's dismiss signal — used by the QA preview cover (the real flow is
+    /// dismissed by the app routing away once pairing succeeds).
+    func finish() {
+        isComplete = true
+    }
+
+    /// Fires ONCE, at the first hub choice: persists the poll-completion flag (so
+    /// notifications + where don't rerun) and emits CL31 with the connect choice.
+    private func fireCompletionOnce() {
+        guard !completionFired else { return }
+        completionFired = true
         defaults.set(true, forKey: Self.completionDefaultsKey)
         defaults.removeObject(forKey: Self.forceNextDefaultsKey)   // QA one-shot spent
         let duration = Date().timeIntervalSince(startedAt)
         var properties: [String: Any] = [
-            "has_agent": hasAgentAnswerId,
+            "connect_choice": connectChoice?.rawValue ?? "unknown",
             "heard_from": heardFromAnswerId,
             "duration_bucket": AnalyticsBuckets.onboardingDurationBucket(for: duration)
         ]
         if pollSkipped { properties["poll_skipped"] = true }   // CL31
         TelemetryManager.shared.track(.onboardingCompleted, properties: properties)
-        isComplete = true   // signal the view to dismiss (all completion paths)
     }
 
     private func move(to nextStep: Step, forceTrack: Bool = false) {
