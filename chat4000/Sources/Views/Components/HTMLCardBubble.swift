@@ -229,13 +229,27 @@ private struct HTMLCardWebView: PlatformViewRepresentable {
             MainActor.assumeIsolated {
                 guard message.name == "cardHeight" else { return }
                 let h: CGFloat, sw: CGFloat, cw: CGFloat
+                let hasWidth: Bool
                 if let dict = message.body as? [String: Any] {
                     h = CGFloat((dict["h"] as? NSNumber)?.doubleValue ?? 0)
                     sw = CGFloat((dict["sw"] as? NSNumber)?.doubleValue ?? 0)
                     cw = CGFloat((dict["cw"] as? NSNumber)?.doubleValue ?? 0)
+                    hasWidth = true
                 } else if let n = message.body as? NSNumber {
-                    h = CGFloat(truncating: n); sw = 0; cw = 0
+                    h = CGFloat(truncating: n); sw = 0; cw = 0; hasWidth = false
                 } else { return }
+                // R39 ROOT CAUSE: a height measured while the card's content width is
+                // 0 comes from a zero-width layout — the HTML wraps into a giant
+                // vertical column (observed h=5014 at cw=0), which renders as a huge
+                // EMPTY page (worst after scrolling a card back into view before its
+                // real width lands). Drop that measurement entirely; the body
+                // ResizeObserver re-reports the moment the card has a real width, so
+                // the correct height lands a beat later. (Only the dict path carries
+                // width info; the legacy bare-number path is applied as before.)
+                if hasWidth && cw <= 0 {
+                    AppLog.debug("🃏 html card ignoring zero-width measurement (h=%d cw=0)", Int(h))
+                    return
+                }
                 AppLog.log("🃏 html card reported height=%d", Int(h))
                 // P3 (CL27): content that spills past the card width or exceeds the
                 // height cap rendered badly — log once and emit html_card_overflow.
