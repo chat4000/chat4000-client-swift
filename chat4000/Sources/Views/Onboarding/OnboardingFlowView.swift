@@ -258,9 +258,8 @@ struct OnboardingFlowView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         hintText("Run it on the machine your agent lives on — two ways:")
                         hintText("1.  SSH into that machine and paste it, or")
-                        hintText("2.  run it there directly if you're already on that machine.")
-                        hintText("Either way, it prints a single-use 6-digit code.")
-                            .padding(.top, 2)
+                        hintText("2.  run it there directly if you're on that machine.")
+                        hintText("It then prints a single-use 6-digit code.")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -270,10 +269,8 @@ struct OnboardingFlowView: View {
                 pairingEntry(showScan: false, compact: true)
             }
 
-            ChatWithFounderCallout(
-                caption: "Stuck? Chat with the team.",
-                source: method == .chat ? "onboarding_install_chat" : "onboarding_install_ssh"
-            )
+            // Compact escape hatch (no caption) — keeps the window inside one screen.
+            ChatWithFounderButton(source: method == .chat ? "onboarding_install_chat" : "onboarding_install_ssh")
         }
     }
 
