@@ -109,6 +109,14 @@ final class OnboardingManager {
     /// Reconnect entry (Disconnect): W3 shows ONLY options 1 & 2 (no neither /
     /// don't-know), and the flow starts straight at the hub.
     private(set) var limitedHub = false
+    /// True when the flow entered STRAIGHT at the connection phase — a reconnect,
+    /// or a returning device that already did notifications + where. Then there's
+    /// only one phase, so the progress dots are meaningless and hidden entirely.
+    private(set) var connectOnly = false
+
+    /// Dots are shown only for the multi-phase first-run flow, never when we're
+    /// "just connecting" (see `connectOnly`).
+    var showProgressDots: Bool { !connectOnly }
     /// CL31 fires once, at the first hub choice — guard against re-firing.
     private var completionFired = false
 
@@ -184,6 +192,7 @@ final class OnboardingManager {
                 move(to: .notifExplainer, forceTrack: true)
             } else if defaults.bool(forKey: Self.completionDefaultsKey) {
                 completionFired = true   // poll portion already done in a past run
+                connectOnly = true       // straight to connection → no dots
                 move(to: .connectHub, forceTrack: true)
             } else {
                 advanceToSourcePoll()
@@ -193,6 +202,7 @@ final class OnboardingManager {
         // macOS: no notifications phase — go straight to where / the hub.
         if defaults.bool(forKey: Self.completionDefaultsKey) {
             completionFired = true
+            connectOnly = true
             move(to: .connectHub, forceTrack: true)
         } else {
             advanceToSourcePoll()
@@ -206,6 +216,7 @@ final class OnboardingManager {
     func startForReconnect() {
         started = true
         limitedHub = true
+        connectOnly = true              // pure connection dialog → no progress dots
         completionFired = true          // already onboarded once — don't re-fire CL31
         startedAt = Date()
         Task { await fetchPollConfigWithRetries() }
@@ -234,6 +245,7 @@ final class OnboardingManager {
         connectChoice = nil
         installMethod = .chat
         limitedHub = false
+        connectOnly = false
         completionFired = false
         startedAt = Date()
     }

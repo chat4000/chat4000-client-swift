@@ -74,7 +74,11 @@ struct OnboardingFlowView: View {
     @ViewBuilder
     private var content: some View {
         VStack(spacing: 22) {
-            progressDots
+            // Dots only for the multi-phase first-run flow; a pure connect/reconnect
+            // dialog is a single phase, so no dots.
+            if manager.showProgressDots {
+                progressDots
+            }
             Group {
                 switch manager.step {
                 case .notifExplainer:
