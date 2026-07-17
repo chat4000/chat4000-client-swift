@@ -44,6 +44,12 @@ struct chat4000App: App {
     @State private var founderPromptRequest: FounderChatPromptRequest?
     @State private var shouldCelebrateFirstConnection = false
     #if os(iOS)
+    /// Recurring "turn on notifications" nudge — shown on foreground when the user
+    /// is in the app with notifications currently off (App Store 4.5.4: always
+    /// dismissible, never a gate).
+    @State private var showNotifNudge = false
+    #endif
+    #if os(iOS)
     @State private var telemetryFlushBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
 
@@ -119,6 +125,29 @@ struct chat4000App: App {
             showLegalReconsentModal = LegalConsent.requiresReconsent(currentTermsVersion: terms)
         }
     }
+
+    #if os(iOS)
+    /// Recurring notifications nudge (runs on every foreground). Only nags when
+    /// the user is actually in the app and notifications are off; if they've since
+    /// turned them on (e.g. in Settings) we silently register for APNs and stop.
+    /// Never shown during onboarding / connecting / upgrade flows.
+    @MainActor
+    private func refreshNotificationNudge() async {
+        guard currentScreen == .chat else {
+            showNotifNudge = false
+            return
+        }
+        let status = await PushNotificationManager.shared.currentAuthorizationStatus()
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            // Already on — register for the token (idempotent) and don't nag.
+            PushNotificationManager.shared.registerForRemoteNotifications()
+            showNotifNudge = false
+        default:
+            if !showNotifNudge { showNotifNudge = true }
+        }
+    }
+    #endif
 
     #if os(macOS)
     /// Drives the non-blocking "update ready" sheet. `get` defers to the
@@ -268,6 +297,7 @@ struct chat4000App: App {
                     if currentScreen == .onboarding {
                         onboardingManager.handleSceneBecameActive()
                     }
+                    Task { await refreshNotificationNudge() }
                     #endif
                     // Log the running version on every foreground (not just cold
                     // launch) so a pulled log always identifies the exact build,
@@ -337,6 +367,17 @@ struct chat4000App: App {
                 }
             }
             #if os(iOS)
+            .sheet(isPresented: $showNotifNudge) {
+                NotificationNudgeView(
+                    onEnable: {
+                        Task {
+                            await PushNotificationManager.shared.promptOrOpenSettings()
+                            showNotifNudge = false
+                        }
+                    },
+                    onDismiss: { showNotifNudge = false }
+                )
+            }
             .fullScreenCover(isPresented: $showLegalReconsentModal) {
                 LegalReconsentModal(
                     currentTermsVersion: currentTermsVersion ?? LegalConsent.acceptedTermsVersion,

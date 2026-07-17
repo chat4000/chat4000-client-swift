@@ -35,38 +35,34 @@ final class PushNotificationManager: NSObject {
         #endif
     }
 
+    /// Launch-time push setup. Per App Store Guideline 4.5.4 this NEVER shows the
+    /// system permission prompt: the onboarding "Enable notifications" screen and
+    /// the in-app nudge are the only places that request authorization. Here we
+    /// only register for the APNs token when the user has ALREADY granted
+    /// permission in a past session; if they haven't decided yet or have declined,
+    /// we do nothing — the app opens without a prompt at launch.
     func registerForRemoteNotifications() {
         #if os(macOS)
         AppLog.log("🔔 [push] registerForRemoteNotifications skipped on macOS")
         return
         #else
         configure()
-        AppLog.log(
-            "🔔 [push] starting APNS registration (existing_token=%@)",
-            deviceToken == nil ? "false" : "true"
-        )
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                AppLog.log("⚠️ [push] notification authorization failed: \(error.localizedDescription)")
-            } else {
-                AppLog.log("🔔 [push] notification authorization granted: \(granted)")
-            }
-
-            Task { @MainActor in
-                let settings = await UNUserNotificationCenter.current().notificationSettings()
-                AppLog.log(
-                    "🔔 [push] notification settings auth=%ld alert=%ld sound=%ld badge=%ld",
-                    settings.authorizationStatus.rawValue,
-                    settings.alertSetting.rawValue,
-                    settings.soundSetting.rawValue,
-                    settings.badgeSetting.rawValue
-                )
-                #if os(iOS)
-                AppLog.log("🔔 [push] calling UIApplication.registerForRemoteNotifications()")
+        Task { @MainActor in
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            AppLog.log(
+                "🔔 [push] launch auth=%ld alert=%ld sound=%ld badge=%ld existing_token=%@",
+                settings.authorizationStatus.rawValue,
+                settings.alertSetting.rawValue,
+                settings.soundSetting.rawValue,
+                settings.badgeSetting.rawValue,
+                deviceToken == nil ? "false" : "true"
+            )
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                AppLog.log("🔔 [push] already authorized — registering for APNs (no prompt)")
                 UIApplication.shared.registerForRemoteNotifications()
-                #elseif os(macOS)
-                NSApplication.shared.registerForRemoteNotifications()
-                #endif
+            default:
+                AppLog.log("🔔 [push] not authorized at launch — deferring to onboarding / nudge (no prompt)")
             }
         }
         #endif
@@ -97,6 +93,27 @@ final class PushNotificationManager: NSObject {
             return true
         default:
             return false
+        }
+    }
+
+    func currentAuthorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// In-app nudge action. If the user has never answered the system prompt we
+    /// show it now (still allowed while `.notDetermined`); once they've declined,
+    /// iOS won't show it again, so we send them to Settings — the only place left
+    /// to switch notifications back on. On a fresh grant we register for APNs.
+    func promptOrOpenSettings() async {
+        let status = await currentAuthorizationStatus()
+        if status == .notDetermined {
+            let granted = (try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])) ?? false
+            AppLog.log("🔔 [push] nudge prompt result granted=\(granted)")
+            if granted { UIApplication.shared.registerForRemoteNotifications() }
+        } else if let url = URL(string: UIApplication.openSettingsURLString) {
+            AppLog.log("🔔 [push] nudge → opening Settings (status=\(status.rawValue))")
+            await UIApplication.shared.open(url)
         }
     }
     #endif
