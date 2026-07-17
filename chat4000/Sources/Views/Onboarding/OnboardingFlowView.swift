@@ -138,10 +138,13 @@ struct OnboardingFlowView: View {
             stepIcon("bell.badge.fill")
             stepText(
                 title: "Turn on notifications",
-                body: "Replies arrive as notifications, so chat4000 needs them before you pair this device."
+                body: "Replies arrive as notifications, so you'll want them on so you don't miss messages."
             )
             primaryButton("Enable notifications", systemImage: "bell.fill") {
                 manager.enableNotifications()
+            }
+            secondaryTextButton("Not now") {
+                manager.skipNotifications()
             }
         }
     }
@@ -150,7 +153,7 @@ struct OnboardingFlowView: View {
         VStack(spacing: 18) {
             stepIcon("bell.slash.fill")
             stepText(
-                title: "Hey, I just noticed you didn't turn it on. Can't use the app without it",
+                title: "Hey — I noticed you skipped it. You'll miss replies without notifications",
                 body: nil
             )
 
@@ -166,6 +169,9 @@ struct OnboardingFlowView: View {
 
             primaryButton("Open Settings", systemImage: "gearshape.fill") {
                 manager.openSettings()
+            }
+            secondaryTextButton("Continue without notifications") {
+                manager.skipNotifications()
             }
         }
     }
@@ -613,6 +619,22 @@ struct OnboardingFlowView: View {
                 .background(Color.white)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A low-emphasis text button — used for the "skip / not now" affordance so a
+    /// screen can always be dismissed without taking its primary action.
+    private func secondaryTextButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.impact()
+            action()
+        } label: {
+            Text(title)
+                .font(AppFonts.button)
+                .foregroundStyle(AppColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
         }
         .buttonStyle(.plain)
     }

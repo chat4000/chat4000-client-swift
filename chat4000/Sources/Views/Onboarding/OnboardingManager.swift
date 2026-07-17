@@ -264,6 +264,16 @@ final class OnboardingManager {
         }
     }
 
+    /// Dismiss the notifications phase without granting — the app must stay fully
+    /// usable when the user declines (App Store Guideline 4.5.4: push cannot be
+    /// required to function). Records the same "not granted" result and advances
+    /// straight into the rest of the flow.
+    func skipNotifications() {
+        returningFromSettings = false
+        trackNotificationResult(granted: false)
+        advanceToSourcePoll()
+    }
+
     func openSettings() {
         returningFromSettings = true
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
