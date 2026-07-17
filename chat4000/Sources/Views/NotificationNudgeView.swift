@@ -15,28 +15,31 @@ struct NotificationNudgeView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer(minLength: 12)
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
 
             Image(systemName: "bell.badge.fill")
-                .font(.system(size: 46, weight: .semibold))
+                .font(.system(size: 64, weight: .semibold))
                 .foregroundStyle(AppColors.textPrimary)
+                .padding(.bottom, 28)
 
-            VStack(spacing: 10) {
+            VStack(spacing: 14) {
                 Text("chat4000 is better with notifications")
                     .font(AppFonts.title)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(AppColors.textPrimary)
                 Text("Turn them on so you never miss a reply.")
                     .font(AppFonts.body)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(AppColors.textSecondary)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 32)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 0)
 
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
                 Button {
                     Haptics.impact()
                     onEnable()
@@ -59,17 +62,15 @@ struct NotificationNudgeView: View {
                         .font(AppFonts.button)
                         .foregroundStyle(AppColors.textSecondary)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                        .frame(height: 50)
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 16)
+            .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppColors.background.ignoresSafeArea())
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
     }
 }
 #endif

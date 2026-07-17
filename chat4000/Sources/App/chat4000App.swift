@@ -367,7 +367,7 @@ struct chat4000App: App {
                 }
             }
             #if os(iOS)
-            .sheet(isPresented: $showNotifNudge) {
+            .fullScreenCover(isPresented: $showNotifNudge) {
                 NotificationNudgeView(
                     onEnable: {
                         Task {

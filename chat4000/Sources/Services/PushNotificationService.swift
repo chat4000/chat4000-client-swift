@@ -111,9 +111,21 @@ final class PushNotificationManager: NSObject {
                 .requestAuthorization(options: [.alert, .sound])) ?? false
             AppLog.log("🔔 [push] nudge prompt result granted=\(granted)")
             if granted { UIApplication.shared.registerForRemoteNotifications() }
-        } else if let url = URL(string: UIApplication.openSettingsURLString) {
-            AppLog.log("🔔 [push] nudge → opening Settings (status=\(status.rawValue))")
-            await UIApplication.shared.open(url)
+        } else {
+            // iOS 16+ can deep-link straight to THIS app's notification settings
+            // page (openNotificationSettingsURLString); older iOS only reaches the
+            // app's settings root. Notifications can't be re-enabled in-app after a
+            // decline, so Settings is the only door left.
+            let urlString: String
+            if #available(iOS 16.0, *) {
+                urlString = UIApplication.openNotificationSettingsURLString
+            } else {
+                urlString = UIApplication.openSettingsURLString
+            }
+            if let url = URL(string: urlString) {
+                AppLog.log("🔔 [push] nudge → opening notification settings (status=\(status.rawValue))")
+                await UIApplication.shared.open(url)
+            }
         }
     }
     #endif
